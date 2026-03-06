@@ -246,11 +246,15 @@ vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 			continue;
 
 		if (vlabel_rule_matches(rule, subj, obj, op, cred)) {
-			if (rule->vr_action == VLABEL_ACTION_ALLOW) {
+			if (rule->vr_action == VLABEL_ACTION_ALLOW ||
+			    rule->vr_action == VLABEL_ACTION_TRANSITION) {
 				result = 0;
-				VLABEL_DPRINTF("rules_check: rule %u ALLOW "
+				VLABEL_DPRINTF("rules_check: rule %u %s "
 				    "subj='%s' obj='%s' op=0x%x",
-				    rule->vr_id, subj->vl_raw, obj->vl_raw, op);
+				    rule->vr_id,
+				    rule->vr_action == VLABEL_ACTION_TRANSITION ?
+				        "TRANSITION" : "ALLOW",
+				    subj->vl_raw, obj->vl_raw, op);
 			} else {
 				result = EACCES;
 				VLABEL_DPRINTF("rules_check: rule %u DENY "
@@ -279,6 +283,92 @@ out:
 	else
 		atomic_add_64(&vlabel_denied, 1);
 
+	return (result);
+}
+
+/*
+ * Check if exec will cause a label transition
+ *
+ * Returns true if a TRANSITION rule matches, false otherwise.
+ */
+bool
+vlabel_rules_will_transition(struct ucred *cred, struct vlabel_label *subj,
+    struct vlabel_label *obj)
+{
+	const struct vlabel_rule *rule;
+	bool result = false;
+	int i;
+
+	if (subj == NULL || obj == NULL)
+		return (false);
+
+	rw_rlock(&vlabel_rules_lock);
+
+	for (i = 0; i < vlabel_rule_count; i++) {
+		rule = vlabel_rules[i];
+		if (rule == NULL)
+			continue;
+
+		/* Only check EXEC operations for transitions */
+		if ((rule->vr_operations & VLABEL_OP_EXEC) == 0)
+			continue;
+
+		if (rule->vr_action != VLABEL_ACTION_TRANSITION)
+			continue;
+
+		if (vlabel_rule_matches(rule, subj, obj, VLABEL_OP_EXEC, cred)) {
+			result = true;
+			VLABEL_DPRINTF("will_transition: rule %u matches "
+			    "subj='%s' obj='%s'",
+			    rule->vr_id, subj->vl_raw, obj->vl_raw);
+			break;
+		}
+	}
+
+	rw_runlock(&vlabel_rules_lock);
+	return (result);
+}
+
+/*
+ * Get the new label for a transition
+ *
+ * Returns 0 and copies the new label if a TRANSITION rule matches,
+ * returns ENOENT if no transition rule matches.
+ */
+int
+vlabel_rules_get_transition(struct ucred *cred, struct vlabel_label *subj,
+    struct vlabel_label *obj, struct vlabel_label *newlabel)
+{
+	const struct vlabel_rule *rule;
+	int i, result = ENOENT;
+
+	if (subj == NULL || obj == NULL || newlabel == NULL)
+		return (EINVAL);
+
+	rw_rlock(&vlabel_rules_lock);
+
+	for (i = 0; i < vlabel_rule_count; i++) {
+		rule = vlabel_rules[i];
+		if (rule == NULL)
+			continue;
+
+		/* Only check EXEC operations for transitions */
+		if ((rule->vr_operations & VLABEL_OP_EXEC) == 0)
+			continue;
+
+		if (rule->vr_action != VLABEL_ACTION_TRANSITION)
+			continue;
+
+		if (vlabel_rule_matches(rule, subj, obj, VLABEL_OP_EXEC, cred)) {
+			vlabel_label_copy(&rule->vr_newlabel, newlabel);
+			result = 0;
+			VLABEL_DPRINTF("get_transition: rule %u -> '%s'",
+			    rule->vr_id, newlabel->vl_raw);
+			break;
+		}
+	}
+
+	rw_runlock(&vlabel_rules_lock);
 	return (result);
 }
 

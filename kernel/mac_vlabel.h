@@ -82,6 +82,7 @@
  */
 #define VLABEL_ACTION_ALLOW		0
 #define VLABEL_ACTION_DENY		1
+#define VLABEL_ACTION_TRANSITION	2	/* Allow and transition to new label */
 
 /*
  * Enforcement modes
@@ -151,6 +152,7 @@ struct vlabel_rule_io {
 	uint32_t		vr_operations;
 	struct vlabel_pattern_io vr_subject;
 	struct vlabel_pattern_io vr_object;
+	char			vr_newlabel[VLABEL_MAX_LABEL_LEN];  /* For TRANSITION */
 };
 
 /*
@@ -213,11 +215,12 @@ struct vlabel_context {
  */
 struct vlabel_rule {
 	uint32_t		vr_id;		/* Rule identifier */
-	uint8_t			vr_action;	/* ALLOW or DENY */
+	uint8_t			vr_action;	/* ALLOW, DENY, or TRANSITION */
 	uint32_t		vr_operations;	/* Bitmask of operations */
 	struct vlabel_pattern	vr_subject;	/* Subject (process) pattern */
 	struct vlabel_pattern	vr_object;	/* Object (file) pattern */
 	struct vlabel_context	vr_context;	/* Optional context constraints */
+	struct vlabel_label	vr_newlabel;	/* New label for TRANSITION rules */
 };
 
 /*
@@ -245,6 +248,7 @@ extern struct vlabel_label vlabel_default_subject;
 extern int vlabel_enabled;
 extern int vlabel_mode;
 extern int vlabel_audit_level;
+extern int vlabel_initialized;
 
 /*
  * Debug output macro
@@ -257,10 +261,11 @@ extern int vlabel_audit_level;
 #endif
 
 /*
- * Common check macro - early exit if disabled
+ * Common check macro - early exit if disabled or not initialized
  */
 #define VLABEL_CHECK_ENABLED()	do {					\
-	if (vlabel_enabled == 0 || vlabel_mode == VLABEL_MODE_DISABLED)	\
+	if (!vlabel_initialized ||					\
+	    vlabel_enabled == 0 || vlabel_mode == VLABEL_MODE_DISABLED)	\
 		return (0);						\
 } while (0)
 
@@ -286,6 +291,10 @@ void vlabel_rules_init(void);
 void vlabel_rules_destroy(void);
 int vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
     struct vlabel_label *obj, uint32_t op);
+bool vlabel_rules_will_transition(struct ucred *cred, struct vlabel_label *subj,
+    struct vlabel_label *obj);
+int vlabel_rules_get_transition(struct ucred *cred, struct vlabel_label *subj,
+    struct vlabel_label *obj, struct vlabel_label *newlabel);
 int vlabel_rule_add(struct vlabel_rule *rule);
 int vlabel_rule_remove(uint32_t id);
 void vlabel_rules_clear(void);
@@ -297,6 +306,124 @@ void vlabel_rules_get_stats(struct vlabel_stats *stats);
 void vlabel_dev_init(void);
 void vlabel_dev_destroy(void);
 bool vlabel_dev_in_use(void);
+
+/*
+ * Function prototypes - vlabel_cred.c
+ */
+void vlabel_cred_init_label(struct label *label);
+void vlabel_cred_destroy_label(struct label *label);
+void vlabel_cred_copy_label(struct label *src, struct label *dest);
+void vlabel_cred_relabel(struct ucred *cred, struct label *newlabel);
+int vlabel_cred_externalize_label(struct label *label, char *element_name,
+    struct sbuf *sb, int *claimed);
+int vlabel_cred_internalize_label(struct label *label, char *element_name,
+    char *element_data, int *claimed);
+int vlabel_cred_check_relabel(struct ucred *cred, struct label *newlabel);
+int vlabel_cred_check_setuid(struct ucred *cred, uid_t uid);
+int vlabel_cred_check_setgid(struct ucred *cred, gid_t gid);
+int vlabel_cred_check_setgroups(struct ucred *cred, int ngroups, gid_t *gidset);
+void vlabel_execve_transition(struct ucred *old, struct ucred *new,
+    struct vnode *vp, struct label *vplabel, struct label *interpvplabel,
+    struct image_params *imgp, struct label *execlabel);
+int vlabel_execve_will_transition(struct ucred *old, struct vnode *vp,
+    struct label *vplabel, struct label *interpvplabel,
+    struct image_params *imgp, struct label *execlabel);
+
+/*
+ * Function prototypes - vlabel_vnode.c
+ */
+void vlabel_vnode_init_label(struct label *label);
+void vlabel_vnode_destroy_label(struct label *label);
+void vlabel_vnode_copy_label(struct label *src, struct label *dest);
+int vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
+    struct vnode *vp, struct label *vplabel);
+int vlabel_vnode_create_extattr(struct ucred *cred, struct mount *mp,
+    struct label *mplabel, struct vnode *dvp, struct label *dvplabel,
+    struct vnode *vp, struct label *vplabel, struct componentname *cnp);
+int vlabel_vnode_setlabel_extattr(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, struct label *intlabel);
+void vlabel_vnode_relabel(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, struct label *newlabel);
+int vlabel_vnode_externalize_label(struct label *label, char *element_name,
+    struct sbuf *sb, int *claimed);
+int vlabel_vnode_internalize_label(struct label *label, char *element_name,
+    char *element_data, int *claimed);
+int vlabel_vnode_check_access(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, accmode_t accmode);
+int vlabel_vnode_check_chdir(struct ucred *cred, struct vnode *dvp,
+    struct label *dvplabel);
+int vlabel_vnode_check_chroot(struct ucred *cred, struct vnode *dvp,
+    struct label *dvplabel);
+int vlabel_vnode_check_create(struct ucred *cred, struct vnode *dvp,
+    struct label *dvplabel, struct componentname *cnp, struct vattr *vap);
+int vlabel_vnode_check_deleteacl(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, acl_type_t type);
+int vlabel_vnode_check_deleteextattr(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, int attrnamespace, const char *name);
+int vlabel_vnode_check_exec(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, struct image_params *imgp, struct label *execlabel);
+int vlabel_vnode_check_getacl(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, acl_type_t type);
+int vlabel_vnode_check_getextattr(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, int attrnamespace, const char *name);
+int vlabel_vnode_check_link(struct ucred *cred, struct vnode *dvp,
+    struct label *dvplabel, struct vnode *vp, struct label *vplabel,
+    struct componentname *cnp);
+int vlabel_vnode_check_listextattr(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, int attrnamespace);
+int vlabel_vnode_check_lookup(struct ucred *cred, struct vnode *dvp,
+    struct label *dvplabel, struct componentname *cnp);
+int vlabel_vnode_check_mmap(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, int prot, int flags);
+int vlabel_vnode_check_open(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, accmode_t accmode);
+int vlabel_vnode_check_poll(struct ucred *active_cred, struct ucred *file_cred,
+    struct vnode *vp, struct label *vplabel);
+int vlabel_vnode_check_read(struct ucred *active_cred, struct ucred *file_cred,
+    struct vnode *vp, struct label *vplabel);
+int vlabel_vnode_check_readdir(struct ucred *cred, struct vnode *dvp,
+    struct label *dvplabel);
+int vlabel_vnode_check_readlink(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel);
+int vlabel_vnode_check_relabel(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, struct label *newlabel);
+int vlabel_vnode_check_rename_from(struct ucred *cred, struct vnode *dvp,
+    struct label *dvplabel, struct vnode *vp, struct label *vplabel,
+    struct componentname *cnp);
+int vlabel_vnode_check_rename_to(struct ucred *cred, struct vnode *dvp,
+    struct label *dvplabel, struct vnode *vp, struct label *vplabel,
+    int samedir, struct componentname *cnp);
+int vlabel_vnode_check_revoke(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel);
+int vlabel_vnode_check_setacl(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, acl_type_t type, struct acl *acl);
+int vlabel_vnode_check_setextattr(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, int attrnamespace, const char *name);
+int vlabel_vnode_check_setflags(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, u_long flags);
+int vlabel_vnode_check_setmode(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, mode_t mode);
+int vlabel_vnode_check_setowner(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, uid_t uid, gid_t gid);
+int vlabel_vnode_check_setutimes(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, struct timespec atime, struct timespec mtime);
+int vlabel_vnode_check_stat(struct ucred *active_cred, struct ucred *file_cred,
+    struct vnode *vp, struct label *vplabel);
+int vlabel_vnode_check_unlink(struct ucred *cred, struct vnode *dvp,
+    struct label *dvplabel, struct vnode *vp, struct label *vplabel,
+    struct componentname *cnp);
+int vlabel_vnode_check_write(struct ucred *active_cred, struct ucred *file_cred,
+    struct vnode *vp, struct label *vplabel);
+void vlabel_mount_init_label(struct label *label);
+void vlabel_mount_destroy_label(struct label *label);
+
+/*
+ * Function prototypes - vlabel_proc.c
+ */
+int vlabel_proc_check_debug(struct ucred *cred, struct proc *p);
+int vlabel_proc_check_sched(struct ucred *cred, struct proc *p);
+int vlabel_proc_check_signal(struct ucred *cred, struct proc *p, int signum);
+int vlabel_priv_grant(struct ucred *cred, int priv);
 
 /*
  * Function prototypes - vlabel_audit.c

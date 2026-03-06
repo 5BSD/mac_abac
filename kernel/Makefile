@@ -13,8 +13,9 @@
 .PATH: ${.CURDIR}
 
 KMOD=	mac_vlabel
-SRCS=	mac_vlabel.c vlabel_label.c vlabel_rules.c vlabel_dev.c mac_vlabel.h
-SRCS+=	vnode_if.h
+SRCS=	mac_vlabel.c vlabel_cred.c vlabel_vnode.c vlabel_proc.c
+SRCS+=	vlabel_label.c vlabel_rules.c vlabel_dev.c
+SRCS+=	mac_vlabel.h vnode_if.h
 
 # Uncomment to enable debug output
 #CFLAGS+= -DVLABEL_DEBUG

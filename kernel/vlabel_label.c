@@ -105,12 +105,16 @@ vlabel_label_destroy(void)
  * @flags: M_WAITOK or M_NOWAIT
  *
  * Returns a zeroed label structure, or NULL if allocation fails
- * (only possible with M_NOWAIT).
+ * (only possible with M_NOWAIT or if zone not yet initialized).
  */
 struct vlabel_label *
 vlabel_label_alloc(int flags)
 {
 	struct vlabel_label *vl;
+
+	/* Zone not initialized yet - can happen during early boot */
+	if (vlabel_zone == NULL)
+		return (NULL);
 
 	vl = uma_zalloc(vlabel_zone, flags | M_ZERO);
 	if (vl != NULL)
@@ -129,6 +133,10 @@ vlabel_label_free(struct vlabel_label *vl)
 {
 
 	if (vl == NULL)
+		return;
+
+	/* Zone not initialized - shouldn't happen but be safe */
+	if (vlabel_zone == NULL)
 		return;
 
 	uma_zfree(vlabel_zone, vl);

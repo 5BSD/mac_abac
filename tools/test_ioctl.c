@@ -25,6 +25,9 @@
 
 #define VLABEL_ACTION_ALLOW     0
 #define VLABEL_ACTION_DENY      1
+#define VLABEL_ACTION_TRANSITION 2
+
+#define VLABEL_MAX_LABEL_LEN    256
 
 #define VLABEL_MATCH_TYPE       0x00000001
 
@@ -52,6 +55,7 @@ struct vlabel_rule_io {
     uint32_t                    vr_operations;
     struct vlabel_pattern_io    vr_subject;
     struct vlabel_pattern_io    vr_object;
+    char                        vr_newlabel[VLABEL_MAX_LABEL_LEN];  /* For TRANSITION */
 };
 
 /* ioctl commands - must match kernel */

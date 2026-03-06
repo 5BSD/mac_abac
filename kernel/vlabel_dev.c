@@ -123,6 +123,14 @@ vlabel_rule_from_io(struct vlabel_rule *rule, const struct vlabel_rule_io *io)
 
 	/* Context not yet supported via ioctl */
 	memset(&rule->vr_context, 0, sizeof(rule->vr_context));
+
+	/* For TRANSITION rules, parse the new label */
+	memset(&rule->vr_newlabel, 0, sizeof(rule->vr_newlabel));
+	if (io->vr_action == VLABEL_ACTION_TRANSITION &&
+	    io->vr_newlabel[0] != '\0') {
+		vlabel_label_parse(io->vr_newlabel, strlen(io->vr_newlabel),
+		    &rule->vr_newlabel);
+	}
 }
 
 /*
