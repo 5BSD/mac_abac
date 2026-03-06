@@ -21,3 +21,5 @@ test-output.log
 
 # Claude
 .claude/
+kernel/mac_vlabel.ko
+kernel/mac_vlabel.o

@@ -642,8 +642,24 @@ static int
 vlabel_vnode_setlabel_extattr(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, struct label *intlabel)
 {
+	struct vlabel_label *vl, *newvl;
 
-	/* TODO: Write label to extended attribute */
+	/*
+	 * Update the in-memory vnode label from intlabel.
+	 * The extattr has already been written by the caller.
+	 */
+	if (vplabel == NULL || intlabel == NULL)
+		return (0);
+
+	vl = SLOT(vplabel);
+	newvl = SLOT(intlabel);
+
+	if (vl != NULL && newvl != NULL) {
+		vlabel_label_copy(newvl, vl);
+		VLABEL_DPRINTF("setlabel_extattr: updated label to '%s'",
+		    vl->vl_raw);
+	}
+
 	return (0);
 }
 
