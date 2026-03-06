@@ -196,6 +196,17 @@ vlabel_vnode_internalize_label(struct label *label, char *element_name,
 
 /*
  * Vnode access checks
+ *
+ * NOTE: Currently only check_exec is fully implemented with rule evaluation.
+ * All other vnode check hooks are stubs that always return 0 (allow).
+ * This is intentional for the initial implementation - enforcement of
+ * read/write/mmap/etc operations would require careful analysis of the
+ * performance impact and proper rule configuration by administrators.
+ *
+ * To enable enforcement for additional operations:
+ * 1. Copy the pattern from vlabel_vnode_check_exec()
+ * 2. Use the appropriate VLABEL_OP_* constant
+ * 3. Test thoroughly with realistic workloads
  */
 
 int
@@ -204,6 +215,7 @@ vlabel_vnode_check_access(struct ucred *cred, struct vnode *vp,
 {
 
 	VLABEL_CHECK_ENABLED();
+	/* STUB: Always allows - see note above */
 	return (0);
 }
 

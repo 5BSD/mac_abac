@@ -230,6 +230,9 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
 
 	for (tok = strtok_r(buf, ",", &p); tok != NULL;
 	     tok = strtok_r(NULL, ",", &p)) {
+		char *endptr;
+		long num;
+
 		key = tok;
 		val = strchr(tok, '=');
 		if (val == NULL)
@@ -242,8 +245,15 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
 				ctx->vc_jail_check = 0;
 			else if (strcasecmp(val, "any") == 0)
 				ctx->vc_jail_check = -1;
-			else
-				ctx->vc_jail_check = atoi(val);
+			else {
+				errno = 0;
+				num = strtol(val, &endptr, 10);
+				if (errno != 0 || *endptr != '\0' || num < 0) {
+					fprintf(stderr, "invalid jail ID: %s\n", val);
+					return (-1);
+				}
+				ctx->vc_jail_check = (int)num;
+			}
 		} else if (strcasecmp(key, "sandboxed") == 0) {
 			ctx->vc_flags |= VLABEL_CTX_CAP_SANDBOXED;
 			ctx->vc_cap_sandboxed = (strcasecmp(val, "true") == 0 ||
@@ -254,13 +264,31 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
 			    strcmp(val, "1") == 0);
 		} else if (strcasecmp(key, "uid") == 0) {
 			ctx->vc_flags |= VLABEL_CTX_UID;
-			ctx->vc_uid = atoi(val);
+			errno = 0;
+			num = strtol(val, &endptr, 10);
+			if (errno != 0 || *endptr != '\0' || num < 0) {
+				fprintf(stderr, "invalid uid: %s\n", val);
+				return (-1);
+			}
+			ctx->vc_uid = (uint32_t)num;
 		} else if (strcasecmp(key, "gid") == 0) {
 			ctx->vc_flags |= VLABEL_CTX_GID;
-			ctx->vc_gid = atoi(val);
+			errno = 0;
+			num = strtol(val, &endptr, 10);
+			if (errno != 0 || *endptr != '\0' || num < 0) {
+				fprintf(stderr, "invalid gid: %s\n", val);
+				return (-1);
+			}
+			ctx->vc_gid = (uint32_t)num;
 		} else if (strcasecmp(key, "ruid") == 0) {
 			ctx->vc_flags |= VLABEL_CTX_RUID;
-			ctx->vc_uid = atoi(val);
+			errno = 0;
+			num = strtol(val, &endptr, 10);
+			if (errno != 0 || *endptr != '\0' || num < 0) {
+				fprintf(stderr, "invalid ruid: %s\n", val);
+				return (-1);
+			}
+			ctx->vc_uid = (uint32_t)num;
 		}
 	}
 

@@ -203,6 +203,41 @@ struct vlabel_rule_io {
 #define VLABEL_IOC_RULE_ADD	_IOW('V', 10, struct vlabel_rule_io)
 #define VLABEL_IOC_RULE_REMOVE	_IOW('V', 11, uint32_t)
 #define VLABEL_IOC_RULES_CLEAR	_IO('V', 12)
+#define VLABEL_IOC_RULE_LIST	_IOWR('V', 13, struct vlabel_rule_list_io)
+#define VLABEL_IOC_GETAUDIT	_IOR('V', 14, int)
+#define VLABEL_IOC_TEST_ACCESS	_IOWR('V', 15, struct vlabel_test_io)
+
+/*
+ * Rule list I/O structure - for listing all rules
+ *
+ * Usage:
+ *   1. Allocate buffer for vrl_count rules
+ *   2. Set vrl_rules to point to buffer
+ *   3. Set vrl_count to buffer capacity
+ *   4. Set vrl_offset for pagination (usually 0)
+ *   5. Call ioctl - kernel copies rules via copyout()
+ *   6. vrl_count updated to actual rules copied
+ *   7. vrl_total contains total rules in kernel
+ */
+struct vlabel_rule_list_io {
+	uint32_t		vrl_count;	/* In: max rules, Out: actual count */
+	uint32_t		vrl_total;	/* Out: total rules in kernel */
+	uint32_t		vrl_offset;	/* In: starting offset for pagination */
+	uint32_t		vrl_reserved;
+	struct vlabel_rule_io	*vrl_rules;	/* In: userland buffer for rules */
+};
+
+/*
+ * Test access I/O structure - for testing policy without enforcement
+ */
+struct vlabel_test_io {
+	char		vt_subject_label[VLABEL_MAX_LABEL_LEN];	/* Subject label */
+	char		vt_object_label[VLABEL_MAX_LABEL_LEN];	/* Object label */
+	uint32_t	vt_operation;				/* Operation to test */
+	uint32_t	vt_result;				/* Out: 0=allow, EACCES=deny */
+	uint32_t	vt_rule_id;				/* Out: matching rule ID (0=default) */
+	uint32_t	vt_reserved;
+};
 
 #ifdef _KERNEL
 
@@ -342,6 +377,9 @@ int vlabel_rule_add(struct vlabel_rule *rule);
 int vlabel_rule_remove(uint32_t id);
 void vlabel_rules_clear(void);
 void vlabel_rules_get_stats(struct vlabel_stats *stats);
+int vlabel_rules_list(struct vlabel_rule_list_io *list_io,
+    struct vlabel_rule_io *rules_out, uint32_t max_rules);
+int vlabel_rules_test_access(struct vlabel_test_io *test_io);
 
 /*
  * Function prototypes - vlabel_dev.c

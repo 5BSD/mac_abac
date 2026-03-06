@@ -72,6 +72,7 @@ sysctl security.mac.vlabel.mode=2
 
 - [Label Format](docs/labels.md) - How labels work, extended attributes
 - [Policy Language](docs/policy.md) - Writing rules in JSON/UCL
+- [Examples](docs/examples.md) - Comprehensive examples: jails, Capsicum, transitions, real-world scenarios
 - [Architecture](docs/architecture.md) - System design, kernel hooks
 - [Tools Reference](docs/tools.md) - vlabelctl and vlabeld usage
 

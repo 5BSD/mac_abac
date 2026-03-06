@@ -276,7 +276,10 @@ process_audit_events(void)
 
 		ts = (time_t)entry.vae_timestamp;
 		tm = localtime(&ts);
-		strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", tm);
+		if (tm != NULL)
+			strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", tm);
+		else
+			strlcpy(timebuf, "(invalid time)", sizeof(timebuf));
 
 		vlabeld_log(LOG_INFO,
 		    "[%s] %s pid=%d uid=%u jail=%d subj=%s obj=%s",

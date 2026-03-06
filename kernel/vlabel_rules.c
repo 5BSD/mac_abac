@@ -58,33 +58,6 @@ SYSCTL_INT(_security_mac_vlabel, OID_AUTO, rule_count, CTLFLAG_RD,
     &vlabel_rule_count, 0, "Number of active rules");
 
 /*
- * Hardcoded test rule: Deny exec of type=untrusted
- * This is loaded at init for MVP testing.
- */
-static struct vlabel_rule vlabel_test_rule = {
-	.vr_id = 1,
-	.vr_action = VLABEL_ACTION_DENY,
-	.vr_operations = VLABEL_OP_EXEC,
-	.vr_subject = {
-		.vp_flags = 0,		/* Match any subject */
-		.vp_type = "",
-		.vp_domain = "",
-		.vp_name = "",
-		.vp_level = "",
-	},
-	.vr_object = {
-		.vp_flags = VLABEL_MATCH_TYPE,	/* Match type=untrusted */
-		.vp_type = "untrusted",
-		.vp_domain = "",
-		.vp_name = "",
-		.vp_level = "",
-	},
-	.vr_context = {
-		.vc_flags = 0,		/* No context constraints */
-	},
-};
-
-/*
  * Initialize rule subsystem
  */
 void
@@ -99,15 +72,7 @@ vlabel_rules_init(void)
 	vlabel_allowed = 0;
 	vlabel_denied = 0;
 
-	/*
-	 * Load hardcoded test rule for MVP.
-	 * In future, rules will be loaded via /dev/vlabel or syscall.
-	 */
-	vlabel_rules[0] = &vlabel_test_rule;
-	vlabel_rule_count = 1;
-
-	VLABEL_DPRINTF("rule engine initialized with %d test rules",
-	    vlabel_rule_count);
+	VLABEL_DPRINTF("rule engine initialized");
 }
 
 /*
@@ -130,9 +95,7 @@ vlabel_rules_destroy(void)
 		rule = vlabel_rules[i];
 		if (rule != NULL) {
 			vlabel_rules[i] = NULL;
-			/* Don't free the hardcoded test rule */
-			if (rule != &vlabel_test_rule)
-				free(rule, M_TEMP);
+			free(rule, M_TEMP);
 		}
 	}
 	vlabel_rule_count = 0;
@@ -559,11 +522,7 @@ vlabel_rule_remove(uint32_t id)
 			vlabel_rules[i] = NULL;
 			vlabel_rule_count--;
 			rw_wunlock(&vlabel_rules_lock);
-
-			/* Don't free if it's the hardcoded test rule */
-			if (rule != &vlabel_test_rule)
-				free(rule, M_TEMP);
-
+			free(rule, M_TEMP);
 			VLABEL_DPRINTF("rule_remove: removed rule %u", id);
 			return (0);
 		}
@@ -588,9 +547,7 @@ vlabel_rules_clear(void)
 		rule = vlabel_rules[i];
 		if (rule != NULL) {
 			vlabel_rules[i] = NULL;
-			/* Don't free the hardcoded test rule */
-			if (rule != &vlabel_test_rule)
-				free(rule, M_TEMP);
+			free(rule, M_TEMP);
 		}
 	}
 
@@ -616,4 +573,192 @@ vlabel_rules_get_stats(struct vlabel_stats *stats)
 	stats->vs_labels_default = 0;
 	stats->vs_rule_count = vlabel_rule_count;
 	rw_runlock(&vlabel_rules_lock);
+}
+
+/*
+ * Convert kernel rule to IO structure for userland
+ */
+static void
+vlabel_rule_to_io(const struct vlabel_rule *rule, struct vlabel_rule_io *io)
+{
+
+	memset(io, 0, sizeof(*io));
+
+	io->vr_id = rule->vr_id;
+	io->vr_action = rule->vr_action;
+	io->vr_operations = rule->vr_operations;
+
+	/* Copy subject pattern */
+	io->vr_subject.vp_flags = rule->vr_subject.vp_flags;
+	strlcpy(io->vr_subject.vp_type, rule->vr_subject.vp_type,
+	    sizeof(io->vr_subject.vp_type));
+	strlcpy(io->vr_subject.vp_domain, rule->vr_subject.vp_domain,
+	    sizeof(io->vr_subject.vp_domain));
+	strlcpy(io->vr_subject.vp_name, rule->vr_subject.vp_name,
+	    sizeof(io->vr_subject.vp_name));
+	strlcpy(io->vr_subject.vp_level, rule->vr_subject.vp_level,
+	    sizeof(io->vr_subject.vp_level));
+
+	/* Copy object pattern */
+	io->vr_object.vp_flags = rule->vr_object.vp_flags;
+	strlcpy(io->vr_object.vp_type, rule->vr_object.vp_type,
+	    sizeof(io->vr_object.vp_type));
+	strlcpy(io->vr_object.vp_domain, rule->vr_object.vp_domain,
+	    sizeof(io->vr_object.vp_domain));
+	strlcpy(io->vr_object.vp_name, rule->vr_object.vp_name,
+	    sizeof(io->vr_object.vp_name));
+	strlcpy(io->vr_object.vp_level, rule->vr_object.vp_level,
+	    sizeof(io->vr_object.vp_level));
+
+	/* Copy context constraints */
+	io->vr_context.vc_flags = rule->vr_context.vc_flags;
+	io->vr_context.vc_cap_sandboxed = rule->vr_context.vc_cap_sandboxed;
+	io->vr_context.vc_has_tty = rule->vr_context.vc_has_tty;
+	io->vr_context.vc_jail_check = rule->vr_context.vc_jail_check;
+	io->vr_context.vc_uid = rule->vr_context.vc_uid;
+	io->vr_context.vc_gid = rule->vr_context.vc_gid;
+
+	/* Copy newlabel for TRANSITION rules */
+	if (rule->vr_action == VLABEL_ACTION_TRANSITION) {
+		strlcpy(io->vr_newlabel, rule->vr_newlabel.vl_raw,
+		    sizeof(io->vr_newlabel));
+	}
+}
+
+/*
+ * List rules to userland buffer
+ *
+ * The caller provides a vlabel_rule_list_io header followed by space
+ * for vrl_count vlabel_rule_io structures.
+ *
+ * On return:
+ *   vrl_count = number of rules actually copied
+ *   vrl_total = total rules in kernel
+ */
+int
+vlabel_rules_list(struct vlabel_rule_list_io *list_io,
+    struct vlabel_rule_io *rules_out, uint32_t max_rules)
+{
+	const struct vlabel_rule *rule;
+	uint32_t copied = 0;
+	uint32_t offset;
+	int i, slot;
+
+	if (list_io == NULL)
+		return (EINVAL);
+
+	offset = list_io->vrl_offset;
+
+	rw_rlock(&vlabel_rules_lock);
+
+	list_io->vrl_total = vlabel_rule_count;
+
+	/* Skip to offset */
+	slot = 0;
+	for (i = 0; i < VLABEL_MAX_RULES && slot < offset; i++) {
+		if (vlabel_rules[i] != NULL)
+			slot++;
+	}
+
+	/* Copy rules starting from offset */
+	for (; i < VLABEL_MAX_RULES && copied < max_rules; i++) {
+		rule = vlabel_rules[i];
+		if (rule == NULL)
+			continue;
+
+		if (rules_out != NULL)
+			vlabel_rule_to_io(rule, &rules_out[copied]);
+
+		copied++;
+	}
+
+	list_io->vrl_count = copied;
+
+	rw_runlock(&vlabel_rules_lock);
+
+	VLABEL_DPRINTF("rules_list: returned %u/%u rules (offset=%u)",
+	    copied, list_io->vrl_total, offset);
+
+	return (0);
+}
+
+/*
+ * Test if an access would be allowed without actually performing it
+ *
+ * This is useful for policy debugging and "what-if" analysis.
+ */
+int
+vlabel_rules_test_access(struct vlabel_test_io *test_io)
+{
+	struct vlabel_label subj_label, obj_label;
+	const struct vlabel_rule *rule;
+	int i;
+
+	if (test_io == NULL)
+		return (EINVAL);
+
+	/* Parse the subject label */
+	memset(&subj_label, 0, sizeof(subj_label));
+	if (test_io->vt_subject_label[0] != '\0') {
+		vlabel_label_parse(test_io->vt_subject_label,
+		    strlen(test_io->vt_subject_label), &subj_label);
+	}
+
+	/* Parse the object label */
+	memset(&obj_label, 0, sizeof(obj_label));
+	if (test_io->vt_object_label[0] != '\0') {
+		vlabel_label_parse(test_io->vt_object_label,
+		    strlen(test_io->vt_object_label), &obj_label);
+	}
+
+	test_io->vt_result = EACCES;	/* Default deny */
+	test_io->vt_rule_id = 0;	/* No matching rule */
+
+	rw_rlock(&vlabel_rules_lock);
+
+	for (i = 0; i < VLABEL_MAX_RULES; i++) {
+		rule = vlabel_rules[i];
+		if (rule == NULL)
+			continue;
+
+		/* Check if operation is covered by this rule */
+		if ((rule->vr_operations & test_io->vt_operation) == 0)
+			continue;
+
+		/* Check subject pattern */
+		if (!vlabel_pattern_match(&subj_label, &rule->vr_subject))
+			continue;
+
+		/* Check object pattern */
+		if (!vlabel_pattern_match(&obj_label, &rule->vr_object))
+			continue;
+
+		/* Note: We skip context matching in test mode since
+		 * we don't have a real credential to test against */
+
+		/* Rule matches */
+		test_io->vt_rule_id = rule->vr_id;
+		if (rule->vr_action == VLABEL_ACTION_ALLOW ||
+		    rule->vr_action == VLABEL_ACTION_TRANSITION) {
+			test_io->vt_result = 0;
+		} else {
+			test_io->vt_result = EACCES;
+		}
+		goto out;
+	}
+
+	/* No rule matched - default allow for MVP */
+	test_io->vt_result = 0;
+	test_io->vt_rule_id = 0;
+
+out:
+	rw_runlock(&vlabel_rules_lock);
+
+	VLABEL_DPRINTF("test_access: subj='%s' obj='%s' op=0x%x -> %s (rule %u)",
+	    test_io->vt_subject_label, test_io->vt_object_label,
+	    test_io->vt_operation,
+	    test_io->vt_result == 0 ? "ALLOW" : "DENY",
+	    test_io->vt_rule_id);
+
+	return (0);
 }

@@ -271,8 +271,19 @@ parse_context(const ucl_object_t *obj, struct vlabel_context_io *ctx)
 				ctx->vc_jail_check = 0;
 			else if (strcasecmp(str, "any") == 0)
 				ctx->vc_jail_check = -1;
-			else
-				ctx->vc_jail_check = atoi(str);
+			else {
+				char *endptr;
+				long jid;
+				errno = 0;
+				jid = strtol(str, &endptr, 10);
+				if (errno != 0 || *endptr != '\0' || jid < 0) {
+					vlabeld_log(LOG_WARNING,
+					    "invalid jail ID: %s", str);
+					ctx->vc_jail_check = 0;
+				} else {
+					ctx->vc_jail_check = (int)jid;
+				}
+			}
 		} else if (ucl_object_type(val) == UCL_INT) {
 			ctx->vc_jail_check = ucl_object_toint(val);
 		}

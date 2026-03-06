@@ -151,7 +151,7 @@ vlabel_audit_log(uint32_t event_type, struct ucred *cred,
 
 	/* Process info */
 	if (cred != NULL) {
-		entry->vae_pid = curproc->p_pid;
+		entry->vae_pid = (curproc != NULL) ? curproc->p_pid : 0;
 		entry->vae_uid = cred->cr_uid;
 		if (cred->cr_prison != NULL)
 			entry->vae_jailid = cred->cr_prison->pr_id;

@@ -115,10 +115,47 @@ vlabel_dev_poll(struct cdev *dev __unused, int events, struct thread *td)
 
 /*
  * Convert rule_io from userland to kernel rule structure
+ *
+ * Returns 0 on success, error code on invalid input.
  */
-static void
+static int
 vlabel_rule_from_io(struct vlabel_rule *rule, const struct vlabel_rule_io *io)
 {
+
+	/* Validate action */
+	if (io->vr_action > VLABEL_ACTION_TRANSITION) {
+		VLABEL_DPRINTF("rule_from_io: invalid action %d", io->vr_action);
+		return (EINVAL);
+	}
+
+	/* Validate operations - must have at least one operation */
+	if (io->vr_operations == 0) {
+		VLABEL_DPRINTF("rule_from_io: no operations specified");
+		return (EINVAL);
+	}
+
+	/* Validate operations - only valid bits allowed */
+	if ((io->vr_operations & ~VLABEL_OP_ALL) != 0) {
+		VLABEL_DPRINTF("rule_from_io: invalid operations 0x%x",
+		    io->vr_operations);
+		return (EINVAL);
+	}
+
+	/* Validate rule ID - 0 is reserved */
+	if (io->vr_id == 0) {
+		VLABEL_DPRINTF("rule_from_io: rule ID 0 is reserved");
+		return (EINVAL);
+	}
+
+	/* Validate context flags - only valid bits allowed */
+	if ((io->vr_context.vc_flags & ~(VLABEL_CTX_CAP_SANDBOXED |
+	    VLABEL_CTX_JAIL | VLABEL_CTX_UID | VLABEL_CTX_GID |
+	    VLABEL_CTX_EUID | VLABEL_CTX_RUID | VLABEL_CTX_SID |
+	    VLABEL_CTX_HAS_TTY | VLABEL_CTX_PARENT_LABEL)) != 0) {
+		VLABEL_DPRINTF("rule_from_io: invalid context flags 0x%x",
+		    io->vr_context.vc_flags);
+		return (EINVAL);
+	}
 
 	rule->vr_id = io->vr_id;
 	rule->vr_action = io->vr_action;
@@ -161,6 +198,8 @@ vlabel_rule_from_io(struct vlabel_rule *rule, const struct vlabel_rule_io *io)
 		vlabel_label_parse(io->vr_newlabel, strlen(io->vr_newlabel),
 		    &rule->vr_newlabel);
 	}
+
+	return (0);
 }
 
 /*
@@ -221,7 +260,9 @@ vlabel_dev_ioctl(struct cdev *dev __unused, u_long cmd, caddr_t data,
 
 	case VLABEL_IOC_RULE_ADD:
 		rule_io = (struct vlabel_rule_io *)data;
-		vlabel_rule_from_io(&rule, rule_io);
+		error = vlabel_rule_from_io(&rule, rule_io);
+		if (error != 0)
+			return (error);
 		error = vlabel_rule_add(&rule);
 		VLABEL_DPRINTF("ioctl RULE_ADD: id=%u action=%d ops=0x%x err=%d",
 		    rule.vr_id, rule.vr_action, rule.vr_operations, error);
@@ -237,6 +278,69 @@ vlabel_dev_ioctl(struct cdev *dev __unused, u_long cmd, caddr_t data,
 		vlabel_rules_clear();
 		VLABEL_DPRINTF("ioctl RULES_CLEAR");
 		return (0);
+
+	case VLABEL_IOC_RULE_LIST:
+		{
+			struct vlabel_rule_list_io *list_io;
+			struct vlabel_rule_io *kbuf;
+			uint32_t max_rules, bufsize;
+
+			list_io = (struct vlabel_rule_list_io *)data;
+			max_rules = list_io->vrl_count;
+
+			/* If no buffer provided, just return count */
+			if (list_io->vrl_rules == NULL || max_rules == 0) {
+				error = vlabel_rules_list(list_io, NULL, 0);
+				VLABEL_DPRINTF("ioctl RULE_LIST: total=%u (query only)",
+				    list_io->vrl_total);
+				return (error);
+			}
+
+			/*
+			 * Sanity limit - don't allocate huge buffers.
+			 * 256 rules * ~808 bytes = ~206KB which is reasonable.
+			 */
+			if (max_rules > 256)
+				max_rules = 256;
+			bufsize = max_rules * sizeof(struct vlabel_rule_io);
+			kbuf = malloc(bufsize, M_TEMP, M_NOWAIT | M_ZERO);
+			if (kbuf == NULL)
+				return (ENOMEM);
+
+			/* Fill buffer with rules */
+			error = vlabel_rules_list(list_io, kbuf, max_rules);
+			if (error != 0) {
+				free(kbuf, M_TEMP);
+				return (error);
+			}
+
+			/* Copy rules to userland */
+			error = copyout(kbuf, list_io->vrl_rules,
+			    list_io->vrl_count * sizeof(struct vlabel_rule_io));
+
+			free(kbuf, M_TEMP);
+
+			VLABEL_DPRINTF("ioctl RULE_LIST: copied %u/%u rules",
+			    list_io->vrl_count, list_io->vrl_total);
+			return (error);
+		}
+
+	case VLABEL_IOC_GETAUDIT:
+		modep = (int *)data;
+		*modep = vlabel_audit_level;
+		VLABEL_DPRINTF("ioctl GETAUDIT: %d", vlabel_audit_level);
+		return (0);
+
+	case VLABEL_IOC_TEST_ACCESS:
+		{
+			struct vlabel_test_io *test_io;
+
+			test_io = (struct vlabel_test_io *)data;
+			error = vlabel_rules_test_access(test_io);
+			VLABEL_DPRINTF("ioctl TEST_ACCESS: result=%d rule=%u",
+			    test_io->vt_result, test_io->vt_rule_id);
+			return (error);
+		}
 
 	default:
 		VLABEL_DPRINTF("ioctl: unknown cmd 0x%lx", cmd);
