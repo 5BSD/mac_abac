@@ -23,3 +23,7 @@ test-output.log
 .claude/
 kernel/mac_vlabel.ko
 kernel/mac_vlabel.o
+swift/.build/build.db
+swift/.build/debug
+swift/.build/
+

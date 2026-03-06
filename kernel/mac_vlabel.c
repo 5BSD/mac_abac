@@ -29,6 +29,8 @@
 #include <sys/extattr.h>
 #include <sys/imgact.h>
 
+#include <machine/atomic.h>
+
 #include <security/mac/mac_policy.h>
 
 #include "mac_vlabel.h"
@@ -40,6 +42,10 @@ int vlabel_slot;
 
 /*
  * Configuration variables (exposed via sysctl)
+ *
+ * Note: These are accessed via sysctl which provides appropriate
+ * synchronization. For check paths, stale reads are acceptable
+ * as the mode change will eventually be visible.
  */
 int vlabel_enabled = 1;
 int vlabel_mode = VLABEL_MODE_PERMISSIVE;	/* Start permissive for safety */
@@ -52,10 +58,9 @@ struct vlabel_label vlabel_default_object;
 struct vlabel_label vlabel_default_subject;
 
 /*
- * Statistics
+ * Statistics - accessed atomically via atomic_add_64()
+ * Cast away const for SYSCTL_UQUAD which doesn't take volatile
  */
-static struct vlabel_stats vlabel_stats;
-static struct mtx vlabel_stats_mtx;
 static uint64_t vlabel_labels_read;
 static uint64_t vlabel_labels_default;
 
@@ -308,9 +313,6 @@ vlabel_init(struct mac_policy_conf *mpc)
 
 	VLABEL_DPRINTF("initializing vLabel MAC policy");
 
-	/* Initialize statistics mutex */
-	mtx_init(&vlabel_stats_mtx, "vlabel stats", NULL, MTX_DEF);
-
 	/* Initialize label subsystem (UMA zone) */
 	vlabel_label_init();
 
@@ -324,9 +326,6 @@ vlabel_init(struct mac_policy_conf *mpc)
 	vlabel_label_set_default(&vlabel_default_object, false);
 	vlabel_label_set_default(&vlabel_default_subject, true);
 
-	/* Clear statistics */
-	memset(&vlabel_stats, 0, sizeof(vlabel_stats));
-
 	VLABEL_DPRINTF("vLabel MAC policy initialized (mode=%d)", vlabel_mode);
 }
 
@@ -336,6 +335,11 @@ vlabel_destroy(struct mac_policy_conf *mpc)
 
 	VLABEL_DPRINTF("destroying vLabel MAC policy");
 
+	/* Warn if device is still in use */
+	if (vlabel_dev_in_use()) {
+		printf("vlabel: WARNING: device still in use during unload\n");
+	}
+
 	/* Destroy device interface */
 	vlabel_dev_destroy();
 
@@ -344,8 +348,6 @@ vlabel_destroy(struct mac_policy_conf *mpc)
 
 	/* Destroy label subsystem (UMA zone) */
 	vlabel_label_destroy();
-
-	mtx_destroy(&vlabel_stats_mtx);
 
 	VLABEL_DPRINTF("vLabel MAC policy destroyed");
 }
@@ -498,9 +500,11 @@ vlabel_cred_check_setgroups(struct ucred *cred, int ngroups, gid_t *gidset)
 
 static void
 vlabel_execve_transition(struct ucred *old, struct ucred *new,
-    struct vnode *vp, struct label *vplabel, struct label *interpvplabel,
-    struct image_params *imgp, struct label *execlabel)
+    struct vnode *vp __unused, struct label *vplabel __unused,
+    struct label *interpvplabel __unused,
+    struct image_params *imgp __unused, struct label *execlabel __unused)
 {
+#ifdef VLABEL_DEBUG
 	struct vlabel_label *oldvl, *newvl, *objvl;
 
 	/*
@@ -519,6 +523,7 @@ vlabel_execve_transition(struct ucred *old, struct ucred *new,
 		    oldvl->vl_raw,
 		    objvl != NULL ? objvl->vl_raw : "(null)");
 	}
+#endif
 }
 
 static int
@@ -602,7 +607,7 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 		 * No label on this vnode - use default object label.
 		 */
 		vlabel_label_set_default(vl, false);
-		vlabel_labels_default++;
+		atomic_add_64(&vlabel_labels_default, 1);
 		VLABEL_DPRINTF("associate_extattr: no label (err=%d), using default",
 		    error);
 		return (0);
@@ -628,7 +633,7 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 		return (0);
 	}
 
-	vlabel_labels_read++;
+	atomic_add_64(&vlabel_labels_read, 1);
 
 	VLABEL_DPRINTF("associate_extattr: loaded label '%s'", vl->vl_raw);
 	return (0);

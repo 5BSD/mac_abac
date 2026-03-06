@@ -120,6 +120,52 @@
 #define VLABEL_MATCH_LEVEL		0x00000008
 #define VLABEL_MATCH_NEGATE		0x80000000	/* Invert match result */
 
+/*
+ * Statistics structure (shared with userland)
+ */
+struct vlabel_stats {
+	uint64_t	vs_checks;		/* Total access checks */
+	uint64_t	vs_allowed;		/* Allowed accesses */
+	uint64_t	vs_denied;		/* Denied accesses */
+	uint64_t	vs_labels_read;		/* Labels read from extattr */
+	uint64_t	vs_labels_default;	/* Default labels assigned */
+	uint32_t	vs_rule_count;		/* Current rule count */
+};
+
+/*
+ * Rule I/O structure for ioctl (userland-kernel interface)
+ * Mirrors the kernel vlabel_rule but with fixed-size fields.
+ */
+struct vlabel_pattern_io {
+	uint32_t	vp_flags;
+	char		vp_type[VLABEL_MAX_VALUE_LEN];
+	char		vp_domain[VLABEL_MAX_VALUE_LEN];
+	char		vp_name[VLABEL_MAX_VALUE_LEN];
+	char		vp_level[VLABEL_MAX_VALUE_LEN];
+};
+
+struct vlabel_rule_io {
+	uint32_t		vr_id;
+	uint8_t			vr_action;
+	uint8_t			vr_padding[3];
+	uint32_t		vr_operations;
+	struct vlabel_pattern_io vr_subject;
+	struct vlabel_pattern_io vr_object;
+};
+
+/*
+ * ioctl commands for /dev/vlabel (shared with userland)
+ */
+#define VLABEL_IOC_GETMODE	_IOR('V', 1, int)
+#define VLABEL_IOC_SETMODE	_IOW('V', 2, int)
+#define VLABEL_IOC_GETSTATS	_IOR('V', 5, struct vlabel_stats)
+#define VLABEL_IOC_SETAUDIT	_IOW('V', 6, int)
+
+/* Rule management */
+#define VLABEL_IOC_RULE_ADD	_IOW('V', 10, struct vlabel_rule_io)
+#define VLABEL_IOC_RULE_REMOVE	_IOW('V', 11, uint32_t)
+#define VLABEL_IOC_RULES_CLEAR	_IO('V', 12)
+
 #ifdef _KERNEL
 
 #include <sys/types.h>
@@ -192,6 +238,9 @@ extern struct vlabel_label vlabel_default_subject;
 
 /*
  * Global configuration (exposed via sysctl)
+ *
+ * Note: sysctl provides synchronization. For check paths,
+ * stale reads are acceptable as mode changes propagate quickly.
  */
 extern int vlabel_enabled;
 extern int vlabel_mode;
@@ -240,12 +289,14 @@ int vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 int vlabel_rule_add(struct vlabel_rule *rule);
 int vlabel_rule_remove(uint32_t id);
 void vlabel_rules_clear(void);
+void vlabel_rules_get_stats(struct vlabel_stats *stats);
 
 /*
  * Function prototypes - vlabel_dev.c
  */
 void vlabel_dev_init(void);
 void vlabel_dev_destroy(void);
+bool vlabel_dev_in_use(void);
 
 /*
  * Function prototypes - vlabel_audit.c
@@ -256,25 +307,5 @@ void vlabel_audit_log(uint32_t event_type, struct ucred *cred,
     struct vnode *vp, uint32_t operation, int result);
 
 #endif /* _KERNEL */
-
-/*
- * ioctl commands for /dev/vlabel (shared with userland)
- */
-#define VLABEL_IOC_GETMODE	_IOR('V', 1, int)
-#define VLABEL_IOC_SETMODE	_IOW('V', 2, int)
-#define VLABEL_IOC_GETSTATS	_IOR('V', 5, struct vlabel_stats)
-#define VLABEL_IOC_SETAUDIT	_IOW('V', 6, int)
-
-/*
- * Statistics structure (shared with userland)
- */
-struct vlabel_stats {
-	uint64_t	vs_checks;		/* Total access checks */
-	uint64_t	vs_allowed;		/* Allowed accesses */
-	uint64_t	vs_denied;		/* Denied accesses */
-	uint64_t	vs_labels_read;		/* Labels read from extattr */
-	uint64_t	vs_labels_default;	/* Default labels assigned */
-	uint32_t	vs_rule_count;		/* Current rule count */
-};
 
 #endif /* !_SECURITY_MAC_VLABEL_H_ */

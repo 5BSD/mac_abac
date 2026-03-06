@@ -1,0 +1,4 @@
+module CVLabel {
+    header "cvlabel.h"
+    export *
+}

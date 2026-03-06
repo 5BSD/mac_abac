@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:vLabelMACF}/swift",
+            "name": "Debug vlabelctl (swift)",
+            "target": "vlabelctl",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug vlabelctl (swift)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:vLabelMACF}/swift",
+            "name": "Release vlabelctl (swift)",
+            "target": "vlabelctl",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release vlabelctl (swift)"
+        }
+    ]
+}

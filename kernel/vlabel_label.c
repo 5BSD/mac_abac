@@ -20,6 +20,7 @@
 #include <sys/mutex.h>
 #include <sys/sysctl.h>
 
+#include <machine/atomic.h>
 #include <vm/uma.h>
 
 #include <security/mac/mac_policy.h>
@@ -32,7 +33,7 @@
 static uma_zone_t vlabel_zone;
 
 /*
- * Statistics counters
+ * Statistics counters - accessed atomically via atomic_add_64()
  */
 static uint64_t vlabel_labels_allocated;
 static uint64_t vlabel_labels_freed;
@@ -113,7 +114,7 @@ vlabel_label_alloc(int flags)
 
 	vl = uma_zalloc(vlabel_zone, flags | M_ZERO);
 	if (vl != NULL)
-		vlabel_labels_allocated++;
+		atomic_add_64(&vlabel_labels_allocated, 1);
 
 	return (vl);
 }
@@ -131,7 +132,7 @@ vlabel_label_free(struct vlabel_label *vl)
 		return;
 
 	uma_zfree(vlabel_zone, vl);
-	vlabel_labels_freed++;
+	atomic_add_64(&vlabel_labels_freed, 1);
 }
 
 /*
@@ -233,7 +234,7 @@ vlabel_label_parse(const char *str, size_t len, struct vlabel_label *vl)
 		return (EINVAL);
 
 	if (len == 0 || len > VLABEL_MAX_LABEL_LEN) {
-		vlabel_parse_errors++;
+		atomic_add_64(&vlabel_parse_errors, 1);
 		return (EINVAL);
 	}
 
@@ -256,7 +257,7 @@ vlabel_label_parse(const char *str, size_t len, struct vlabel_label *vl)
 		if (comma > p) {
 			error = parse_kv_pair(p, comma - p, vl);
 			if (error != 0) {
-				vlabel_parse_errors++;
+				atomic_add_64(&vlabel_parse_errors, 1);
 				return (error);
 			}
 		}

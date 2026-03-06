@@ -20,6 +20,8 @@
 #include <sys/sysctl.h>
 #include <sys/ucred.h>
 
+#include <machine/atomic.h>
+
 #include <security/mac/mac_policy.h>
 
 #include "mac_vlabel.h"
@@ -32,7 +34,7 @@ static int vlabel_rule_count;
 static struct rwlock vlabel_rules_lock;
 
 /*
- * Statistics
+ * Statistics - accessed atomically via atomic_add_64()
  */
 static uint64_t vlabel_checks;
 static uint64_t vlabel_allowed;
@@ -111,15 +113,27 @@ vlabel_rules_init(void)
 void
 vlabel_rules_destroy(void)
 {
+	struct vlabel_rule *rule;
+	int i;
 
 	VLABEL_DPRINTF("rule engine destroyed (rules=%d, checks=%ju, denied=%ju)",
 	    vlabel_rule_count,
 	    (uintmax_t)vlabel_checks,
 	    (uintmax_t)vlabel_denied);
 
-	/* Clear all rules (don't free hardcoded ones) */
+	/* Free all dynamically allocated rules */
+	rw_wlock(&vlabel_rules_lock);
+	for (i = 0; i < VLABEL_MAX_RULES; i++) {
+		rule = vlabel_rules[i];
+		if (rule != NULL) {
+			vlabel_rules[i] = NULL;
+			/* Don't free the hardcoded test rule */
+			if (rule != &vlabel_test_rule)
+				free(rule, M_TEMP);
+		}
+	}
 	vlabel_rule_count = 0;
-	memset(vlabel_rules, 0, sizeof(vlabel_rules));
+	rw_wunlock(&vlabel_rules_lock);
 
 	rw_destroy(&vlabel_rules_lock);
 }
@@ -213,12 +227,12 @@ vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 	const struct vlabel_rule *rule;
 	int i, result;
 
-	vlabel_checks++;
+	atomic_add_64(&vlabel_checks, 1);
 
 	/* Safety checks */
 	if (subj == NULL || obj == NULL) {
 		VLABEL_DPRINTF("rules_check: NULL label, allowing");
-		vlabel_allowed++;
+		atomic_add_64(&vlabel_allowed, 1);
 		return (0);
 	}
 
@@ -261,9 +275,9 @@ out:
 	rw_runlock(&vlabel_rules_lock);
 
 	if (result == 0)
-		vlabel_allowed++;
+		atomic_add_64(&vlabel_allowed, 1);
 	else
-		vlabel_denied++;
+		atomic_add_64(&vlabel_denied, 1);
 
 	return (result);
 }
@@ -369,4 +383,21 @@ vlabel_rules_clear(void)
 	rw_wunlock(&vlabel_rules_lock);
 
 	VLABEL_DPRINTF("rules_clear: all rules cleared");
+}
+
+/*
+ * Get statistics for ioctl
+ */
+void
+vlabel_rules_get_stats(struct vlabel_stats *stats)
+{
+
+	rw_rlock(&vlabel_rules_lock);
+	stats->vs_checks = vlabel_checks;
+	stats->vs_allowed = vlabel_allowed;
+	stats->vs_denied = vlabel_denied;
+	stats->vs_labels_read = 0;	/* TODO: get from label module */
+	stats->vs_labels_default = 0;
+	stats->vs_rule_count = vlabel_rule_count;
+	rw_runlock(&vlabel_rules_lock);
 }
