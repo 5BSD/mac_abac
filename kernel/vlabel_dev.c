@@ -227,13 +227,12 @@ vlabel_dev_in_use(void)
 }
 
 /*
- * Initialize device interface
+ * Deferred device creation - called after devfs is ready
  */
-void
-vlabel_dev_init(void)
+static void
+vlabel_dev_create(void *arg __unused)
 {
 
-	vlabel_dev_refcnt = 0;
 	vlabel_dev = make_dev(&vlabel_cdevsw, 0, UID_ROOT, GID_WHEEL,
 	    0600, "vlabel");
 	if (vlabel_dev == NULL) {
@@ -242,6 +241,25 @@ vlabel_dev_init(void)
 	}
 
 	VLABEL_DPRINTF("created /dev/vlabel");
+}
+
+/*
+ * Device creation is deferred to SI_SUB_DRIVERS because:
+ * - MAC policies init at SI_SUB_MAC_POLICY (0x21C0000)
+ * - devfs inits at SI_SUB_DEVFS (0x2F00000)
+ * - SI_SUB_DRIVERS (0x3100000) is after devfs is ready
+ */
+SYSINIT(vlabel_dev, SI_SUB_DRIVERS, SI_ORDER_MIDDLE, vlabel_dev_create, NULL);
+
+/*
+ * Initialize device interface - just init refcount, device created later
+ */
+void
+vlabel_dev_init(void)
+{
+
+	vlabel_dev_refcnt = 0;
+	/* Device creation deferred to SYSINIT after devfs is ready */
 }
 
 /*

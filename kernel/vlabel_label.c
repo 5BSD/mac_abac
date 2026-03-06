@@ -65,8 +65,10 @@ vlabel_label_init(void)
 	    UMA_ALIGN_PTR,
 	    0);		/* flags */
 
-	if (vlabel_zone == NULL)
-		panic("vlabel: unable to create label zone");
+	if (vlabel_zone == NULL) {
+		printf("vlabel: WARNING: unable to create label zone\n");
+		return;
+	}
 
 	vlabel_labels_allocated = 0;
 	vlabel_labels_freed = 0;

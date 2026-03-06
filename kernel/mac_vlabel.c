@@ -252,6 +252,13 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 
 /*
  * Module registration
+ *
+ * We use NOTLATE because mpo_init calls uma_zcreate and make_dev which
+ * can sleep. When loading late (after mac_late=1), mpo_init is called
+ * with the MAC policy lock held and sleeping is not allowed.
+ *
+ * This means the module must be loaded at boot via loader.conf.
+ * Use kldload only before the system is fully up (single-user mode).
  */
 MAC_POLICY_SET(&vlabel_ops, mac_vlabel, "vLabel MAC Policy",
-    MPC_LOADTIME_FLAG_UNLOADOK, &vlabel_slot);
+    MPC_LOADTIME_FLAG_NOTLATE, &vlabel_slot);
