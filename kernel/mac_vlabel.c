@@ -317,6 +317,9 @@ vlabel_init(struct mac_policy_conf *mpc)
 	/* Initialize rule engine */
 	vlabel_rules_init();
 
+	/* Initialize device interface */
+	vlabel_dev_init();
+
 	/* Initialize default labels */
 	vlabel_label_set_default(&vlabel_default_object, false);
 	vlabel_label_set_default(&vlabel_default_subject, true);
@@ -332,6 +335,9 @@ vlabel_destroy(struct mac_policy_conf *mpc)
 {
 
 	VLABEL_DPRINTF("destroying vLabel MAC policy");
+
+	/* Destroy device interface */
+	vlabel_dev_destroy();
 
 	/* Destroy rule engine */
 	vlabel_rules_destroy();
