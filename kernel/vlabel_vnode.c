@@ -285,6 +285,9 @@ vlabel_vnode_check_exec(struct ucred *cred, struct vnode *vp,
 	/* Evaluate rules */
 	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_EXEC);
 
+	/* Log audit event */
+	vlabel_audit_log(VLABEL_OP_EXEC, cred, vp, VLABEL_OP_EXEC, error);
+
 	/*
 	 * In permissive mode, log but don't enforce.
 	 */

@@ -206,6 +206,9 @@ vlabel_init(struct mac_policy_conf *mpc)
 	/* Initialize rule engine */
 	vlabel_rules_init();
 
+	/* Initialize audit subsystem */
+	vlabel_audit_init();
+
 	/* Initialize device interface */
 	vlabel_dev_init();
 
@@ -233,6 +236,9 @@ vlabel_destroy(struct mac_policy_conf *mpc)
 	/* Destroy device interface */
 	vlabel_dev_destroy();
 
+	/* Destroy audit subsystem */
+	vlabel_audit_destroy();
+
 	/* Destroy rule engine */
 	vlabel_rules_destroy();
 
@@ -257,8 +263,8 @@ vlabel_syscall(struct thread *td, int call, void *arg)
  * can sleep. When loading late (after mac_late=1), mpo_init is called
  * with the MAC policy lock held and sleeping is not allowed.
  *
- * This means the module must be loaded at boot via loader.conf.
- * Use kldload only before the system is fully up (single-user mode).
+ * MPC_LOADTIME_FLAG_UNLOADOK - allows dynamic load/unload for development
+ * For production, consider MPC_LOADTIME_FLAG_NOTLATE to prevent unloading
  */
 MAC_POLICY_SET(&vlabel_ops, mac_vlabel, "vLabel MAC Policy",
-    MPC_LOADTIME_FLAG_NOTLATE, &vlabel_slot);
+    MPC_LOADTIME_FLAG_UNLOADOK, &vlabel_slot);

@@ -49,6 +49,7 @@
  */
 #define VLABEL_ACTION_ALLOW         0
 #define VLABEL_ACTION_DENY          1
+#define VLABEL_ACTION_TRANSITION    2
 
 /*
  * Enforcement modes
@@ -64,6 +65,19 @@
 #define VLABEL_AUDIT_DENIALS        1
 #define VLABEL_AUDIT_DECISIONS      2
 #define VLABEL_AUDIT_VERBOSE        3
+
+/*
+ * Context assertion flags
+ */
+#define VLABEL_CTX_CAP_SANDBOXED    0x00000001
+#define VLABEL_CTX_JAIL             0x00000002
+#define VLABEL_CTX_UID              0x00000004
+#define VLABEL_CTX_GID              0x00000008
+#define VLABEL_CTX_EUID             0x00000010
+#define VLABEL_CTX_RUID             0x00000020
+#define VLABEL_CTX_SID              0x00000040
+#define VLABEL_CTX_HAS_TTY          0x00000080
+#define VLABEL_CTX_PARENT_LABEL     0x00000100
 
 /*
  * Pattern match flags
@@ -87,6 +101,25 @@ struct vlabel_stats {
 };
 
 /*
+ * Audit entry structure (returned via read on /dev/vlabel)
+ */
+#define VLABEL_AUDIT_LABEL_LEN  64
+#define VLABEL_AUDIT_PATH_LEN   256
+
+struct vlabel_audit_entry {
+    uint64_t    vae_timestamp;
+    uint32_t    vae_type;
+    uint32_t    vae_operation;
+    int32_t     vae_result;
+    int32_t     vae_pid;
+    uint32_t    vae_uid;
+    int32_t     vae_jailid;
+    char        vae_subject_label[VLABEL_AUDIT_LABEL_LEN];
+    char        vae_object_label[VLABEL_AUDIT_LABEL_LEN];
+    char        vae_path[VLABEL_AUDIT_PATH_LEN];
+};
+
+/*
  * Pattern I/O structure for ioctl (matches kernel vlabel_pattern_io)
  */
 struct vlabel_pattern_io {
@@ -95,6 +128,19 @@ struct vlabel_pattern_io {
     char        vp_domain[VLABEL_MAX_VALUE_LEN];
     char        vp_name[VLABEL_MAX_VALUE_LEN];
     char        vp_level[VLABEL_MAX_VALUE_LEN];
+};
+
+/*
+ * Context I/O structure for ioctl (matches kernel vlabel_context_io)
+ */
+struct vlabel_context_io {
+    uint32_t    vc_flags;
+    uint8_t     vc_cap_sandboxed;
+    uint8_t     vc_has_tty;
+    uint8_t     vc_padding[2];
+    int32_t     vc_jail_check;
+    uint32_t    vc_uid;
+    uint32_t    vc_gid;
 };
 
 /*
@@ -107,6 +153,8 @@ struct vlabel_rule_io {
     uint32_t                    vr_operations;
     struct vlabel_pattern_io    vr_subject;
     struct vlabel_pattern_io    vr_object;
+    struct vlabel_context_io    vr_context;
+    char                        vr_newlabel[VLABEL_MAX_LABEL_LEN];
 };
 
 /*
@@ -130,8 +178,8 @@ static const unsigned long VLABEL_IOC_SETAUDIT = 0x80045606;
 
 /*
  * Rule management ioctls
- * vlabel_rule_io size = 4 + 1 + 3 + 4 + (4 + 64*4)*2 = 532 bytes
- * _IOW('V', 10, struct vlabel_rule_io) = 0x80000000 | (532 << 16) | ('V' << 8) | 10
+ * Updated vlabel_rule_io now includes context and newlabel
+ * Need to recalculate size for _IOW
  */
 static const unsigned long VLABEL_IOC_RULE_ADD = 0x8214560a;
 

@@ -18,6 +18,7 @@
 #include <sys/kernel.h>
 #include <sys/malloc.h>
 #include <sys/module.h>
+#include <sys/poll.h>
 #include <sys/priv.h>
 #include <sys/proc.h>
 #include <sys/uio.h>
@@ -36,13 +37,17 @@ static volatile u_int vlabel_dev_refcnt;
 
 static d_open_t		vlabel_dev_open;
 static d_close_t	vlabel_dev_close;
+static d_read_t		vlabel_dev_read;
 static d_ioctl_t	vlabel_dev_ioctl;
+static d_poll_t		vlabel_dev_poll;
 
 static struct cdevsw vlabel_cdevsw = {
 	.d_version =	D_VERSION,
 	.d_open =	vlabel_dev_open,
 	.d_close =	vlabel_dev_close,
+	.d_read =	vlabel_dev_read,
 	.d_ioctl =	vlabel_dev_ioctl,
+	.d_poll =	vlabel_dev_poll,
 	.d_name =	"vlabel",
 };
 
@@ -89,6 +94,26 @@ vlabel_dev_close(struct cdev *dev __unused, int fflag __unused,
 }
 
 /*
+ * Device read - read audit events
+ */
+static int
+vlabel_dev_read(struct cdev *dev __unused, struct uio *uio, int ioflag)
+{
+
+	return (vlabel_audit_read(uio, ioflag));
+}
+
+/*
+ * Device poll - poll for audit events
+ */
+static int
+vlabel_dev_poll(struct cdev *dev __unused, int events, struct thread *td)
+{
+
+	return (vlabel_audit_poll(events, td));
+}
+
+/*
  * Convert rule_io from userland to kernel rule structure
  */
 static void
@@ -121,8 +146,13 @@ vlabel_rule_from_io(struct vlabel_rule *rule, const struct vlabel_rule_io *io)
 	strlcpy(rule->vr_object.vp_level, io->vr_object.vp_level,
 	    sizeof(rule->vr_object.vp_level));
 
-	/* Context not yet supported via ioctl */
-	memset(&rule->vr_context, 0, sizeof(rule->vr_context));
+	/* Copy context constraints */
+	rule->vr_context.vc_flags = io->vr_context.vc_flags;
+	rule->vr_context.vc_cap_sandboxed = io->vr_context.vc_cap_sandboxed;
+	rule->vr_context.vc_has_tty = io->vr_context.vc_has_tty;
+	rule->vr_context.vc_jail_check = io->vr_context.vc_jail_check;
+	rule->vr_context.vc_uid = io->vr_context.vc_uid;
+	rule->vr_context.vc_gid = io->vr_context.vc_gid;
 
 	/* For TRANSITION rules, parse the new label */
 	memset(&rule->vr_newlabel, 0, sizeof(rule->vr_newlabel));

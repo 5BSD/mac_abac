@@ -13,9 +13,12 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
+#include <sys/capsicum.h>
+#include <sys/jail.h>
 #include <sys/lock.h>
 #include <sys/malloc.h>
 #include <sys/module.h>
+#include <sys/proc.h>
 #include <sys/rwlock.h>
 #include <sys/sysctl.h>
 #include <sys/ucred.h>
@@ -184,6 +187,127 @@ vlabel_pattern_match(const struct vlabel_label *label,
 }
 
 /*
+ * Check if context constraints match the current credential
+ *
+ * Context constraints allow rules to be conditional on:
+ * - Capability mode (sandboxed or not)
+ * - Jail context (host, specific jail, or any jail)
+ * - User ID (effective UID)
+ * - Group ID (effective GID)
+ * - Real UID
+ * - Session ID
+ * - Whether process has a controlling TTY
+ */
+static bool
+vlabel_context_matches(const struct vlabel_context *ctx, struct ucred *cred)
+{
+	struct thread *td;
+
+	/* If no context flags set, match everything */
+	if (ctx->vc_flags == 0)
+		return (true);
+
+	/* Need valid credential for all checks */
+	if (cred == NULL)
+		return (false);
+
+	/* Check capability mode (sandboxed) */
+	if (ctx->vc_flags & VLABEL_CTX_CAP_SANDBOXED) {
+		td = curthread;
+		if (td != NULL) {
+			bool is_sandboxed = IN_CAPABILITY_MODE(td);
+			if (is_sandboxed != ctx->vc_cap_sandboxed) {
+				VLABEL_DPRINTF("context: cap_sandboxed mismatch "
+				    "(want %d, got %d)",
+				    ctx->vc_cap_sandboxed, is_sandboxed);
+				return (false);
+			}
+		}
+	}
+
+	/* Check jail context */
+	if (ctx->vc_flags & VLABEL_CTX_JAIL) {
+		int jailid = 0;
+		if (cred->cr_prison != NULL)
+			jailid = cred->cr_prison->pr_id;
+
+		switch (ctx->vc_jail_check) {
+		case 0:
+			/* Must be on host (jail 0) */
+			if (jailid != 0) {
+				VLABEL_DPRINTF("context: jail mismatch "
+				    "(want host, got jail %d)", jailid);
+				return (false);
+			}
+			break;
+		case -1:
+			/* Must be in any jail (not host) */
+			if (jailid == 0) {
+				VLABEL_DPRINTF("context: jail mismatch "
+				    "(want any jail, got host)");
+				return (false);
+			}
+			break;
+		default:
+			/* Must be in specific jail */
+			if (jailid != ctx->vc_jail_check) {
+				VLABEL_DPRINTF("context: jail mismatch "
+				    "(want %d, got %d)",
+				    ctx->vc_jail_check, jailid);
+				return (false);
+			}
+			break;
+		}
+	}
+
+	/* Check effective UID */
+	if (ctx->vc_flags & VLABEL_CTX_UID) {
+		if (cred->cr_uid != ctx->vc_uid) {
+			VLABEL_DPRINTF("context: uid mismatch "
+			    "(want %u, got %u)", ctx->vc_uid, cred->cr_uid);
+			return (false);
+		}
+	}
+
+	/* Check effective GID */
+	if (ctx->vc_flags & VLABEL_CTX_GID) {
+		if (cred->cr_gid != ctx->vc_gid) {
+			VLABEL_DPRINTF("context: gid mismatch "
+			    "(want %u, got %u)", ctx->vc_gid, cred->cr_gid);
+			return (false);
+		}
+	}
+
+	/* Check real UID */
+	if (ctx->vc_flags & VLABEL_CTX_RUID) {
+		if (cred->cr_ruid != ctx->vc_uid) {
+			VLABEL_DPRINTF("context: ruid mismatch "
+			    "(want %u, got %u)", ctx->vc_uid, cred->cr_ruid);
+			return (false);
+		}
+	}
+
+	/* Check session/login context - via process's session */
+	if (ctx->vc_flags & VLABEL_CTX_HAS_TTY) {
+		struct proc *p = curproc;
+		bool has_tty = false;
+
+		if (p != NULL && p->p_session != NULL)
+			has_tty = (p->p_session->s_ttyp != NULL);
+
+		if (has_tty != ctx->vc_has_tty) {
+			VLABEL_DPRINTF("context: tty mismatch "
+			    "(want %d, got %d)",
+			    ctx->vc_has_tty, has_tty);
+			return (false);
+		}
+	}
+
+	VLABEL_DPRINTF("context: all constraints matched");
+	return (true);
+}
+
+/*
  * Check if a rule matches the current access request
  */
 static bool
@@ -191,7 +315,7 @@ vlabel_rule_matches(const struct vlabel_rule *rule,
     const struct vlabel_label *subj,
     const struct vlabel_label *obj,
     uint32_t op,
-    struct ucred *cred __unused)
+    struct ucred *cred)
 {
 
 	/* Check if operation is covered by this rule */
@@ -206,7 +330,9 @@ vlabel_rule_matches(const struct vlabel_rule *rule,
 	if (!vlabel_pattern_match(obj, &rule->vr_object))
 		return (false);
 
-	/* TODO: Check context constraints (jail, capability mode, etc.) */
+	/* Check context constraints (jail, capability mode, etc.) */
+	if (!vlabel_context_matches(&rule->vr_context, cred))
+		return (false);
 
 	return (true);
 }

@@ -134,6 +134,28 @@ struct vlabel_stats {
 };
 
 /*
+ * Audit event structure (shared with userland)
+ *
+ * This is returned via read() on /dev/vlabel.
+ * Each read returns one or more complete entries.
+ */
+#define VLABEL_AUDIT_LABEL_LEN	64
+#define VLABEL_AUDIT_PATH_LEN	256
+
+struct vlabel_audit_entry {
+	uint64_t	vae_timestamp;		/* Unix timestamp */
+	uint32_t	vae_type;		/* Event type */
+	uint32_t	vae_operation;		/* Operation bitmask */
+	int32_t		vae_result;		/* 0=allowed, errno=denied */
+	int32_t		vae_pid;		/* Process ID */
+	uint32_t	vae_uid;		/* User ID */
+	int32_t		vae_jailid;		/* Jail ID (0 = host) */
+	char		vae_subject_label[VLABEL_AUDIT_LABEL_LEN];
+	char		vae_object_label[VLABEL_AUDIT_LABEL_LEN];
+	char		vae_path[VLABEL_AUDIT_PATH_LEN];
+};
+
+/*
  * Rule I/O structure for ioctl (userland-kernel interface)
  * Mirrors the kernel vlabel_rule but with fixed-size fields.
  */
@@ -145,6 +167,19 @@ struct vlabel_pattern_io {
 	char		vp_level[VLABEL_MAX_VALUE_LEN];
 };
 
+/*
+ * Context I/O structure for userland-kernel interface
+ */
+struct vlabel_context_io {
+	uint32_t	vc_flags;		/* Which checks are enabled */
+	uint8_t		vc_cap_sandboxed;	/* true=must be sandboxed */
+	uint8_t		vc_has_tty;		/* true=must have tty */
+	uint8_t		vc_padding[2];
+	int32_t		vc_jail_check;		/* 0=host, >0=jail id, -1=any jail */
+	uint32_t	vc_uid;			/* Required UID */
+	uint32_t	vc_gid;			/* Required GID */
+};
+
 struct vlabel_rule_io {
 	uint32_t		vr_id;
 	uint8_t			vr_action;
@@ -152,6 +187,7 @@ struct vlabel_rule_io {
 	uint32_t		vr_operations;
 	struct vlabel_pattern_io vr_subject;
 	struct vlabel_pattern_io vr_object;
+	struct vlabel_context_io vr_context;	/* Context constraints */
 	char			vr_newlabel[VLABEL_MAX_LABEL_LEN];  /* For TRANSITION */
 };
 
@@ -201,12 +237,19 @@ struct vlabel_pattern {
 
 /*
  * Context constraints for rules
+ *
+ * vc_jail_check interpretation:
+ *   0  = must be on host (not in a jail)
+ *   >0 = must be in specific jail with this ID
+ *   -1 = must be in any jail (not host)
+ *   -2 = don't check jail (wildcard) - only valid if VLABEL_CTX_JAIL not set
  */
 struct vlabel_context {
 	uint32_t	vc_flags;		/* Which checks are enabled */
-	bool		vc_cap_sandboxed;	/* Must/must not be sandboxed */
-	int		vc_jail_check;		/* 0=host, >0=specific jail, -1=any jail */
-	uid_t		vc_uid;			/* Required UID */
+	bool		vc_cap_sandboxed;	/* true=must be sandboxed, false=must not */
+	bool		vc_has_tty;		/* true=must have tty, false=must not */
+	int		vc_jail_check;		/* See above */
+	uid_t		vc_uid;			/* Required UID (for UID/RUID checks) */
 	gid_t		vc_gid;			/* Required GID */
 };
 
@@ -432,6 +475,9 @@ void vlabel_audit_init(void);
 void vlabel_audit_destroy(void);
 void vlabel_audit_log(uint32_t event_type, struct ucred *cred,
     struct vnode *vp, uint32_t operation, int result);
+int vlabel_audit_read(struct uio *uio, int ioflag);
+int vlabel_audit_poll(int events, struct thread *td);
+u_int vlabel_audit_count(void);
 
 #endif /* _KERNEL */
 
