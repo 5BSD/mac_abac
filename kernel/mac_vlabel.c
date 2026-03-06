@@ -22,6 +22,7 @@
 #include <sys/priv.h>
 #include <sys/proc.h>
 #include <sys/rwlock.h>
+#include <sys/sbuf.h>
 #include <sys/sysctl.h>
 #include <sys/ucred.h>
 #include <sys/vnode.h>
@@ -71,6 +72,12 @@ SYSCTL_INT(_security_mac_vlabel, OID_AUTO, mode, CTLFLAG_RW,
 
 SYSCTL_INT(_security_mac_vlabel, OID_AUTO, audit_level, CTLFLAG_RW,
     &vlabel_audit_level, 0, "Audit level (0=none, 1=denials, 2=all, 3=verbose)");
+
+SYSCTL_UQUAD(_security_mac_vlabel, OID_AUTO, labels_read, CTLFLAG_RD,
+    &vlabel_stats.vs_labels_read, 0, "Labels read from extended attributes");
+
+SYSCTL_UQUAD(_security_mac_vlabel, OID_AUTO, labels_default, CTLFLAG_RD,
+    &vlabel_stats.vs_labels_default, 0, "Default labels assigned");
 
 /*
  * Forward declarations for all entry points
@@ -302,20 +309,12 @@ vlabel_init(struct mac_policy_conf *mpc)
 	/* Initialize statistics mutex */
 	mtx_init(&vlabel_stats_mtx, "vlabel stats", NULL, MTX_DEF);
 
-	/* Initialize default labels */
-	memset(&vlabel_default_object, 0, sizeof(vlabel_default_object));
-	strlcpy(vlabel_default_object.vl_type, "unlabeled",
-	    sizeof(vlabel_default_object.vl_type));
-	strlcpy(vlabel_default_object.vl_level, "default",
-	    sizeof(vlabel_default_object.vl_level));
-	vlabel_default_object.vl_flags = VLABEL_MATCH_TYPE | VLABEL_MATCH_LEVEL;
+	/* Initialize label subsystem (UMA zone) */
+	vlabel_label_init();
 
-	memset(&vlabel_default_subject, 0, sizeof(vlabel_default_subject));
-	strlcpy(vlabel_default_subject.vl_type, "user",
-	    sizeof(vlabel_default_subject.vl_type));
-	strlcpy(vlabel_default_subject.vl_level, "default",
-	    sizeof(vlabel_default_subject.vl_level));
-	vlabel_default_subject.vl_flags = VLABEL_MATCH_TYPE | VLABEL_MATCH_LEVEL;
+	/* Initialize default labels */
+	vlabel_label_set_default(&vlabel_default_object, false);
+	vlabel_label_set_default(&vlabel_default_subject, true);
 
 	/* Clear statistics */
 	memset(&vlabel_stats, 0, sizeof(vlabel_stats));
@@ -328,6 +327,9 @@ vlabel_destroy(struct mac_policy_conf *mpc)
 {
 
 	VLABEL_DPRINTF("destroying vLabel MAC policy");
+
+	/* Destroy label subsystem (UMA zone) */
+	vlabel_label_destroy();
 
 	mtx_destroy(&vlabel_stats_mtx);
 
@@ -351,39 +353,70 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 static void
 vlabel_cred_init_label(struct label *label)
 {
+	struct vlabel_label *vl;
 
-	/* TODO: Allocate and initialize credential label */
-	SLOT_SET(label, NULL);
+	vl = vlabel_label_alloc(M_WAITOK);
+	vlabel_label_set_default(vl, true);  /* true = subject label */
+	SLOT_SET(label, vl);
+	VLABEL_DPRINTF("cred_init_label: allocated subject label %p", vl);
 }
 
 static void
 vlabel_cred_destroy_label(struct label *label)
 {
+	struct vlabel_label *vl;
 
-	/* TODO: Free credential label */
+	vl = SLOT(label);
+	if (vl != NULL)
+		vlabel_label_free(vl);
 	SLOT_SET(label, NULL);
 }
 
 static void
 vlabel_cred_copy_label(struct label *src, struct label *dest)
 {
+	struct vlabel_label *srcvl, *dstvl;
 
-	/* TODO: Copy credential label */
+	srcvl = SLOT(src);
+	dstvl = SLOT(dest);
+
+	if (srcvl != NULL && dstvl != NULL) {
+		vlabel_label_copy(srcvl, dstvl);
+		VLABEL_DPRINTF("cred_copy_label: copied '%s'", srcvl->vl_raw);
+	}
 }
 
 static void
 vlabel_cred_relabel(struct ucred *cred, struct label *newlabel)
 {
+	struct vlabel_label *vl, *newvl;
 
-	/* TODO: Relabel credential */
+	vl = SLOT(cred->cr_label);
+	newvl = SLOT(newlabel);
+
+	if (vl != NULL && newvl != NULL) {
+		vlabel_label_copy(newvl, vl);
+		VLABEL_DPRINTF("cred_relabel: relabeled to '%s'", vl->vl_raw);
+	}
 }
 
 static int
 vlabel_cred_externalize_label(struct label *label, char *element_name,
     struct sbuf *sb, int *claimed)
 {
+	struct vlabel_label *vl;
 
-	/* TODO: Externalize credential label to string */
+	if (strcmp(element_name, "vlabel") != 0)
+		return (0);
+
+	vl = SLOT(label);
+	if (vl == NULL)
+		return (0);
+
+	*claimed = 1;
+	if (vl->vl_raw[0] != '\0')
+		sbuf_cat(sb, vl->vl_raw);
+
 	return (0);
 }
 
@@ -391,8 +424,22 @@ static int
 vlabel_cred_internalize_label(struct label *label, char *element_name,
     char *element_data, int *claimed)
 {
+	struct vlabel_label *vl;
+	int error;
 
-	/* TODO: Internalize credential label from string */
+	if (strcmp(element_name, "vlabel") != 0)
+		return (0);
+
+	vl = SLOT(label);
+	if (vl == NULL)
+		return (0);
+
+	*claimed = 1;
+	error = vlabel_label_parse(element_data, strlen(element_data), vl);
+	if (error != 0)
+		return (error);
+
+	VLABEL_DPRINTF("cred_internalize: parsed '%s'", vl->vl_raw);
 	return (0);
 }
 
@@ -433,7 +480,10 @@ vlabel_cred_check_setgroups(struct ucred *cred, int ngroups, gid_t *gidset)
 }
 
 /*
- * Process exec transition - STUBS
+ * Process exec transition
+ *
+ * For now, processes inherit the label from their parent (via cred_copy_label).
+ * Future: support label transitions based on rules when executing labeled binaries.
  */
 
 static void
@@ -441,8 +491,24 @@ vlabel_execve_transition(struct ucred *old, struct ucred *new,
     struct vnode *vp, struct label *vplabel, struct label *interpvplabel,
     struct image_params *imgp, struct label *execlabel)
 {
+	struct vlabel_label *oldvl, *newvl, *objvl;
 
-	/* TODO: Handle label transition on exec */
+	/*
+	 * For MVP: Just inherit the parent's label.
+	 * The label was already copied in cred_copy_label.
+	 *
+	 * Future enhancement: Check transition rules and potentially
+	 * adopt the executable's label or a rule-specified label.
+	 */
+	oldvl = SLOT(old->cr_label);
+	newvl = SLOT(new->cr_label);
+	objvl = SLOT(vplabel);
+
+	if (oldvl != NULL && newvl != NULL) {
+		VLABEL_DPRINTF("execve_transition: subject '%s' exec object '%s'",
+		    oldvl->vl_raw,
+		    objvl != NULL ? objvl->vl_raw : "(null)");
+	}
 }
 
 static int
@@ -451,7 +517,10 @@ vlabel_execve_will_transition(struct ucred *old, struct vnode *vp,
     struct image_params *imgp, struct label *execlabel)
 {
 
-	/* TODO: Check if exec will cause label transition */
+	/*
+	 * Return non-zero if exec will cause a label transition.
+	 * For MVP, we don't do transitions, so always return 0.
+	 */
 	return (0);
 }
 
@@ -462,38 +531,100 @@ vlabel_execve_will_transition(struct ucred *old, struct vnode *vp,
 static void
 vlabel_vnode_init_label(struct label *label)
 {
+	struct vlabel_label *vl;
 
-	/* TODO: Allocate vnode label */
-	SLOT_SET(label, NULL);
+	vl = vlabel_label_alloc(M_WAITOK);
+	SLOT_SET(label, vl);
+	VLABEL_DPRINTF("vnode_init_label: allocated label %p", vl);
 }
 
 static void
 vlabel_vnode_destroy_label(struct label *label)
 {
+	struct vlabel_label *vl;
 
-	/* TODO: Free vnode label */
+	vl = SLOT(label);
+	if (vl != NULL)
+		vlabel_label_free(vl);
 	SLOT_SET(label, NULL);
 }
 
 static void
 vlabel_vnode_copy_label(struct label *src, struct label *dest)
 {
+	struct vlabel_label *srcvl, *dstvl;
 
-	/* TODO: Copy vnode label */
+	srcvl = SLOT(src);
+	dstvl = SLOT(dest);
+
+	if (srcvl != NULL && dstvl != NULL)
+		vlabel_label_copy(srcvl, dstvl);
 }
 
 static int
 vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
     struct vnode *vp, struct label *vplabel)
 {
+	struct vlabel_label *vl;
+	char buf[VLABEL_MAX_LABEL_LEN];
+	int buflen, error;
+
+	vl = SLOT(vplabel);
+	if (vl == NULL) {
+		VLABEL_DPRINTF("associate_extattr: NULL label slot");
+		return (0);
+	}
 
 	/*
-	 * TODO: Read label from extended attribute
-	 *
-	 * This is called when a vnode is activated. We should read the
-	 * system:vlabel extattr and parse it into our label structure.
+	 * Read the label from the system:vlabel extended attribute.
 	 */
-	VLABEL_DPRINTF("associate_extattr called");
+	buflen = sizeof(buf) - 1;
+	bzero(buf, sizeof(buf));
+
+	error = vn_extattr_get(vp, IO_NODELOCKED, VLABEL_EXTATTR_NAMESPACE,
+	    VLABEL_EXTATTR_NAME, &buflen, buf, curthread);
+
+	VLABEL_DPRINTF("associate_extattr: vn_extattr_get returned %d, buflen=%d",
+	    error, buflen);
+
+	if (error == ENOATTR || error == EOPNOTSUPP) {
+		/*
+		 * No label on this vnode - use default object label.
+		 */
+		vlabel_label_set_default(vl, false);
+		mtx_lock(&vlabel_stats_mtx);
+		vlabel_stats.vs_labels_default++;
+		mtx_unlock(&vlabel_stats_mtx);
+		VLABEL_DPRINTF("associate_extattr: no label (err=%d), using default",
+		    error);
+		return (0);
+	} else if (error != 0) {
+		/*
+		 * Error reading extattr - use default and log.
+		 */
+		VLABEL_DPRINTF("associate_extattr: error %d reading extattr",
+		    error);
+		vlabel_label_set_default(vl, false);
+		return (0);
+	}
+
+	/*
+	 * Parse the label string.
+	 */
+	buf[buflen] = '\0';
+	error = vlabel_label_parse(buf, buflen, vl);
+	if (error != 0) {
+		VLABEL_DPRINTF("associate_extattr: parse error %d for '%s'",
+		    error, buf);
+		vlabel_label_set_default(vl, false);
+		return (0);
+	}
+
+	mtx_lock(&vlabel_stats_mtx);
+	vlabel_stats.vs_labels_read++;
+	mtx_unlock(&vlabel_stats_mtx);
+
+	VLABEL_DPRINTF("associate_extattr: loaded label '%s'", vl->vl_raw);
 	return (0);
 }
 

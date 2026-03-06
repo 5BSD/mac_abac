@@ -218,6 +218,8 @@ extern int vlabel_audit_level;
 /*
  * Function prototypes - vlabel_label.c
  */
+void vlabel_label_init(void);
+void vlabel_label_destroy(void);
 struct vlabel_label *vlabel_label_alloc(int flags);
 void vlabel_label_free(struct vlabel_label *vl);
 int vlabel_label_parse(const char *str, size_t len, struct vlabel_label *out);
@@ -226,6 +228,7 @@ void vlabel_label_set_default(struct vlabel_label *vl, bool is_subject);
 bool vlabel_label_match(const struct vlabel_label *label,
     const struct vlabel_pattern *pattern);
 uint32_t vlabel_label_hash(const char *str, size_t len);
+int vlabel_label_to_string(const struct vlabel_label *vl, char *buf, size_t buflen);
 
 /*
  * Function prototypes - vlabel_rules.c

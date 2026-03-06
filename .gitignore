@@ -1,0 +1,20 @@
+# Build artifacts
+*.o
+*.ko
+*.kld
+kernel/machine
+kernel/x86
+kernel/i386
+kernel/vnode_if.h
+kernel/vnode_if_newproto.h
+kernel/vnode_if_typedef.h
+kernel/opt_global.h
+kernel/export_syms
+.depend*
+
+# Local scripts (contain IP addresses, etc.)
+scripts/deploy-test.sh
+scripts/setup-boot-test.sh
+
+# Claude
+.claude/
