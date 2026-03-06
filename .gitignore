@@ -16,5 +16,8 @@ kernel/export_syms
 scripts/deploy-test.sh
 scripts/setup-boot-test.sh
 
+# Test output
+test-output.log
+
 # Claude
 .claude/

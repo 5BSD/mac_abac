@@ -56,6 +56,8 @@ struct vlabel_label vlabel_default_subject;
  */
 static struct vlabel_stats vlabel_stats;
 static struct mtx vlabel_stats_mtx;
+static uint64_t vlabel_labels_read;
+static uint64_t vlabel_labels_default;
 
 /*
  * SYSCTL tree: security.mac.vlabel.*
@@ -74,10 +76,10 @@ SYSCTL_INT(_security_mac_vlabel, OID_AUTO, audit_level, CTLFLAG_RW,
     &vlabel_audit_level, 0, "Audit level (0=none, 1=denials, 2=all, 3=verbose)");
 
 SYSCTL_UQUAD(_security_mac_vlabel, OID_AUTO, labels_read, CTLFLAG_RD,
-    &vlabel_stats.vs_labels_read, 0, "Labels read from extended attributes");
+    &vlabel_labels_read, 0, "Labels read from extended attributes");
 
 SYSCTL_UQUAD(_security_mac_vlabel, OID_AUTO, labels_default, CTLFLAG_RD,
-    &vlabel_stats.vs_labels_default, 0, "Default labels assigned");
+    &vlabel_labels_default, 0, "Default labels assigned");
 
 /*
  * Forward declarations for all entry points
@@ -312,6 +314,9 @@ vlabel_init(struct mac_policy_conf *mpc)
 	/* Initialize label subsystem (UMA zone) */
 	vlabel_label_init();
 
+	/* Initialize rule engine */
+	vlabel_rules_init();
+
 	/* Initialize default labels */
 	vlabel_label_set_default(&vlabel_default_object, false);
 	vlabel_label_set_default(&vlabel_default_subject, true);
@@ -327,6 +332,9 @@ vlabel_destroy(struct mac_policy_conf *mpc)
 {
 
 	VLABEL_DPRINTF("destroying vLabel MAC policy");
+
+	/* Destroy rule engine */
+	vlabel_rules_destroy();
 
 	/* Destroy label subsystem (UMA zone) */
 	vlabel_label_destroy();
@@ -356,9 +364,9 @@ vlabel_cred_init_label(struct label *label)
 	struct vlabel_label *vl;
 
 	vl = vlabel_label_alloc(M_WAITOK);
-	vlabel_label_set_default(vl, true);  /* true = subject label */
+	if (vl != NULL)
+		vlabel_label_set_default(vl, true);  /* true = subject label */
 	SLOT_SET(label, vl);
-	VLABEL_DPRINTF("cred_init_label: allocated subject label %p", vl);
 }
 
 static void
@@ -377,13 +385,14 @@ vlabel_cred_copy_label(struct label *src, struct label *dest)
 {
 	struct vlabel_label *srcvl, *dstvl;
 
+	if (src == NULL || dest == NULL)
+		return;
+
 	srcvl = SLOT(src);
 	dstvl = SLOT(dest);
 
-	if (srcvl != NULL && dstvl != NULL) {
+	if (srcvl != NULL && dstvl != NULL)
 		vlabel_label_copy(srcvl, dstvl);
-		VLABEL_DPRINTF("cred_copy_label: copied '%s'", srcvl->vl_raw);
-	}
 }
 
 static void
@@ -394,10 +403,8 @@ vlabel_cred_relabel(struct ucred *cred, struct label *newlabel)
 	vl = SLOT(cred->cr_label);
 	newvl = SLOT(newlabel);
 
-	if (vl != NULL && newvl != NULL) {
+	if (vl != NULL && newvl != NULL)
 		vlabel_label_copy(newvl, vl);
-		VLABEL_DPRINTF("cred_relabel: relabeled to '%s'", vl->vl_raw);
-	}
 }
 
 static int
@@ -436,11 +443,8 @@ vlabel_cred_internalize_label(struct label *label, char *element_name,
 
 	*claimed = 1;
 	error = vlabel_label_parse(element_data, strlen(element_data), vl);
-	if (error != 0)
-		return (error);
 
-	VLABEL_DPRINTF("cred_internalize: parsed '%s'", vl->vl_raw);
-	return (0);
+	return (error);
 }
 
 /*
@@ -592,9 +596,7 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 		 * No label on this vnode - use default object label.
 		 */
 		vlabel_label_set_default(vl, false);
-		mtx_lock(&vlabel_stats_mtx);
-		vlabel_stats.vs_labels_default++;
-		mtx_unlock(&vlabel_stats_mtx);
+		vlabel_labels_default++;
 		VLABEL_DPRINTF("associate_extattr: no label (err=%d), using default",
 		    error);
 		return (0);
@@ -620,9 +622,7 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 		return (0);
 	}
 
-	mtx_lock(&vlabel_stats_mtx);
-	vlabel_stats.vs_labels_read++;
-	mtx_unlock(&vlabel_stats_mtx);
+	vlabel_labels_read++;
 
 	VLABEL_DPRINTF("associate_extattr: loaded label '%s'", vl->vl_raw);
 	return (0);
@@ -738,16 +738,48 @@ static int
 vlabel_vnode_check_exec(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, struct image_params *imgp, struct label *execlabel)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
 
-	/*
-	 * TODO: This is the primary enforcement point for exec.
-	 * Will call vlabel_rules_check(cred, subj, obj, VLABEL_OP_EXEC)
-	 */
-	VLABEL_DPRINTF("check_exec called");
+	/* Get subject label from credential */
+	if (cred == NULL || cred->cr_label == NULL) {
+		VLABEL_DPRINTF("check_exec: no credential label");
+		return (0);
+	}
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
 
-	return (0);
+	/* Get object label from vnode */
+	if (vplabel == NULL) {
+		VLABEL_DPRINTF("check_exec: no vnode label");
+		return (0);
+	}
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	VLABEL_DPRINTF("check_exec: subj='%s' obj='%s'",
+	    subj->vl_raw, obj->vl_raw);
+
+	/* Evaluate rules */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_EXEC);
+
+	/*
+	 * In permissive mode, log but don't enforce.
+	 */
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE) {
+		VLABEL_DPRINTF("check_exec: DENIED (permissive mode, allowing)");
+		return (0);
+	}
+
+	if (error != 0) {
+		VLABEL_DPRINTF("check_exec: DENIED");
+	}
+
+	return (error);
 }
 
 static int
