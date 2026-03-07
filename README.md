@@ -113,6 +113,17 @@ sysctl security.mac.vlabel.mode=2
 | `security.mac.vlabel.enabled` | 0/1 | Enable/disable module |
 | `security.mac.vlabel.mode` | 0/1/2 | Disabled/Permissive/Enforcing |
 | `security.mac.vlabel.audit_level` | 0-3 | None/Denials/Decisions/Verbose |
+| `security.mac.vlabel.default_policy` | 0/1 | Allow/Deny when no rule matches |
+
+## Limits
+
+| Limit | Value | Scope |
+|-------|-------|-------|
+| Label size | 12 KB | Per label |
+| Key length | 63 bytes | Per key |
+| Value length | 255 bytes | Per value |
+| Key-value pairs | 32 | Per label |
+| Rules | 1,024 | System-wide |
 
 ## Requirements
 

@@ -143,6 +143,12 @@ parse_operations(const char *word, uint32_t *ops)
 			*ops |= VLABEL_OP_OPEN;
 		else if (strcasecmp(tok, "access") == 0)
 			*ops |= VLABEL_OP_ACCESS;
+		else if (strcasecmp(tok, "debug") == 0)
+			*ops |= VLABEL_OP_DEBUG;
+		else if (strcasecmp(tok, "signal") == 0)
+			*ops |= VLABEL_OP_SIGNAL;
+		else if (strcasecmp(tok, "sched") == 0)
+			*ops |= VLABEL_OP_SCHED;
 		else if (strcasecmp(tok, "all") == 0 || strcmp(tok, "*") == 0)
 			*ops |= VLABEL_OP_ALL;
 		else
@@ -156,56 +162,45 @@ parse_operations(const char *word, uint32_t *ops)
 }
 
 /*
- * Parse a pattern: type=x,domain=y or * for wildcard
+ * Parse a pattern: key1=val1,key2=val2 or * for wildcard
+ *
+ * The new vlabel_pattern_io uses a simple string field (vp_pattern)
+ * that supports arbitrary key=value pairs. The kernel parses the string.
+ *
+ * Pattern formats:
+ *   *                      - match anything (wildcard)
+ *   key1=val1              - must have key1=val1
+ *   key1=val1,key2=val2    - must have both
+ *   key=*                  - must have key (any value)
+ *   !pattern               - negate the match
  */
 static int
 parse_pattern(const char *word, struct vlabel_pattern_io *pattern)
 {
-	char buf[256];
-	char *p, *tok;
-	char *key, *val;
-	bool negate = false;
+	const char *pattern_start;
 
 	memset(pattern, 0, sizeof(*pattern));
 
 	/* Wildcard */
-	if (strcmp(word, "*") == 0)
+	if (strcmp(word, "*") == 0) {
+		strlcpy(pattern->vp_pattern, "*", sizeof(pattern->vp_pattern));
 		return (0);
+	}
 
 	/* Check for negation prefix */
+	pattern_start = word;
 	if (word[0] == '!') {
-		negate = true;
-		word++;
-	}
-
-	strlcpy(buf, word, sizeof(buf));
-
-	/* Parse key=value pairs */
-	for (tok = strtok_r(buf, ",", &p); tok != NULL;
-	     tok = strtok_r(NULL, ",", &p)) {
-		key = tok;
-		val = strchr(tok, '=');
-		if (val == NULL)
-			continue;
-		*val++ = '\0';
-
-		if (strcasecmp(key, "type") == 0) {
-			pattern->vp_flags |= VLABEL_MATCH_TYPE;
-			strlcpy(pattern->vp_type, val, sizeof(pattern->vp_type));
-		} else if (strcasecmp(key, "domain") == 0) {
-			pattern->vp_flags |= VLABEL_MATCH_DOMAIN;
-			strlcpy(pattern->vp_domain, val, sizeof(pattern->vp_domain));
-		} else if (strcasecmp(key, "name") == 0) {
-			pattern->vp_flags |= VLABEL_MATCH_NAME;
-			strlcpy(pattern->vp_name, val, sizeof(pattern->vp_name));
-		} else if (strcasecmp(key, "level") == 0) {
-			pattern->vp_flags |= VLABEL_MATCH_LEVEL;
-			strlcpy(pattern->vp_level, val, sizeof(pattern->vp_level));
-		}
-	}
-
-	if (negate)
 		pattern->vp_flags |= VLABEL_MATCH_NEGATE;
+		pattern_start = word + 1;
+	}
+
+	/* Store the pattern string directly - kernel will parse it */
+	if (strlen(pattern_start) >= sizeof(pattern->vp_pattern)) {
+		fprintf(stderr, "pattern too long: %s\n", word);
+		return (-1);
+	}
+
+	strlcpy(pattern->vp_pattern, pattern_start, sizeof(pattern->vp_pattern));
 
 	return (0);
 }

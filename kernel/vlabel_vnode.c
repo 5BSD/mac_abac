@@ -34,6 +34,11 @@ extern uint64_t vlabel_labels_read;
 extern uint64_t vlabel_labels_default;
 
 /*
+ * Configurable extended attribute name - defined in mac_vlabel.c
+ */
+extern char vlabel_extattr_name[64];
+
+/*
  * Vnode label lifecycle
  */
 
@@ -91,7 +96,7 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 	bzero(buf, sizeof(buf));
 
 	error = vn_extattr_get(vp, IO_NODELOCKED, VLABEL_EXTATTR_NAMESPACE,
-	    VLABEL_EXTATTR_NAME, &buflen, buf, curthread);
+	    vlabel_extattr_name, &buflen, buf, curthread);
 
 	VLABEL_DPRINTF("associate_extattr: vn_extattr_get returned %d, buflen=%d",
 	    error, buflen);

@@ -43,6 +43,12 @@ static uint64_t vlabel_checks;
 static uint64_t vlabel_allowed;
 static uint64_t vlabel_denied;
 
+/*
+ * Label statistics - defined in mac_vlabel.c
+ */
+extern uint64_t vlabel_labels_read;
+extern uint64_t vlabel_labels_default;
+
 SYSCTL_DECL(_security_mac_vlabel);
 
 SYSCTL_UQUAD(_security_mac_vlabel, OID_AUTO, checks, CTLFLAG_RD,
@@ -56,6 +62,17 @@ SYSCTL_UQUAD(_security_mac_vlabel, OID_AUTO, denied, CTLFLAG_RD,
 
 SYSCTL_INT(_security_mac_vlabel, OID_AUTO, rule_count, CTLFLAG_RD,
     &vlabel_rule_count, 0, "Number of active rules");
+
+/*
+ * Default policy when no rule matches
+ * 0 = allow (permissive default)
+ * 1 = deny (secure default)
+ */
+int vlabel_default_policy = 0;
+
+SYSCTL_INT(_security_mac_vlabel, OID_AUTO, default_policy, CTLFLAG_RW,
+    &vlabel_default_policy, 0,
+    "Default policy when no rule matches (0=allow, 1=deny)");
 
 /*
  * Initialize rule subsystem
@@ -106,47 +123,16 @@ vlabel_rules_destroy(void)
 
 /*
  * Check if a label matches a pattern
+ *
+ * This is a wrapper around vlabel_label_match from vlabel_label.c.
+ * The actual matching logic supports arbitrary key=value pairs.
  */
 static bool
 vlabel_pattern_match(const struct vlabel_label *label,
     const struct vlabel_pattern *pattern)
 {
-	bool match = true;
 
-	/* If no flags set, match everything (wildcard) */
-	if ((pattern->vp_flags & ~VLABEL_MATCH_NEGATE) == 0)
-		return (true);
-
-	/* Check each requested field */
-	if (pattern->vp_flags & VLABEL_MATCH_TYPE) {
-		if (pattern->vp_type[0] != '\0' &&
-		    strcmp(label->vl_type, pattern->vp_type) != 0)
-			match = false;
-	}
-
-	if (pattern->vp_flags & VLABEL_MATCH_DOMAIN) {
-		if (pattern->vp_domain[0] != '\0' &&
-		    strcmp(label->vl_domain, pattern->vp_domain) != 0)
-			match = false;
-	}
-
-	if (pattern->vp_flags & VLABEL_MATCH_NAME) {
-		if (pattern->vp_name[0] != '\0' &&
-		    strcmp(label->vl_name, pattern->vp_name) != 0)
-			match = false;
-	}
-
-	if (pattern->vp_flags & VLABEL_MATCH_LEVEL) {
-		if (pattern->vp_level[0] != '\0' &&
-		    strcmp(label->vl_level, pattern->vp_level) != 0)
-			match = false;
-	}
-
-	/* Apply negation if requested */
-	if (pattern->vp_flags & VLABEL_MATCH_NEGATE)
-		match = !match;
-
-	return (match);
+	return (vlabel_label_match(label, pattern));
 }
 
 /*
@@ -356,13 +342,19 @@ vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 
 	/*
 	 * No rule matched - use default policy.
-	 * For MVP, default is ALLOW (permissive).
-	 * In production, default should be DENY.
+	 * Controlled by sysctl security.mac.vlabel.default_policy
 	 */
-	result = 0;
-	VLABEL_DPRINTF("rules_check: no rule matched, default ALLOW "
-	    "subj='%s' obj='%s' op=0x%x",
-	    subj->vl_raw, obj->vl_raw, op);
+	if (vlabel_default_policy == 0) {
+		result = 0;
+		VLABEL_DPRINTF("rules_check: no rule matched, default ALLOW "
+		    "subj='%s' obj='%s' op=0x%x",
+		    subj->vl_raw, obj->vl_raw, op);
+	} else {
+		result = EACCES;
+		VLABEL_DPRINTF("rules_check: no rule matched, default DENY "
+		    "subj='%s' obj='%s' op=0x%x",
+		    subj->vl_raw, obj->vl_raw, op);
+	}
 
 out:
 	rw_runlock(&vlabel_rules_lock);
@@ -569,10 +561,60 @@ vlabel_rules_get_stats(struct vlabel_stats *stats)
 	stats->vs_checks = vlabel_checks;
 	stats->vs_allowed = vlabel_allowed;
 	stats->vs_denied = vlabel_denied;
-	stats->vs_labels_read = 0;	/* TODO: get from label module */
-	stats->vs_labels_default = 0;
+	stats->vs_labels_read = vlabel_labels_read;
+	stats->vs_labels_default = vlabel_labels_default;
 	stats->vs_rule_count = vlabel_rule_count;
 	rw_runlock(&vlabel_rules_lock);
+}
+
+/*
+ * Serialize a pattern structure to a string
+ *
+ * Converts the parsed key=value pairs back to a comma-separated string.
+ * Returns the number of characters written (not including null terminator).
+ */
+static size_t
+vlabel_pattern_to_string(const struct vlabel_pattern *pattern, char *buf,
+    size_t buflen)
+{
+	size_t pos = 0;
+	uint32_t i;
+
+	if (buf == NULL || buflen == 0)
+		return (0);
+
+	buf[0] = '\0';
+
+	/* Empty pattern = wildcard */
+	if (pattern->vp_npairs == 0) {
+		if (buflen > 1) {
+			buf[0] = '*';
+			buf[1] = '\0';
+			return (1);
+		}
+		return (0);
+	}
+
+	/* Build comma-separated key=value string */
+	for (i = 0; i < pattern->vp_npairs && pos < buflen - 1; i++) {
+		const struct vlabel_pair *pair = &pattern->vp_pairs[i];
+		size_t needed;
+
+		if (i > 0 && pos < buflen - 1)
+			buf[pos++] = ',';
+
+		/* Calculate space needed for "key=value" */
+		needed = strlen(pair->vp_key) + 1 + strlen(pair->vp_value);
+		if (pos + needed >= buflen)
+			break;
+
+		pos += strlcpy(buf + pos, pair->vp_key, buflen - pos);
+		if (pos < buflen - 1)
+			buf[pos++] = '=';
+		pos += strlcpy(buf + pos, pair->vp_value, buflen - pos);
+	}
+
+	return (pos);
 }
 
 /*
@@ -588,27 +630,15 @@ vlabel_rule_to_io(const struct vlabel_rule *rule, struct vlabel_rule_io *io)
 	io->vr_action = rule->vr_action;
 	io->vr_operations = rule->vr_operations;
 
-	/* Copy subject pattern */
+	/* Serialize subject pattern to string */
 	io->vr_subject.vp_flags = rule->vr_subject.vp_flags;
-	strlcpy(io->vr_subject.vp_type, rule->vr_subject.vp_type,
-	    sizeof(io->vr_subject.vp_type));
-	strlcpy(io->vr_subject.vp_domain, rule->vr_subject.vp_domain,
-	    sizeof(io->vr_subject.vp_domain));
-	strlcpy(io->vr_subject.vp_name, rule->vr_subject.vp_name,
-	    sizeof(io->vr_subject.vp_name));
-	strlcpy(io->vr_subject.vp_level, rule->vr_subject.vp_level,
-	    sizeof(io->vr_subject.vp_level));
+	vlabel_pattern_to_string(&rule->vr_subject, io->vr_subject.vp_pattern,
+	    sizeof(io->vr_subject.vp_pattern));
 
-	/* Copy object pattern */
+	/* Serialize object pattern to string */
 	io->vr_object.vp_flags = rule->vr_object.vp_flags;
-	strlcpy(io->vr_object.vp_type, rule->vr_object.vp_type,
-	    sizeof(io->vr_object.vp_type));
-	strlcpy(io->vr_object.vp_domain, rule->vr_object.vp_domain,
-	    sizeof(io->vr_object.vp_domain));
-	strlcpy(io->vr_object.vp_name, rule->vr_object.vp_name,
-	    sizeof(io->vr_object.vp_name));
-	strlcpy(io->vr_object.vp_level, rule->vr_object.vp_level,
-	    sizeof(io->vr_object.vp_level));
+	vlabel_pattern_to_string(&rule->vr_object, io->vr_object.vp_pattern,
+	    sizeof(io->vr_object.vp_pattern));
 
 	/* Copy context constraints */
 	io->vr_context.vc_flags = rule->vr_context.vc_flags;
@@ -747,8 +777,8 @@ vlabel_rules_test_access(struct vlabel_test_io *test_io)
 		goto out;
 	}
 
-	/* No rule matched - default allow for MVP */
-	test_io->vt_result = 0;
+	/* No rule matched - use default policy */
+	test_io->vt_result = vlabel_default_policy ? EACCES : 0;
 	test_io->vt_rule_id = 0;
 
 out:

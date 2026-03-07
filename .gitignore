@@ -23,7 +23,10 @@ test-output.log
 .claude/
 kernel/mac_vlabel.ko
 kernel/mac_vlabel.o
+# Sticking with C for now.
 swift/.build/build.db
 swift/.build/debug
 swift/.build/
 
+daemon/vlabeld
+tools/vlabelctl

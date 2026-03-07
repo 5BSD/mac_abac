@@ -182,69 +182,96 @@ parse_action(const ucl_object_t *obj, uint8_t *action)
 
 /*
  * Parse a pattern (subject or object)
+ *
+ * The new vlabel_pattern_io uses a simple string field (vp_pattern)
+ * that supports arbitrary key=value pairs. We build the string from
+ * UCL object keys.
+ *
+ * UCL format (supports arbitrary keys):
+ *   subject = { type = "app"; domain = "web"; sensitivity = "secret"; }
+ *   object = { compartment = "hr"; level = "high"; }
+ *   subject = "*";  -- wildcard
+ *   object = "type=app,domain=web";  -- string form
+ *
+ * The pattern string format is: "key1=val1,key2=val2,..."
  */
 static void
 parse_pattern(const ucl_object_t *obj, struct vlabel_pattern_io *pattern)
 {
 	const ucl_object_t *val;
-	const char *str;
+	ucl_object_iter_t it = NULL;
+	const char *key, *str;
+	size_t pos;
+	bool first;
+	bool negate = false;
 
 	memset(pattern, 0, sizeof(*pattern));
 
-	if (obj == NULL || ucl_object_type(obj) != UCL_OBJECT)
+	if (obj == NULL)
 		return;
 
-	/* type */
-	val = ucl_object_lookup(obj, "type");
-	if (val != NULL && ucl_object_type(val) == UCL_STRING) {
-		str = ucl_object_tostring(val);
+	/* Handle string form: "*" or "type=app,domain=web" */
+	if (ucl_object_type(obj) == UCL_STRING) {
+		str = ucl_object_tostring(obj);
 		if (str[0] == '!') {
-			pattern->vp_flags |= VLABEL_MATCH_TYPE | VLABEL_MATCH_NEGATE;
-			strlcpy(pattern->vp_type, str + 1, sizeof(pattern->vp_type));
-		} else if (strcmp(str, "*") != 0) {
-			pattern->vp_flags |= VLABEL_MATCH_TYPE;
-			strlcpy(pattern->vp_type, str, sizeof(pattern->vp_type));
+			pattern->vp_flags |= VLABEL_MATCH_NEGATE;
+			str++;
 		}
+		strlcpy(pattern->vp_pattern, str, sizeof(pattern->vp_pattern));
+		return;
 	}
 
-	/* domain */
-	val = ucl_object_lookup(obj, "domain");
-	if (val != NULL && ucl_object_type(val) == UCL_STRING) {
-		str = ucl_object_tostring(val);
-		if (str[0] == '!') {
-			pattern->vp_flags |= VLABEL_MATCH_DOMAIN | VLABEL_MATCH_NEGATE;
-			strlcpy(pattern->vp_domain, str + 1, sizeof(pattern->vp_domain));
-		} else if (strcmp(str, "*") != 0) {
-			pattern->vp_flags |= VLABEL_MATCH_DOMAIN;
-			strlcpy(pattern->vp_domain, str, sizeof(pattern->vp_domain));
-		}
+	if (ucl_object_type(obj) != UCL_OBJECT)
+		return;
+
+	/* Check for negate flag in object */
+	val = ucl_object_lookup(obj, "negate");
+	if (val != NULL && ucl_object_type(val) == UCL_BOOLEAN) {
+		negate = ucl_object_toboolean(val);
 	}
 
-	/* name */
-	val = ucl_object_lookup(obj, "name");
-	if (val != NULL && ucl_object_type(val) == UCL_STRING) {
+	/* Build pattern string from all key=value pairs in the object */
+	pos = 0;
+	first = true;
+
+	while ((val = ucl_object_iterate(obj, &it, true)) != NULL) {
+		key = ucl_object_key(val);
+
+		/* Skip special keys */
+		if (strcmp(key, "negate") == 0)
+			continue;
+
+		if (ucl_object_type(val) != UCL_STRING)
+			continue;
+
 		str = ucl_object_tostring(val);
-		if (str[0] == '!') {
-			pattern->vp_flags |= VLABEL_MATCH_NAME | VLABEL_MATCH_NEGATE;
-			strlcpy(pattern->vp_name, str + 1, sizeof(pattern->vp_name));
-		} else if (strcmp(str, "*") != 0) {
-			pattern->vp_flags |= VLABEL_MATCH_NAME;
-			strlcpy(pattern->vp_name, str, sizeof(pattern->vp_name));
+
+		/* Skip wildcard values */
+		if (strcmp(str, "*") == 0)
+			continue;
+
+		/* Append "key=value" to pattern */
+		if (!first && pos < sizeof(pattern->vp_pattern) - 1) {
+			pattern->vp_pattern[pos++] = ',';
 		}
+		first = false;
+
+		pos += strlcpy(pattern->vp_pattern + pos, key,
+		    sizeof(pattern->vp_pattern) - pos);
+		if (pos < sizeof(pattern->vp_pattern) - 1) {
+			pattern->vp_pattern[pos++] = '=';
+		}
+		pos += strlcpy(pattern->vp_pattern + pos, str,
+		    sizeof(pattern->vp_pattern) - pos);
 	}
 
-	/* level */
-	val = ucl_object_lookup(obj, "level");
-	if (val != NULL && ucl_object_type(val) == UCL_STRING) {
-		str = ucl_object_tostring(val);
-		if (str[0] == '!') {
-			pattern->vp_flags |= VLABEL_MATCH_LEVEL | VLABEL_MATCH_NEGATE;
-			strlcpy(pattern->vp_level, str + 1, sizeof(pattern->vp_level));
-		} else if (strcmp(str, "*") != 0) {
-			pattern->vp_flags |= VLABEL_MATCH_LEVEL;
-			strlcpy(pattern->vp_level, str, sizeof(pattern->vp_level));
-		}
+	/* If pattern is empty, treat as wildcard */
+	if (pattern->vp_pattern[0] == '\0') {
+		strlcpy(pattern->vp_pattern, "*", sizeof(pattern->vp_pattern));
 	}
+
+	if (negate)
+		pattern->vp_flags |= VLABEL_MATCH_NEGATE;
 }
 
 /*

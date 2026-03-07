@@ -166,7 +166,7 @@ vlabel_label_hash(const char *str, size_t len)
 }
 
 /*
- * parse_kv_pair - Parse a single key=value pair
+ * parse_kv_pair - Parse a single key=value pair into the pairs array
  *
  * @str: String containing "key=value"
  * @len: Length of string
@@ -177,47 +177,49 @@ vlabel_label_hash(const char *str, size_t len)
 static int
 parse_kv_pair(const char *str, size_t len, struct vlabel_label *vl)
 {
-	char key[VLABEL_MAX_KEY_LEN];
-	char value[VLABEL_MAX_VALUE_LEN];
+	struct vlabel_pair *pair;
 	const char *eq;
 	size_t keylen, valuelen;
 
+	/* Check if we have room for another pair */
+	if (vl->vl_npairs >= VLABEL_MAX_PAIRS) {
+		VLABEL_DPRINTF("parse_kv_pair: too many pairs (max %d)",
+		    VLABEL_MAX_PAIRS);
+		return (E2BIG);
+	}
+
 	/* Find the '=' separator */
 	eq = memchr(str, '=', len);
-	if (eq == NULL)
+	if (eq == NULL) {
+		VLABEL_DPRINTF("parse_kv_pair: no '=' in pair");
 		return (EINVAL);
+	}
 
 	keylen = eq - str;
 	valuelen = len - keylen - 1;
 
 	/* Validate lengths */
-	if (keylen == 0 || keylen >= VLABEL_MAX_KEY_LEN)
+	if (keylen == 0 || keylen >= VLABEL_MAX_KEY_LEN) {
+		VLABEL_DPRINTF("parse_kv_pair: key too long (%zu >= %d)",
+		    keylen, VLABEL_MAX_KEY_LEN);
 		return (EINVAL);
-	if (valuelen >= VLABEL_MAX_VALUE_LEN)
-		return (EINVAL);
-
-	/* Copy key and value */
-	memcpy(key, str, keylen);
-	key[keylen] = '\0';
-
-	memcpy(value, eq + 1, valuelen);
-	value[valuelen] = '\0';
-
-	/* Store in appropriate field */
-	if (strcmp(key, "type") == 0) {
-		strlcpy(vl->vl_type, value, sizeof(vl->vl_type));
-		vl->vl_flags |= VLABEL_MATCH_TYPE;
-	} else if (strcmp(key, "domain") == 0) {
-		strlcpy(vl->vl_domain, value, sizeof(vl->vl_domain));
-		vl->vl_flags |= VLABEL_MATCH_DOMAIN;
-	} else if (strcmp(key, "name") == 0) {
-		strlcpy(vl->vl_name, value, sizeof(vl->vl_name));
-		vl->vl_flags |= VLABEL_MATCH_NAME;
-	} else if (strcmp(key, "level") == 0) {
-		strlcpy(vl->vl_level, value, sizeof(vl->vl_level));
-		vl->vl_flags |= VLABEL_MATCH_LEVEL;
 	}
-	/* Unknown keys are silently ignored for forward compatibility */
+	if (valuelen >= VLABEL_MAX_VALUE_LEN) {
+		VLABEL_DPRINTF("parse_kv_pair: value too long (%zu >= %d)",
+		    valuelen, VLABEL_MAX_VALUE_LEN);
+		return (EINVAL);
+	}
+
+	/* Store in the next available pair slot */
+	pair = &vl->vl_pairs[vl->vl_npairs];
+
+	memcpy(pair->vp_key, str, keylen);
+	pair->vp_key[keylen] = '\0';
+
+	memcpy(pair->vp_value, eq + 1, valuelen);
+	pair->vp_value[valuelen] = '\0';
+
+	vl->vl_npairs++;
 
 	return (0);
 }
@@ -225,62 +227,66 @@ parse_kv_pair(const char *str, size_t len, struct vlabel_label *vl)
 /*
  * vlabel_label_parse - Parse a label string into a label structure
  *
- * @str: Label string in format "key1=val1,key2=val2,..."
+ * @str: Label string in newline-separated format: "key1=val1\nkey2=val2\n"
  * @len: Length of string (not including null terminator)
  * @vl: Label structure to populate (must be zeroed)
  *
  * Returns 0 on success, error code on failure.
  *
- * Example input: "type=system,domain=daemon,name=sshd,level=high"
+ * Example input: "type=system\ndomain=daemon\n"
  */
 int
 vlabel_label_parse(const char *str, size_t len, struct vlabel_label *vl)
 {
-	const char *p, *end, *comma;
+	const char *p, *end, *nl;
 	int error;
 
 	/* Validate inputs */
 	if (str == NULL || vl == NULL)
 		return (EINVAL);
 
-	if (len == 0 || len > VLABEL_MAX_LABEL_LEN) {
+	/* Empty string is valid - means unlabeled/default */
+	if (len == 0) {
+		memset(vl, 0, sizeof(*vl));
+		return (0);
+	}
+
+	if (len > VLABEL_MAX_LABEL_LEN) {
 		atomic_add_64(&vlabel_parse_errors, 1);
+		VLABEL_DPRINTF("label too long: %zu > %d", len, VLABEL_MAX_LABEL_LEN);
 		return (EINVAL);
 	}
 
 	/* Store raw label string */
 	strlcpy(vl->vl_raw, str, sizeof(vl->vl_raw));
 	vl->vl_hash = vlabel_label_hash(str, len);
-	vl->vl_flags = 0;
+	vl->vl_npairs = 0;
 
-	/* Parse comma-separated key=value pairs */
+	/* Parse newline-separated key=value pairs */
 	p = str;
 	end = str + len;
 
 	while (p < end) {
-		/* Find next comma or end of string */
-		comma = memchr(p, ',', end - p);
-		if (comma == NULL)
-			comma = end;
+		/* Find next newline or end of string */
+		nl = memchr(p, '\n', end - p);
+		if (nl == NULL)
+			nl = end;
 
-		/* Parse this pair */
-		if (comma > p) {
-			error = parse_kv_pair(p, comma - p, vl);
+		/* Parse this pair (skip empty lines) */
+		if (nl > p) {
+			error = parse_kv_pair(p, nl - p, vl);
 			if (error != 0) {
 				atomic_add_64(&vlabel_parse_errors, 1);
 				return (error);
 			}
 		}
 
-		/* Move past comma */
-		p = comma + 1;
+		/* Move past newline */
+		p = nl + 1;
 	}
 
-	VLABEL_DPRINTF("parsed label: type=%s domain=%s name=%s level=%s",
-	    vl->vl_type[0] ? vl->vl_type : "(none)",
-	    vl->vl_domain[0] ? vl->vl_domain : "(none)",
-	    vl->vl_name[0] ? vl->vl_name : "(none)",
-	    vl->vl_level[0] ? vl->vl_level : "(none)");
+	VLABEL_DPRINTF("parsed label: raw='%s' npairs=%u",
+	    vl->vl_raw, vl->vl_npairs);
 
 	return (0);
 }
@@ -317,19 +323,47 @@ vlabel_label_set_default(struct vlabel_label *vl, bool is_subject)
 	memset(vl, 0, sizeof(*vl));
 
 	if (is_subject) {
-		strlcpy(vl->vl_raw, "type=user,level=default",
-		    sizeof(vl->vl_raw));
-		strlcpy(vl->vl_type, "user", sizeof(vl->vl_type));
-		strlcpy(vl->vl_level, "default", sizeof(vl->vl_level));
+		strlcpy(vl->vl_raw, "type=user", sizeof(vl->vl_raw));
+		vl->vl_npairs = 1;
+		strlcpy(vl->vl_pairs[0].vp_key, "type",
+		    sizeof(vl->vl_pairs[0].vp_key));
+		strlcpy(vl->vl_pairs[0].vp_value, "user",
+		    sizeof(vl->vl_pairs[0].vp_value));
 	} else {
-		strlcpy(vl->vl_raw, "type=unlabeled,level=default",
-		    sizeof(vl->vl_raw));
-		strlcpy(vl->vl_type, "unlabeled", sizeof(vl->vl_type));
-		strlcpy(vl->vl_level, "default", sizeof(vl->vl_level));
+		strlcpy(vl->vl_raw, "type=unlabeled", sizeof(vl->vl_raw));
+		vl->vl_npairs = 1;
+		strlcpy(vl->vl_pairs[0].vp_key, "type",
+		    sizeof(vl->vl_pairs[0].vp_key));
+		strlcpy(vl->vl_pairs[0].vp_value, "unlabeled",
+		    sizeof(vl->vl_pairs[0].vp_value));
 	}
 
 	vl->vl_hash = vlabel_label_hash(vl->vl_raw, strlen(vl->vl_raw));
-	vl->vl_flags = VLABEL_MATCH_TYPE | VLABEL_MATCH_LEVEL;
+}
+
+/*
+ * vlabel_label_get_value - Get the value for a key in a label
+ *
+ * @vl: Label to search
+ * @key: Key to look up
+ *
+ * Returns pointer to value string if found, NULL otherwise.
+ * The returned pointer is valid as long as the label is not modified.
+ */
+const char *
+vlabel_label_get_value(const struct vlabel_label *vl, const char *key)
+{
+	uint32_t i;
+
+	if (vl == NULL || key == NULL)
+		return (NULL);
+
+	for (i = 0; i < vl->vl_npairs; i++) {
+		if (strcmp(vl->vl_pairs[i].vp_key, key) == 0)
+			return (vl->vl_pairs[i].vp_value);
+	}
+
+	return (NULL);
 }
 
 /*
@@ -341,44 +375,47 @@ vlabel_label_set_default(struct vlabel_label *vl, bool is_subject)
  * Returns true if label matches pattern, false otherwise.
  *
  * Pattern matching rules:
- * - Empty pattern field = wildcard (matches anything)
- * - Non-empty field must match exactly
+ * - Empty pattern (npairs=0) = wildcard (matches anything)
+ * - Each pattern pair must exist in the label
+ * - Pattern value "*" matches any value for that key
  * - VLABEL_MATCH_NEGATE inverts the result
  */
 bool
 vlabel_label_match(const struct vlabel_label *label,
     const struct vlabel_pattern *pattern)
 {
+	const char *label_value;
+	uint32_t i;
 	bool match = true;
 
 	if (label == NULL || pattern == NULL)
 		return (false);
 
-	/* Check each field that's specified in the pattern */
-	if ((pattern->vp_flags & VLABEL_MATCH_TYPE) &&
-	    pattern->vp_type[0] != '\0') {
-		if (strcmp(label->vl_type, pattern->vp_type) != 0)
-			match = false;
+	/* Empty pattern matches everything */
+	if (pattern->vp_npairs == 0) {
+		match = true;
+		goto done;
 	}
 
-	if (match && (pattern->vp_flags & VLABEL_MATCH_DOMAIN) &&
-	    pattern->vp_domain[0] != '\0') {
-		if (strcmp(label->vl_domain, pattern->vp_domain) != 0)
+	/* Check each pattern pair against the label */
+	for (i = 0; i < pattern->vp_npairs && match; i++) {
+		const struct vlabel_pair *pp = &pattern->vp_pairs[i];
+
+		/* Find this key in the label */
+		label_value = vlabel_label_get_value(label, pp->vp_key);
+
+		if (label_value == NULL) {
+			/* Key not found in label - no match */
 			match = false;
+		} else if (strcmp(pp->vp_value, "*") != 0) {
+			/* Not a wildcard - must match exactly */
+			if (strcmp(label_value, pp->vp_value) != 0)
+				match = false;
+		}
+		/* else: wildcard "*" matches any value - continue */
 	}
 
-	if (match && (pattern->vp_flags & VLABEL_MATCH_NAME) &&
-	    pattern->vp_name[0] != '\0') {
-		if (strcmp(label->vl_name, pattern->vp_name) != 0)
-			match = false;
-	}
-
-	if (match && (pattern->vp_flags & VLABEL_MATCH_LEVEL) &&
-	    pattern->vp_level[0] != '\0') {
-		if (strcmp(label->vl_level, pattern->vp_level) != 0)
-			match = false;
-	}
-
+done:
 	/* Handle negation */
 	if (pattern->vp_flags & VLABEL_MATCH_NEGATE)
 		match = !match;
@@ -399,37 +436,112 @@ vlabel_label_match(const struct vlabel_label *label,
 int
 vlabel_label_to_string(const struct vlabel_label *vl, char *buf, size_t buflen)
 {
-	int len;
+	size_t len;
 
 	if (vl == NULL || buf == NULL || buflen == 0)
 		return (-1);
 
-	/* If we have a raw string, just use that */
-	if (vl->vl_raw[0] != '\0') {
-		len = strlcpy(buf, vl->vl_raw, buflen);
-		return (len >= buflen ? -1 : len);
+	/* Just use the raw string - it's authoritative */
+	len = strlcpy(buf, vl->vl_raw, buflen);
+	return (len >= buflen ? -1 : (int)len);
+}
+
+/*
+ * vlabel_pattern_parse - Parse a pattern string into a pattern structure
+ *
+ * @str: Pattern string in comma-separated format "key1=val1,key2=val2,..."
+ *       or "*" for wildcard, or "!pattern" for negation
+ * @len: Length of string
+ * @pattern: Pattern structure to populate
+ *
+ * Note: Patterns use comma-separated format (for rule definitions),
+ * while labels use newline-separated format (for extended attributes).
+ *
+ * Returns 0 on success, error code on failure.
+ */
+int
+vlabel_pattern_parse(const char *str, size_t len, struct vlabel_pattern *pattern)
+{
+	const char *p, *end, *comma, *eq;
+	size_t keylen, valuelen;
+	struct vlabel_pair *pair;
+
+	if (str == NULL || pattern == NULL)
+		return (EINVAL);
+
+	memset(pattern, 0, sizeof(*pattern));
+
+	/* Check for negation prefix */
+	if (len > 0 && str[0] == '!') {
+		pattern->vp_flags |= VLABEL_MATCH_NEGATE;
+		str++;
+		len--;
 	}
 
-	/* Otherwise, build from components */
-	len = 0;
-	buf[0] = '\0';
+	/* Empty or "*" means wildcard - match everything */
+	if (len == 0 || (len == 1 && str[0] == '*'))
+		return (0);
 
-	if (vl->vl_type[0] != '\0') {
-		len += snprintf(buf + len, buflen - len, "%stype=%s",
-		    len > 0 ? "," : "", vl->vl_type);
-	}
-	if (vl->vl_domain[0] != '\0') {
-		len += snprintf(buf + len, buflen - len, "%sdomain=%s",
-		    len > 0 ? "," : "", vl->vl_domain);
-	}
-	if (vl->vl_name[0] != '\0') {
-		len += snprintf(buf + len, buflen - len, "%sname=%s",
-		    len > 0 ? "," : "", vl->vl_name);
-	}
-	if (vl->vl_level[0] != '\0') {
-		len += snprintf(buf + len, buflen - len, "%slevel=%s",
-		    len > 0 ? "," : "", vl->vl_level);
+	if (len > VLABEL_MAX_LABEL_LEN) {
+		VLABEL_DPRINTF("pattern_parse: pattern too long (%zu > %d)",
+		    len, VLABEL_MAX_LABEL_LEN);
+		return (EINVAL);
 	}
 
-	return (len >= buflen ? -1 : len);
+	/* Parse comma-separated key=value pairs */
+	p = str;
+	end = str + len;
+
+	while (p < end) {
+		/* Find next comma or end of string */
+		comma = memchr(p, ',', end - p);
+		if (comma == NULL)
+			comma = end;
+
+		/* Skip empty segments */
+		if (comma == p) {
+			p = comma + 1;
+			continue;
+		}
+
+		/* Check pair limit */
+		if (pattern->vp_npairs >= VLABEL_MAX_PAIRS) {
+			VLABEL_DPRINTF("pattern_parse: too many pairs (max %d)",
+			    VLABEL_MAX_PAIRS);
+			return (E2BIG);
+		}
+
+		/* Find '=' separator */
+		eq = memchr(p, '=', comma - p);
+		if (eq == NULL) {
+			VLABEL_DPRINTF("pattern_parse: missing '=' in pair");
+			return (EINVAL);
+		}
+
+		keylen = eq - p;
+		valuelen = comma - eq - 1;
+
+		if (keylen == 0 || keylen >= VLABEL_MAX_KEY_LEN) {
+			VLABEL_DPRINTF("pattern_parse: key length %zu invalid (max %d)",
+			    keylen, VLABEL_MAX_KEY_LEN - 1);
+			return (EINVAL);
+		}
+		if (valuelen >= VLABEL_MAX_VALUE_LEN) {
+			VLABEL_DPRINTF("pattern_parse: value length %zu too long (max %d)",
+			    valuelen, VLABEL_MAX_VALUE_LEN - 1);
+			return (EINVAL);
+		}
+
+		/* Store this pair */
+		pair = &pattern->vp_pairs[pattern->vp_npairs];
+		memcpy(pair->vp_key, p, keylen);
+		pair->vp_key[keylen] = '\0';
+		memcpy(pair->vp_value, eq + 1, valuelen);
+		pair->vp_value[valuelen] = '\0';
+		pattern->vp_npairs++;
+
+		p = comma + 1;
+	}
+
+	return (0);
 }

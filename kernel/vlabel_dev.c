@@ -161,27 +161,27 @@ vlabel_rule_from_io(struct vlabel_rule *rule, const struct vlabel_rule_io *io)
 	rule->vr_action = io->vr_action;
 	rule->vr_operations = io->vr_operations;
 
-	/* Copy subject pattern */
-	rule->vr_subject.vp_flags = io->vr_subject.vp_flags;
-	strlcpy(rule->vr_subject.vp_type, io->vr_subject.vp_type,
-	    sizeof(rule->vr_subject.vp_type));
-	strlcpy(rule->vr_subject.vp_domain, io->vr_subject.vp_domain,
-	    sizeof(rule->vr_subject.vp_domain));
-	strlcpy(rule->vr_subject.vp_name, io->vr_subject.vp_name,
-	    sizeof(rule->vr_subject.vp_name));
-	strlcpy(rule->vr_subject.vp_level, io->vr_subject.vp_level,
-	    sizeof(rule->vr_subject.vp_level));
+	/* Parse subject pattern from pattern string */
+	int error = vlabel_pattern_parse(io->vr_subject.vp_pattern,
+	    strlen(io->vr_subject.vp_pattern), &rule->vr_subject);
+	if (error != 0) {
+		VLABEL_DPRINTF("rule_from_io: invalid subject pattern");
+		return (error);
+	}
+	/* Preserve negate flag from io structure */
+	if (io->vr_subject.vp_flags & VLABEL_MATCH_NEGATE)
+		rule->vr_subject.vp_flags |= VLABEL_MATCH_NEGATE;
 
-	/* Copy object pattern */
-	rule->vr_object.vp_flags = io->vr_object.vp_flags;
-	strlcpy(rule->vr_object.vp_type, io->vr_object.vp_type,
-	    sizeof(rule->vr_object.vp_type));
-	strlcpy(rule->vr_object.vp_domain, io->vr_object.vp_domain,
-	    sizeof(rule->vr_object.vp_domain));
-	strlcpy(rule->vr_object.vp_name, io->vr_object.vp_name,
-	    sizeof(rule->vr_object.vp_name));
-	strlcpy(rule->vr_object.vp_level, io->vr_object.vp_level,
-	    sizeof(rule->vr_object.vp_level));
+	/* Parse object pattern from pattern string */
+	error = vlabel_pattern_parse(io->vr_object.vp_pattern,
+	    strlen(io->vr_object.vp_pattern), &rule->vr_object);
+	if (error != 0) {
+		VLABEL_DPRINTF("rule_from_io: invalid object pattern");
+		return (error);
+	}
+	/* Preserve negate flag from io structure */
+	if (io->vr_object.vp_flags & VLABEL_MATCH_NEGATE)
+		rule->vr_object.vp_flags |= VLABEL_MATCH_NEGATE;
 
 	/* Copy context constraints */
 	rule->vr_context.vc_flags = io->vr_context.vc_flags;
@@ -341,6 +341,21 @@ vlabel_dev_ioctl(struct cdev *dev __unused, u_long cmd, caddr_t data,
 			    test_io->vt_result, test_io->vt_rule_id);
 			return (error);
 		}
+
+	case VLABEL_IOC_GETDEFPOL:
+		modep = (int *)data;
+		*modep = vlabel_default_policy;
+		VLABEL_DPRINTF("ioctl GETDEFPOL: %d", vlabel_default_policy);
+		return (0);
+
+	case VLABEL_IOC_SETDEFPOL:
+		modep = (int *)data;
+		if (*modep < 0 || *modep > 1)
+			return (EINVAL);
+		VLABEL_DPRINTF("ioctl SETDEFPOL: %d -> %d",
+		    vlabel_default_policy, *modep);
+		vlabel_default_policy = *modep;
+		return (0);
 
 	default:
 		VLABEL_DPRINTF("ioctl: unknown cmd 0x%lx", cmd);

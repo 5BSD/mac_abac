@@ -31,9 +31,144 @@
 
 static int dev_fd = -1;
 
+/*
+ * Validate a label string before sending to kernel.
+ * Labels use newline-separated format: "key1=val1\nkey2=val2\n"
+ * Returns 0 if valid, prints error and returns -1 if invalid.
+ */
+static int
+validate_label(const char *label)
+{
+	size_t len, keylen, valuelen;
+	const char *p, *end, *nl, *eq;
+	int npairs = 0;
+
+	if (label == NULL) {
+		warnx("label is NULL");
+		return (-1);
+	}
+
+	len = strlen(label);
+	if (len == 0) {
+		/* Empty label is valid */
+		return (0);
+	}
+
+	if (len > VLABEL_MAX_LABEL_LEN) {
+		warnx("label too long: %zu bytes (max %d)",
+		    len, VLABEL_MAX_LABEL_LEN);
+		return (-1);
+	}
+
+	p = label;
+	end = label + len;
+
+	while (p < end) {
+		/* Find next newline */
+		nl = memchr(p, '\n', end - p);
+		if (nl == NULL)
+			nl = end;
+
+		/* Skip empty lines */
+		if (nl == p) {
+			p = nl + 1;
+			continue;
+		}
+
+		npairs++;
+		if (npairs > VLABEL_MAX_PAIRS) {
+			warnx("too many key=value pairs: %d (max %d)",
+			    npairs, VLABEL_MAX_PAIRS);
+			return (-1);
+		}
+
+		/* Find '=' */
+		eq = memchr(p, '=', nl - p);
+		if (eq == NULL) {
+			warnx("missing '=' in pair: %.*s", (int)(nl - p), p);
+			return (-1);
+		}
+
+		keylen = eq - p;
+		valuelen = nl - eq - 1;
+
+		if (keylen == 0) {
+			warnx("empty key in pair");
+			return (-1);
+		}
+		if (keylen >= VLABEL_MAX_KEY_LEN) {
+			warnx("key too long: %zu bytes (max %d)",
+			    keylen, VLABEL_MAX_KEY_LEN - 1);
+			return (-1);
+		}
+		if (valuelen >= VLABEL_MAX_VALUE_LEN) {
+			warnx("value too long: %zu bytes (max %d)",
+			    valuelen, VLABEL_MAX_VALUE_LEN - 1);
+			return (-1);
+		}
+
+		p = nl + 1;
+	}
+
+	return (0);
+}
+
+/*
+ * Convert a user-provided label from comma format to newline format.
+ * Input:  "key1=val1,key2=val2"
+ * Output: "key1=val1\nkey2=val2\n"
+ * Returns newly allocated string (caller must free), or NULL on error.
+ */
+static char *
+convert_label_format(const char *input)
+{
+	size_t len, outlen;
+	char *output, *outp;
+	const char *p, *end, *comma;
+
+	if (input == NULL)
+		return (NULL);
+
+	len = strlen(input);
+	if (len == 0)
+		return (strdup(""));
+
+	/* Output size: same length, commas become newlines, plus trailing \n + \0 */
+	outlen = len + 2;
+	output = malloc(outlen);
+	if (output == NULL) {
+		warn("malloc");
+		return (NULL);
+	}
+
+	p = input;
+	end = input + len;
+	outp = output;
+
+	while (p < end) {
+		/* Find next comma or end */
+		comma = memchr(p, ',', end - p);
+		if (comma == NULL)
+			comma = end;
+
+		/* Copy this segment */
+		if (comma > p) {
+			memcpy(outp, p, comma - p);
+			outp += comma - p;
+			*outp++ = '\n';
+		}
+
+		p = comma + 1;
+	}
+
+	*outp = '\0';
+	return (output);
+}
+
 static void usage(void);
 static int cmd_mode(int argc, char *argv[]);
 static int cmd_audit(int argc, char *argv[]);
+static int cmd_default(int argc, char *argv[]);
 static int cmd_stats(int argc, char *argv[]);
 static int cmd_status(int argc, char *argv[]);
 static int cmd_rule(int argc, char *argv[]);
@@ -54,11 +189,17 @@ usage(void)
 	    "  audit [none|denials|decisions|verbose]\n"
 	    "      Get or set audit level\n"
 	    "\n"
+	    "  default [allow|deny]\n"
+	    "      Get or set default policy when no rule matches\n"
+	    "\n"
 	    "  stats\n"
 	    "      Show statistics\n"
 	    "\n"
 	    "  status\n"
 	    "      Show combined status (mode, audit, stats, rules)\n"
+	    "\n"
+	    "  limits\n"
+	    "      Show kernel limits, supported operations, and syntax\n"
 	    "\n"
 	    "  rule add \"<rule>\"\n"
 	    "      Add a rule (line format)\n"
@@ -213,6 +354,43 @@ cmd_audit(int argc, char *argv[])
 }
 
 /*
+ * default [allow|deny]
+ */
+static int
+cmd_default(int argc, char *argv[])
+{
+	int policy;
+	const char *policystr;
+
+	open_device();
+
+	if (argc == 0) {
+		/* Get default policy */
+		if (ioctl(dev_fd, VLABEL_IOC_GETDEFPOL, &policy) < 0)
+			err(EX_OSERR, "ioctl(GETDEFPOL)");
+
+		policystr = (policy == 0) ? "allow" : "deny";
+		printf("%s\n", policystr);
+		return (0);
+	}
+
+	/* Set default policy */
+	if (strcmp(argv[0], "allow") == 0)
+		policy = 0;
+	else if (strcmp(argv[0], "deny") == 0)
+		policy = 1;
+	else
+		errx(EX_USAGE, "invalid default policy: %s (use 'allow' or 'deny')",
+		    argv[0]);
+
+	if (ioctl(dev_fd, VLABEL_IOC_SETDEFPOL, &policy) < 0)
+		err(EX_OSERR, "ioctl(SETDEFPOL)");
+
+	printf("default policy set to %s\n", argv[0]);
+	return (0);
+}
+
+/*
  * stats
  */
 static int
@@ -244,8 +422,8 @@ cmd_status(int argc, char *argv[])
 {
 	struct vlabel_stats stats;
 	struct vlabel_rule_list_io list_io;
-	int mode, audit;
-	const char *modestr, *auditstr;
+	int mode, audit, defpol;
+	const char *modestr, *auditstr, *defpolstr;
 
 	open_device();
 
@@ -290,6 +468,12 @@ cmd_status(int argc, char *argv[])
 		break;
 	}
 
+	/* Get default policy */
+	if (ioctl(dev_fd, VLABEL_IOC_GETDEFPOL, &defpol) < 0)
+		err(EX_OSERR, "ioctl(GETDEFPOL)");
+
+	defpolstr = (defpol == 0) ? "allow" : "deny";
+
 	/* Get stats */
 	if (ioctl(dev_fd, VLABEL_IOC_GETSTATS, &stats) < 0)
 		err(EX_OSERR, "ioctl(GETSTATS)");
@@ -303,6 +487,7 @@ cmd_status(int argc, char *argv[])
 	printf("vLabel Status:\n");
 	printf("  Mode:             %s\n", modestr);
 	printf("  Audit:            %s\n", auditstr);
+	printf("  Default policy:   %s\n", defpolstr);
 	printf("  Active rules:     %u\n", list_io.vrl_total);
 	printf("\n");
 	printf("Statistics:\n");
@@ -314,6 +499,84 @@ cmd_status(int argc, char *argv[])
 		double deny_pct = (100.0 * stats.vs_denied) / stats.vs_checks;
 		printf("  Denial rate:      %.1f%%\n", deny_pct);
 	}
+
+	return (0);
+}
+
+/*
+ * limits - show kernel limits and supported operations
+ */
+static int
+cmd_limits(int argc __unused, char *argv[] __unused)
+{
+
+	printf("vLabel Limits:\n");
+	printf("\n");
+	printf("  Label Limits (per label):\n");
+	printf("    Max label size:       %d bytes\n", VLABEL_MAX_LABEL_LEN);
+	printf("    Max key length:       %d bytes\n", VLABEL_MAX_KEY_LEN);
+	printf("    Max value length:     %d bytes\n", VLABEL_MAX_VALUE_LEN);
+	printf("    Max key=value pairs:  %d\n", VLABEL_MAX_PAIRS);
+	printf("\n");
+	printf("  System Limits:\n");
+	printf("    Max rules:            %d\n", VLABEL_MAX_RULES);
+	printf("    Max pattern length:   %zu bytes\n", sizeof(((struct vlabel_pattern_io *)0)->vp_pattern));
+	printf("\n");
+	printf("  Supported Operations:\n");
+	printf("    %-12s  0x%08x  %s\n", "exec",       VLABEL_OP_EXEC,       "execute file");
+	printf("    %-12s  0x%08x  %s\n", "read",       VLABEL_OP_READ,       "read file contents");
+	printf("    %-12s  0x%08x  %s\n", "write",      VLABEL_OP_WRITE,      "write file contents");
+	printf("    %-12s  0x%08x  %s\n", "mmap",       VLABEL_OP_MMAP,       "memory map file");
+	printf("    %-12s  0x%08x  %s\n", "link",       VLABEL_OP_LINK,       "create hard link");
+	printf("    %-12s  0x%08x  %s\n", "rename",     VLABEL_OP_RENAME,     "rename file");
+	printf("    %-12s  0x%08x  %s\n", "unlink",     VLABEL_OP_UNLINK,     "delete file");
+	printf("    %-12s  0x%08x  %s\n", "chdir",      VLABEL_OP_CHDIR,      "change directory");
+	printf("    %-12s  0x%08x  %s\n", "stat",       VLABEL_OP_STAT,       "stat file");
+	printf("    %-12s  0x%08x  %s\n", "readdir",    VLABEL_OP_READDIR,    "read directory");
+	printf("    %-12s  0x%08x  %s\n", "create",     VLABEL_OP_CREATE,     "create file");
+	printf("    %-12s  0x%08x  %s\n", "setextattr", VLABEL_OP_SETEXTATTR, "set extended attribute");
+	printf("    %-12s  0x%08x  %s\n", "getextattr", VLABEL_OP_GETEXTATTR, "get extended attribute");
+	printf("    %-12s  0x%08x  %s\n", "lookup",     VLABEL_OP_LOOKUP,     "lookup path component");
+	printf("    %-12s  0x%08x  %s\n", "open",       VLABEL_OP_OPEN,       "open file");
+	printf("    %-12s  0x%08x  %s\n", "access",     VLABEL_OP_ACCESS,     "check access permissions");
+	printf("    %-12s  0x%08x  %s\n", "debug",      VLABEL_OP_DEBUG,      "ptrace/procfs debug");
+	printf("    %-12s  0x%08x  %s\n", "signal",     VLABEL_OP_SIGNAL,     "send signal");
+	printf("    %-12s  0x%08x  %s\n", "sched",      VLABEL_OP_SCHED,      "scheduler control");
+	printf("    %-12s  0x%08x  %s\n", "all",        VLABEL_OP_ALL,        "all operations");
+	printf("\n");
+	printf("  Enforced Operations:\n");
+	printf("    exec, debug, signal, sched\n");
+	printf("\n");
+	printf("  Stub Operations (always allow, not yet enforced):\n");
+	printf("    read, write, mmap, open, link, rename, unlink,\n");
+	printf("    chdir, stat, readdir, create, setextattr, getextattr,\n");
+	printf("    lookup, access\n");
+	printf("\n");
+	printf("  Rule Syntax:\n");
+	printf("    action operation subject -> object [context:...]\n");
+	printf("\n");
+	printf("  Actions:\n");
+	printf("    allow       - permit the operation\n");
+	printf("    deny        - block the operation (returns EACCES)\n");
+	printf("    transition  - change process label on exec\n");
+	printf("\n");
+	printf("  Pattern Format:\n");
+	printf("    *                   - match anything (wildcard)\n");
+	printf("    type=value          - match type field\n");
+	printf("    domain=value        - match domain field\n");
+	printf("    name=value          - match name field\n");
+	printf("    level=value         - match level field\n");
+	printf("    type=a,domain=b     - match multiple fields\n");
+	printf("    !pattern            - negate the match\n");
+	printf("\n");
+	printf("  Context Constraints:\n");
+	printf("    context:jail=host       - must be on host (not in jail)\n");
+	printf("    context:jail=any        - must be in a jail\n");
+	printf("    context:jail=<id>       - must be in specific jail\n");
+	printf("    context:sandboxed=true  - must be in Capsicum sandbox\n");
+	printf("    context:uid=<n>         - must have effective UID\n");
+	printf("    context:gid=<n>         - must have effective GID\n");
+	printf("    context:tty=true        - must have controlling TTY\n");
 
 	return (0);
 }
@@ -363,6 +626,12 @@ ops_to_string(uint32_t ops, char *buf, size_t buflen)
 		strlcat(buf, "setextattr,", buflen);
 	if (ops & VLABEL_OP_GETEXTATTR)
 		strlcat(buf, "getextattr,", buflen);
+	if (ops & VLABEL_OP_DEBUG)
+		strlcat(buf, "debug,", buflen);
+	if (ops & VLABEL_OP_SIGNAL)
+		strlcat(buf, "signal,", buflen);
+	if (ops & VLABEL_OP_SCHED)
+		strlcat(buf, "sched,", buflen);
 
 	/* Remove trailing comma */
 	len = strlen(buf);
@@ -374,47 +643,28 @@ ops_to_string(uint32_t ops, char *buf, size_t buflen)
 
 /*
  * Helper to format a pattern as a string
+ *
+ * The new vlabel_pattern_io uses a simple string field (vp_pattern)
+ * instead of fixed type/domain/name/level fields.
  */
 static const char *
 pattern_to_string(const struct vlabel_pattern_io *p, char *buf, size_t buflen)
 {
-	int first = 1;
 
 	buf[0] = '\0';
 
-	if ((p->vp_flags & ~VLABEL_MATCH_NEGATE) == 0)
-		return "*";
-
+	/* Handle negation prefix */
 	if (p->vp_flags & VLABEL_MATCH_NEGATE)
 		strlcat(buf, "!", buflen);
 
-	if (p->vp_flags & VLABEL_MATCH_TYPE) {
-		if (!first) strlcat(buf, ",", buflen);
-		strlcat(buf, "type=", buflen);
-		strlcat(buf, p->vp_type[0] ? p->vp_type : "*", buflen);
-		first = 0;
+	/* Empty pattern or "*" means wildcard */
+	if (p->vp_pattern[0] == '\0' || strcmp(p->vp_pattern, "*") == 0) {
+		strlcat(buf, "*", buflen);
+		return buf;
 	}
 
-	if (p->vp_flags & VLABEL_MATCH_DOMAIN) {
-		if (!first) strlcat(buf, ",", buflen);
-		strlcat(buf, "domain=", buflen);
-		strlcat(buf, p->vp_domain[0] ? p->vp_domain : "*", buflen);
-		first = 0;
-	}
-
-	if (p->vp_flags & VLABEL_MATCH_NAME) {
-		if (!first) strlcat(buf, ",", buflen);
-		strlcat(buf, "name=", buflen);
-		strlcat(buf, p->vp_name[0] ? p->vp_name : "*", buflen);
-		first = 0;
-	}
-
-	if (p->vp_flags & VLABEL_MATCH_LEVEL) {
-		if (!first) strlcat(buf, ",", buflen);
-		strlcat(buf, "level=", buflen);
-		strlcat(buf, p->vp_level[0] ? p->vp_level : "*", buflen);
-		first = 0;
-	}
+	/* Just append the pattern string */
+	strlcat(buf, p->vp_pattern, buflen);
 
 	return buf;
 }
@@ -558,6 +808,8 @@ cmd_label(int argc, char *argv[])
 		usage();
 
 	if (strcmp(argv[0], "get") == 0) {
+		char *p;
+
 		len = extattr_get_file(argv[1], EXTATTR_NAMESPACE_SYSTEM,
 		    "vlabel", buf, sizeof(buf) - 1);
 		if (len < 0) {
@@ -568,14 +820,46 @@ cmd_label(int argc, char *argv[])
 			err(EX_OSERR, "extattr_get_file");
 		}
 		buf[len] = '\0';
+
+		/*
+		 * Convert newlines to commas for display.
+		 * Storage: "type=app\ndomain=web\n"
+		 * Display: "type=app,domain=web"
+		 */
+		for (p = buf; *p; p++) {
+			if (*p == '\n') {
+				if (*(p + 1) == '\0' || *(p + 1) == '\n')
+					*p = '\0';  /* Remove trailing newline */
+				else
+					*p = ',';   /* Convert to comma */
+			}
+		}
 		printf("%s\n", buf);
 
 	} else if (strcmp(argv[0], "set") == 0) {
+		char *converted;
+
 		if (argc < 3)
 			errx(EX_USAGE, "label set requires path and label");
 
+		/*
+		 * Convert from comma format (user-friendly) to newline format
+		 * (storage format). User types: type=app,domain=web
+		 * We store: type=app\ndomain=web\n
+		 */
+		converted = convert_label_format(argv[2]);
+		if (converted == NULL)
+			errx(EX_OSERR, "failed to convert label format");
+
+		/* Validate the converted label */
+		if (validate_label(converted) != 0) {
+			free(converted);
+			errx(EX_DATAERR, "invalid label format");
+		}
+
 		ret = extattr_set_file(argv[1], EXTATTR_NAMESPACE_SYSTEM,
-		    "vlabel", argv[2], strlen(argv[2]));
+		    "vlabel", converted, strlen(converted));
+		free(converted);
 		if (ret < 0)
 			err(EX_OSERR, "extattr_set_file");
 
@@ -695,6 +979,12 @@ parse_operation(const char *opstr)
 		return VLABEL_OP_SETEXTATTR;
 	if (strcasecmp(opstr, "getextattr") == 0)
 		return VLABEL_OP_GETEXTATTR;
+	if (strcasecmp(opstr, "debug") == 0)
+		return VLABEL_OP_DEBUG;
+	if (strcasecmp(opstr, "signal") == 0)
+		return VLABEL_OP_SIGNAL;
+	if (strcasecmp(opstr, "sched") == 0)
+		return VLABEL_OP_SCHED;
 	if (strcasecmp(opstr, "all") == 0)
 		return VLABEL_OP_ALL;
 
@@ -760,10 +1050,14 @@ main(int argc, char *argv[])
 		return (cmd_mode(argc - 1, argv + 1));
 	else if (strcmp(argv[0], "audit") == 0)
 		return (cmd_audit(argc - 1, argv + 1));
+	else if (strcmp(argv[0], "default") == 0)
+		return (cmd_default(argc - 1, argv + 1));
 	else if (strcmp(argv[0], "stats") == 0)
 		return (cmd_stats(argc - 1, argv + 1));
 	else if (strcmp(argv[0], "status") == 0)
 		return (cmd_status(argc - 1, argv + 1));
+	else if (strcmp(argv[0], "limits") == 0)
+		return (cmd_limits(argc - 1, argv + 1));
 	else if (strcmp(argv[0], "rule") == 0)
 		return (cmd_rule(argc - 1, argv + 1));
 	else if (strcmp(argv[0], "label") == 0)

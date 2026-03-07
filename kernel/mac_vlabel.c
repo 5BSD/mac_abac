@@ -60,6 +60,17 @@ int vlabel_mode = VLABEL_MODE_PERMISSIVE;	/* Start permissive for safety */
 int vlabel_audit_level = VLABEL_AUDIT_DENIALS;
 
 /*
+ * Configurable extended attribute name.
+ *
+ * Default is "vlabel" but can be changed to match other tools like
+ * FreeBSDKit's maclabel tool (e.g., "mac_labels", "mac_policy").
+ *
+ * Note: Changing this while labels are in use may cause access issues.
+ * Only change at boot via loader.conf or before loading policy rules.
+ */
+char vlabel_extattr_name[64] = VLABEL_EXTATTR_NAME;
+
+/*
  * Initialization flag - set only after all subsystems are ready.
  * This prevents hooks from being called before locks are initialized.
  */
@@ -98,6 +109,10 @@ SYSCTL_UQUAD(_security_mac_vlabel, OID_AUTO, labels_read, CTLFLAG_RD,
 
 SYSCTL_UQUAD(_security_mac_vlabel, OID_AUTO, labels_default, CTLFLAG_RD,
     &vlabel_labels_default, 0, "Default labels assigned");
+
+SYSCTL_STRING(_security_mac_vlabel, OID_AUTO, extattr_name, CTLFLAG_RW,
+    vlabel_extattr_name, sizeof(vlabel_extattr_name),
+    "Extended attribute name for labels (default: vlabel)");
 
 /*
  * Policy lifecycle

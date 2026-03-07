@@ -44,17 +44,47 @@
 #define VLABEL_EXTATTR_NAME		"vlabel"
 
 /*
- * Label constraints
+ * Label constraints (per-label limits)
+ *
+ * Labels are stored as newline-separated key=value pairs in extended attributes:
+ *   "key1=val1\nkey2=val2\n"
+ *
+ * Patterns (in rules) use comma-separated format for command-line convenience:
+ *   "key1=val1,key2=val2"
+ *
+ * Both kernel and userland must agree on the maximum sizes.
+ *
+ * VLABEL_MAX_LABEL_LEN: Maximum total length of a label string (per label).
+ *   - Stored in extended attributes on files
+ *   - Used in ioctl structures for rule patterns
+ *   - Must be >= VLABEL_MAX_PAIRS * (VLABEL_MAX_KEY_LEN + VLABEL_MAX_VALUE_LEN + 2)
+ *   - 32 pairs * (64 + 256 + 2) = 10,304 bytes theoretical max
+ *   - Set to 12KB to allow headroom
+ *
+ * VLABEL_MAX_KEY_LEN: Maximum length of a single key name (per key).
+ *   - Includes null terminator, so usable length is 63 bytes
+ *
+ * VLABEL_MAX_VALUE_LEN: Maximum length of a single value (per value).
+ *   - Includes null terminator, so usable length is 255 bytes
+ *
+ * VLABEL_MAX_PAIRS: Maximum number of key=value pairs per label.
+ *   - Applies to both file labels and rule patterns
+ *   - A single label can have at most 32 key=value pairs
  */
-#define VLABEL_MAX_LABEL_LEN		256	/* Maximum label string length */
-#define VLABEL_MAX_KEY_LEN		32	/* Maximum key length */
-#define VLABEL_MAX_VALUE_LEN		64	/* Maximum value length */
-#define VLABEL_MAX_PAIRS		16	/* Maximum key=value pairs */
+#define VLABEL_MAX_LABEL_LEN		12288	/* Max label string length (12KB) */
+#define VLABEL_MAX_KEY_LEN		64	/* Max key length (63 usable + null) */
+#define VLABEL_MAX_VALUE_LEN		256	/* Max value length (255 usable + null) */
+#define VLABEL_MAX_PAIRS		32	/* Max key=value pairs per label */
 
 /*
- * Rule constraints
+ * Rule constraints (system-wide limits)
+ *
+ * VLABEL_MAX_RULES: Maximum number of rules loaded in the kernel.
+ *   - This is the total rule capacity system-wide
+ *   - Rules are evaluated in order (first match wins)
+ *   - Each rule has subject and object patterns (each up to 32 pairs)
  */
-#define VLABEL_MAX_RULES		1024	/* Maximum number of rules */
+#define VLABEL_MAX_RULES		1024	/* Max rules in kernel */
 
 /*
  * Operations bitmask for rule matching
@@ -75,7 +105,10 @@
 #define VLABEL_OP_LOOKUP		0x00002000
 #define VLABEL_OP_OPEN			0x00004000
 #define VLABEL_OP_ACCESS		0x00008000
-#define VLABEL_OP_ALL			0x0000FFFF
+#define VLABEL_OP_DEBUG			0x00010000	/* ptrace/procfs debug */
+#define VLABEL_OP_SIGNAL		0x00020000	/* kill/signal */
+#define VLABEL_OP_SCHED			0x00040000	/* scheduler operations */
+#define VLABEL_OP_ALL			0x0007FFFF
 
 /*
  * Rule actions
@@ -114,11 +147,10 @@
 
 /*
  * Pattern match flags
+ *
+ * Patterns now match against arbitrary key=value pairs in the label string.
+ * The old hardcoded type/domain/name/level fields are removed.
  */
-#define VLABEL_MATCH_TYPE		0x00000001
-#define VLABEL_MATCH_DOMAIN		0x00000002
-#define VLABEL_MATCH_NAME		0x00000004
-#define VLABEL_MATCH_LEVEL		0x00000008
 #define VLABEL_MATCH_NEGATE		0x80000000	/* Invert match result */
 
 /*
@@ -156,15 +188,28 @@ struct vlabel_audit_entry {
 };
 
 /*
- * Rule I/O structure for ioctl (userland-kernel interface)
- * Mirrors the kernel vlabel_rule but with fixed-size fields.
+ * Pattern I/O structure for ioctl (userland-kernel interface)
+ *
+ * Patterns are now simple strings that match against label strings.
+ * Pattern format: "key1=value1,key2=value2,..."
+ *
+ * Matching rules:
+ *   - "*" matches any label (wildcard)
+ *   - "key=value" requires label to have that exact key=value
+ *   - "key=*" requires key to exist with any value
+ *   - Multiple pairs: ALL must match (AND logic)
+ *   - Prefix "!" negates the entire pattern
+ *
+ * Examples:
+ *   "*"                          - matches anything
+ *   "type=app"                   - label must have type=app
+ *   "type=app,domain=web"        - must have both
+ *   "sensitivity=*"              - must have sensitivity key (any value)
+ *   "!type=untrusted"            - must NOT have type=untrusted
  */
 struct vlabel_pattern_io {
-	uint32_t	vp_flags;
-	char		vp_type[VLABEL_MAX_VALUE_LEN];
-	char		vp_domain[VLABEL_MAX_VALUE_LEN];
-	char		vp_name[VLABEL_MAX_VALUE_LEN];
-	char		vp_level[VLABEL_MAX_VALUE_LEN];
+	uint32_t	vp_flags;			/* VLABEL_MATCH_NEGATE, etc */
+	char		vp_pattern[VLABEL_MAX_LABEL_LEN]; /* Pattern string */
 };
 
 /*
@@ -206,6 +251,8 @@ struct vlabel_rule_io {
 #define VLABEL_IOC_RULE_LIST	_IOWR('V', 13, struct vlabel_rule_list_io)
 #define VLABEL_IOC_GETAUDIT	_IOR('V', 14, int)
 #define VLABEL_IOC_TEST_ACCESS	_IOWR('V', 15, struct vlabel_test_io)
+#define VLABEL_IOC_GETDEFPOL	_IOR('V', 16, int)
+#define VLABEL_IOC_SETDEFPOL	_IOW('V', 17, int)
 
 /*
  * Rule list I/O structure - for listing all rules
@@ -244,30 +291,45 @@ struct vlabel_test_io {
 #include <sys/types.h>
 
 /*
+ * Key-value pair for parsed labels
+ */
+struct vlabel_pair {
+	char		vp_key[VLABEL_MAX_KEY_LEN];
+	char		vp_value[VLABEL_MAX_VALUE_LEN];
+};
+
+/*
  * Label structure - stored in MAC label slot
  *
- * This structure represents a parsed vLabel. The raw string is kept
- * for externalization, while parsed fields enable fast matching.
+ * Labels are stored as raw strings and parsed into key-value pairs.
+ * The raw string is authoritative; pairs are for fast matching.
+ *
+ * Example: "type=app,domain=web,sensitivity=secret"
+ * Parses to: pairs[0]={type,app}, pairs[1]={domain,web}, pairs[2]={sensitivity,secret}
  */
 struct vlabel_label {
-	char		vl_raw[VLABEL_MAX_LABEL_LEN];	/* Original string */
-	uint32_t	vl_hash;			/* Quick compare hash */
-	char		vl_type[VLABEL_MAX_VALUE_LEN];	/* type= value */
-	char		vl_domain[VLABEL_MAX_VALUE_LEN]; /* domain= value */
-	char		vl_name[VLABEL_MAX_VALUE_LEN];	/* name= value */
-	char		vl_level[VLABEL_MAX_VALUE_LEN];	/* level= value */
-	uint32_t	vl_flags;			/* Which fields are set */
+	char			vl_raw[VLABEL_MAX_LABEL_LEN];	/* Original string */
+	uint32_t		vl_hash;			/* Quick compare hash */
+	uint32_t		vl_npairs;			/* Number of valid pairs */
+	struct vlabel_pair	vl_pairs[VLABEL_MAX_PAIRS];	/* Parsed key=value pairs */
 };
 
 /*
  * Pattern for matching labels in rules
+ *
+ * Patterns are also stored as key=value pairs. A label matches a pattern
+ * if ALL pairs in the pattern exist in the label with matching values.
+ * Value "*" is a wildcard that matches any value for that key.
+ *
+ * Examples:
+ *   Pattern "type=app,domain=web" matches label "type=app,domain=web,level=high"
+ *   Pattern "type=*" matches any label that has a "type" key
+ *   Pattern "" (empty) matches any label (wildcard)
  */
 struct vlabel_pattern {
-	uint32_t	vp_flags;			/* Which fields to match */
-	char		vp_type[VLABEL_MAX_VALUE_LEN];	/* NULL string = wildcard */
-	char		vp_domain[VLABEL_MAX_VALUE_LEN];
-	char		vp_name[VLABEL_MAX_VALUE_LEN];
-	char		vp_level[VLABEL_MAX_VALUE_LEN];
+	uint32_t		vp_flags;			/* VLABEL_MATCH_NEGATE, etc */
+	uint32_t		vp_npairs;			/* Number of pairs to match */
+	struct vlabel_pair	vp_pairs[VLABEL_MAX_PAIRS];	/* Pairs to match */
 };
 
 /*
@@ -327,6 +389,7 @@ extern int vlabel_enabled;
 extern int vlabel_mode;
 extern int vlabel_audit_level;
 extern int vlabel_initialized;
+extern int vlabel_default_policy;	/* 0=allow, 1=deny when no rule matches */
 
 /*
  * Debug output macro
@@ -357,10 +420,12 @@ void vlabel_label_free(struct vlabel_label *vl);
 int vlabel_label_parse(const char *str, size_t len, struct vlabel_label *out);
 void vlabel_label_copy(const struct vlabel_label *src, struct vlabel_label *dst);
 void vlabel_label_set_default(struct vlabel_label *vl, bool is_subject);
+const char *vlabel_label_get_value(const struct vlabel_label *vl, const char *key);
 bool vlabel_label_match(const struct vlabel_label *label,
     const struct vlabel_pattern *pattern);
 uint32_t vlabel_label_hash(const char *str, size_t len);
 int vlabel_label_to_string(const struct vlabel_label *vl, char *buf, size_t buflen);
+int vlabel_pattern_parse(const char *str, size_t len, struct vlabel_pattern *pattern);
 
 /*
  * Function prototypes - vlabel_rules.c
