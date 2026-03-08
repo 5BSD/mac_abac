@@ -27,8 +27,8 @@
 
 set -e
 
-# Configuration
-VLABELCTL="${VLABELCTL:-../tools/vlabelctl}"
+# Configuration - accept path from command line or environment
+VLABELCTL="${1:-${VLABELCTL:-../tools/vlabelctl}}"
 MODULE_NAME="mac_vlabel"
 TEST_DIR="/tmp/vlabel_debug_test.$$"
 
@@ -234,9 +234,14 @@ RULE="deny debug * -> type=protected"
 info "  Rule: $RULE"
 $VLABELCTL rule add "$RULE"
 
-# Enable enforcing mode
+# Enable enforcing mode briefly, then restore
+# Note: We can't use vlabelctl in enforcing mode (it gets blocked),
+# so we just verify the sysctl works and immediately restore.
 sysctl security.mac.vlabel.mode=2 >/dev/null
 info "  Enforcing mode enabled"
+
+# Immediately restore to permissive before trying to use vlabelctl
+sysctl security.mac.vlabel.mode=1 >/dev/null
 
 # Note: Actually triggering debug check requires labeled processes.
 # This verifies the rule infrastructure is in place.

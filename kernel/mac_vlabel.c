@@ -274,12 +274,19 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 /*
  * Module registration
  *
- * We use NOTLATE because mpo_init calls uma_zcreate and make_dev which
- * can sleep. When loading late (after mac_late=1), mpo_init is called
- * with the MAC policy lock held and sleeping is not allowed.
+ * We use no loadtime flags (0) because:
+ * 1. We want to allow loading after boot for development/testing
+ * 2. We do NOT allow unloading (no UNLOADOK flag) because MAC modules
+ *    with UMA zones cannot safely unload - labels may still be attached
+ *    to kernel objects (vnodes, creds) when mpo_destroy is called
  *
- * MPC_LOADTIME_FLAG_UNLOADOK - allows dynamic load/unload for development
- * For production, consider MPC_LOADTIME_FLAG_NOTLATE to prevent unloading
+ * Flag behavior:
+ *   - MPC_LOADTIME_FLAG_NOTLATE: Cannot load after boot
+ *   - MPC_LOADTIME_FLAG_UNLOADOK: Can unload at runtime
+ *   - 0 (no flags): Can load after boot, cannot unload
+ *
+ * This follows the pattern of MAC modules that allocate per-object labels.
+ * To update the module during development, reboot the VM first.
  */
 MAC_POLICY_SET(&vlabel_ops, mac_vlabel, "vLabel MAC Policy",
-    MPC_LOADTIME_FLAG_UNLOADOK, &vlabel_slot);
+    0, &vlabel_slot);

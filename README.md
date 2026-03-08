@@ -119,11 +119,41 @@ sysctl security.mac.vlabel.mode=2
 
 | Limit | Value | Scope |
 |-------|-------|-------|
-| Label size | 12 KB | Per label |
-| Key length | 63 bytes | Per key |
-| Value length | 255 bytes | Per value |
-| Key-value pairs | 32 | Per label |
+| Label size | 1 KB | Per label |
+| Key length | 31 bytes | Per key |
+| Value length | 95 bytes | Per value |
+| Key-value pairs | 8 | Per label |
 | Rules | 1,024 | System-wide |
+
+Note: These limits are conservative to fit within FreeBSD's ioctl size limits (8KB)
+and kernel stack constraints. See PLAN.md for future improvements.
+
+## Known Limitations
+
+### Module Unloading Not Supported
+
+The module can be loaded after boot via `kldload`, but does not support
+runtime unloading. This follows the pattern of MAC modules that allocate
+per-object labels using UMA zones - labels may still be attached to kernel
+objects (vnodes, credentials) when `mpo_destroy` is called, making safe
+unload impossible.
+
+For development/testing, **reboot** between module updates instead of trying
+to unload/reload. The module omits `MPC_LOADTIME_FLAG_UNLOADOK` to enforce
+this at the kernel level.
+
+### Vnode Label Caching
+
+File labels are read from extended attributes when the kernel first accesses
+a file's vnode. If you set a label on a file that has already been accessed,
+the new label won't take effect until:
+
+1. The vnode is reclaimed (system decides to free it), OR
+2. The system is rebooted, OR
+3. The module is loaded fresh (after a reboot)
+
+For reliable label enforcement, set labels on files BEFORE loading the module,
+or reboot after making label changes.
 
 ## Requirements
 

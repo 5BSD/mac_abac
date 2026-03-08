@@ -69,6 +69,10 @@ vlabel_vnode_copy_label(struct label *src, struct label *dest)
 {
 	struct vlabel_label *srcvl, *dstvl;
 
+	/* NULL check label pointers before accessing slots */
+	if (src == NULL || dest == NULL)
+		return;
+
 	srcvl = SLOT(src);
 	dstvl = SLOT(dest);
 

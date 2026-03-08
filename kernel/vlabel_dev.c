@@ -377,15 +377,33 @@ vlabel_dev_in_use(void)
 
 /*
  * Deferred device creation - called after devfs is ready
+ *
+ * Note: This is called via SYSINIT which may run multiple times if the
+ * module is unloaded and reloaded. We use make_dev_s() with MAKEDEV_CHECKNAME
+ * to safely handle the case where the device already exists.
  */
 static void
 vlabel_dev_create(void *arg __unused)
 {
+	struct make_dev_args args;
+	int error;
 
-	vlabel_dev = make_dev(&vlabel_cdevsw, 0, UID_ROOT, GID_WHEEL,
-	    0600, "vlabel");
-	if (vlabel_dev == NULL) {
-		printf("vlabel: failed to create /dev/vlabel\n");
+	/* Skip if device already exists (module reload case) */
+	if (vlabel_dev != NULL) {
+		VLABEL_DPRINTF("device already exists, skipping creation");
+		return;
+	}
+
+	make_dev_args_init(&args);
+	args.mda_devsw = &vlabel_cdevsw;
+	args.mda_uid = UID_ROOT;
+	args.mda_gid = GID_WHEEL;
+	args.mda_mode = 0600;
+
+	error = make_dev_s(&args, &vlabel_dev, "vlabel");
+	if (error != 0) {
+		printf("vlabel: failed to create /dev/vlabel: error %d\n", error);
+		vlabel_dev = NULL;
 		return;
 	}
 
@@ -393,12 +411,25 @@ vlabel_dev_create(void *arg __unused)
 }
 
 /*
+ * Wrapper for SYSUNINIT - matches required signature
+ */
+static void
+vlabel_dev_destroy_sysuninit(void *arg __unused)
+{
+
+	vlabel_dev_destroy();
+}
+
+/*
  * Device creation is deferred to SI_SUB_DRIVERS because:
  * - MAC policies init at SI_SUB_MAC_POLICY (0x21C0000)
  * - devfs inits at SI_SUB_DEVFS (0x2F00000)
  * - SI_SUB_DRIVERS (0x3100000) is after devfs is ready
+ *
+ * We also register SYSUNINIT to clean up on module unload.
  */
 SYSINIT(vlabel_dev, SI_SUB_DRIVERS, SI_ORDER_MIDDLE, vlabel_dev_create, NULL);
+SYSUNINIT(vlabel_dev, SI_SUB_DRIVERS, SI_ORDER_MIDDLE, vlabel_dev_destroy_sysuninit, NULL);
 
 /*
  * Initialize device interface - just init refcount, device created later

@@ -216,8 +216,8 @@ fi
 
 run_test
 info "Test: Key too long rejected"
-# Create a key that's 70 characters (exceeds 63 byte limit)
-LONG_KEY=$(printf 'k%.0s' $(seq 1 70))
+# Create a key that's 35 characters (exceeds 32 byte limit including null)
+LONG_KEY=$(printf 'k%.0s' $(seq 1 35))
 if "$VLABELCTL" label set "$TEST_FILE" "${LONG_KEY}=value" 2>/dev/null; then
     fail "long key accepted"
 else
@@ -226,8 +226,8 @@ fi
 
 run_test
 info "Test: Value too long rejected"
-# Create a value that's 260 characters (exceeds 255 byte limit)
-LONG_VALUE=$(printf 'v%.0s' $(seq 1 260))
+# Create a value that's 100 characters (exceeds 96 byte limit including null)
+LONG_VALUE=$(printf 'v%.0s' $(seq 1 100))
 if "$VLABELCTL" label set "$TEST_FILE" "key=${LONG_VALUE}" 2>/dev/null; then
     fail "long value accepted"
 else
@@ -236,9 +236,9 @@ fi
 
 run_test
 info "Test: Too many pairs rejected"
-# Create 35 pairs (exceeds 32 pair limit)
+# Create 10 pairs (exceeds 8 pair limit)
 MANY_PAIRS=""
-for i in $(seq 1 35); do
+for i in $(seq 1 10); do
     if [ -n "$MANY_PAIRS" ]; then
         MANY_PAIRS="${MANY_PAIRS},"
     fi
@@ -286,11 +286,12 @@ info ""
 info "=== Maximum Size Tests ==="
 
 run_test
-info "Test: Maximum valid key length (63 bytes)"
-KEY63=$(printf 'k%.0s' $(seq 1 63))
-if "$VLABELCTL" label set "$TEST_FILE" "${KEY63}=value" >/dev/null 2>&1; then
+info "Test: Maximum valid key length (31 bytes)"
+# 31 characters + null = 32 bytes (VLABEL_MAX_KEY_LEN)
+KEY31=$(printf 'k%.0s' $(seq 1 31))
+if "$VLABELCTL" label set "$TEST_FILE" "${KEY31}=value" >/dev/null 2>&1; then
     OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1)
-    if echo "$OUTPUT" | grep -q "${KEY63}=value"; then
+    if echo "$OUTPUT" | grep -q "${KEY31}=value"; then
         pass "max key length"
     else
         fail "max key length (got '$OUTPUT')"
@@ -300,9 +301,10 @@ else
 fi
 
 run_test
-info "Test: Maximum valid value length (255 bytes)"
-VAL255=$(printf 'v%.0s' $(seq 1 255))
-if "$VLABELCTL" label set "$TEST_FILE" "key=${VAL255}" >/dev/null 2>&1; then
+info "Test: Maximum valid value length (95 bytes)"
+# 95 characters + null = 96 bytes (VLABEL_MAX_VALUE_LEN)
+VAL95=$(printf 'v%.0s' $(seq 1 95))
+if "$VLABELCTL" label set "$TEST_FILE" "key=${VAL95}" >/dev/null 2>&1; then
     OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1)
     if echo "$OUTPUT" | grep -q "key="; then
         pass "max value length"
@@ -314,15 +316,16 @@ else
 fi
 
 run_test
-info "Test: Maximum valid pair count (32 pairs)"
-PAIRS32=""
-for i in $(seq 1 32); do
-    if [ -n "$PAIRS32" ]; then
-        PAIRS32="${PAIRS32},"
+info "Test: Maximum valid pair count (8 pairs)"
+# 8 pairs (VLABEL_MAX_PAIRS)
+PAIRS8=""
+for i in $(seq 1 8); do
+    if [ -n "$PAIRS8" ]; then
+        PAIRS8="${PAIRS8},"
     fi
-    PAIRS32="${PAIRS32}k${i}=v${i}"
+    PAIRS8="${PAIRS8}k${i}=v${i}"
 done
-if "$VLABELCTL" label set "$TEST_FILE" "$PAIRS32" >/dev/null 2>&1; then
+if "$VLABELCTL" label set "$TEST_FILE" "$PAIRS8" >/dev/null 2>&1; then
     pass "max pair count"
 else
     fail "max pair count"

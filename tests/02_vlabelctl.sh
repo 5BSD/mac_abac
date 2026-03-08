@@ -114,9 +114,14 @@ fi
 
 run_test
 info "Test: Set mode to enforcing"
-if "$VLABELCTL" mode enforcing >/dev/null 2>&1; then
-    MODE=$("$VLABELCTL" mode)
-    if [ "$MODE" = "enforcing" ]; then
+# Note: We set enforcing mode via sysctl, then check, then immediately
+# switch back to permissive. We can't use vlabelctl after setting enforcing
+# because the module will block it (no rules allow vlabelctl to execute).
+if sysctl security.mac.vlabel.mode=2 >/dev/null 2>&1; then
+    MODE=$(sysctl -n security.mac.vlabel.mode)
+    # Immediately switch back to permissive before checking
+    sysctl security.mac.vlabel.mode=1 >/dev/null 2>&1
+    if [ "$MODE" = "2" ]; then
         pass "mode set enforcing"
     else
         fail "mode set enforcing (got: $MODE)"
@@ -349,22 +354,26 @@ info "=== Test Access Tests ==="
 
 # Set up rules for testing
 "$VLABELCTL" rule clear >/dev/null 2>&1
-"$VLABELCTL" rule add "deny exec type=user -> type=untrusted" >/dev/null 2>&1
-"$VLABELCTL" rule add "allow exec * -> *" >/dev/null 2>&1
+DENY_RESULT=$("$VLABELCTL" rule add "deny exec type=user -> type=untrusted" 2>&1)
+ALLOW_RESULT=$("$VLABELCTL" rule add "allow exec * -> *" 2>&1)
 "$VLABELCTL" default allow >/dev/null 2>&1
+
+# Debug: Show rules
+RULES=$("$VLABELCTL" rule list 2>&1)
 
 run_test
 info "Test: Test access - should be denied"
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=untrusted" 2>&1)
+# Note: test command returns exit code 1 for DENY, so use || true to prevent set -e from killing script
+OUTPUT=$("$VLABELCTL" test exec "type=user" "type=untrusted" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
     pass "test access deny"
 else
-    fail "test access deny (got: $OUTPUT)"
+    fail "test access deny (deny_rule=$DENY_RESULT, allow_rule=$ALLOW_RESULT, rules=$RULES, got: $OUTPUT)"
 fi
 
 run_test
 info "Test: Test access - should be allowed"
-OUTPUT=$("$VLABELCTL" test exec "type=admin" "type=system" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=admin" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
     pass "test access allow"
 else

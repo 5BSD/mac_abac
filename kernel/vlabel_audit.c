@@ -47,6 +47,11 @@ static struct mtx vlabel_audit_mtx;
 static struct selinfo vlabel_audit_selinfo;
 
 /*
+ * Shutdown flag - set during module unload to prevent new events
+ */
+static volatile int vlabel_audit_shutdown;
+
+/*
  * Statistics
  */
 static uint64_t vlabel_audit_events;		/* Total events generated */
@@ -71,6 +76,7 @@ vlabel_audit_init(void)
 	vlabel_audit_tail = 0;
 	vlabel_audit_events = 0;
 	vlabel_audit_dropped = 0;
+	vlabel_audit_shutdown = 0;
 
 	VLABEL_DPRINTF("audit subsystem initialized");
 }
@@ -81,6 +87,16 @@ vlabel_audit_init(void)
 void
 vlabel_audit_destroy(void)
 {
+
+	/*
+	 * Set shutdown flag first to prevent new events from being logged.
+	 * This prevents a race where vlabel_audit_log() could try to acquire
+	 * the mutex after we've destroyed it.
+	 */
+	vlabel_audit_shutdown = 1;
+
+	/* Memory barrier to ensure shutdown flag is visible to other CPUs */
+	mb();
 
 	mtx_lock(&vlabel_audit_mtx);
 
@@ -124,6 +140,10 @@ vlabel_audit_log(uint32_t event_type, struct ucred *cred,
 	struct vlabel_label *obj_label;
 	u_int head, next;
 
+	/* Check if shutdown is in progress */
+	if (vlabel_audit_shutdown)
+		return;
+
 	/* Check if auditing is enabled for this event */
 	if (vlabel_audit_level == VLABEL_AUDIT_NONE)
 		return;
@@ -131,6 +151,12 @@ vlabel_audit_log(uint32_t event_type, struct ucred *cred,
 		return;
 
 	mtx_lock(&vlabel_audit_mtx);
+
+	/* Double-check shutdown after acquiring lock */
+	if (vlabel_audit_shutdown) {
+		mtx_unlock(&vlabel_audit_mtx);
+		return;
+	}
 
 	/* Check for buffer space */
 	head = vlabel_audit_head;
@@ -230,6 +256,10 @@ vlabel_audit_read(struct uio *uio, int ioflag)
 	if (uio->uio_resid < (ssize_t)sizeof(entry))
 		return (EINVAL);
 
+	/* Check if shutdown is in progress */
+	if (vlabel_audit_shutdown)
+		return (ENXIO);
+
 	mtx_lock(&vlabel_audit_mtx);
 
 	/* Wait for data if buffer is empty */
@@ -286,6 +316,10 @@ int
 vlabel_audit_poll(int events, struct thread *td)
 {
 	int revents = 0;
+
+	/* Check if shutdown is in progress */
+	if (vlabel_audit_shutdown)
+		return (POLLHUP);
 
 	mtx_lock(&vlabel_audit_mtx);
 

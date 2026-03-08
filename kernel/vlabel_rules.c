@@ -717,28 +717,58 @@ vlabel_rules_list(struct vlabel_rule_list_io *list_io,
  *
  * This is useful for policy debugging and "what-if" analysis.
  */
+/*
+ * Convert comma-separated label string to newline-separated format
+ *
+ * CLI users provide labels like "type=user,domain=web" but vlabel_label_parse
+ * expects newline-separated format like "type=user\ndomain=web\n".
+ */
+static void
+convert_label_format(const char *src, char *dst, size_t dstlen)
+{
+	size_t i, j;
+
+	for (i = 0, j = 0; src[i] != '\0' && j < dstlen - 1; i++) {
+		if (src[i] == ',')
+			dst[j++] = '\n';
+		else
+			dst[j++] = src[i];
+	}
+	/* Ensure trailing newline for proper parsing */
+	if (j > 0 && j < dstlen - 1 && dst[j - 1] != '\n')
+		dst[j++] = '\n';
+	dst[j] = '\0';
+}
+
 int
 vlabel_rules_test_access(struct vlabel_test_io *test_io)
 {
 	struct vlabel_label subj_label, obj_label;
+	char converted[VLABEL_MAX_LABEL_LEN];
 	const struct vlabel_rule *rule;
 	int i;
 
 	if (test_io == NULL)
 		return (EINVAL);
 
-	/* Parse the subject label */
+	/* Parse the subject label (convert from comma-separated to newline) */
 	memset(&subj_label, 0, sizeof(subj_label));
 	if (test_io->vt_subject_label[0] != '\0') {
-		vlabel_label_parse(test_io->vt_subject_label,
-		    strlen(test_io->vt_subject_label), &subj_label);
+		convert_label_format(test_io->vt_subject_label,
+		    converted, sizeof(converted));
+		vlabel_label_parse(converted, strlen(converted), &subj_label);
+		VLABEL_DPRINTF("test_access: parsed subj '%s' -> npairs=%u",
+		    test_io->vt_subject_label, subj_label.vl_npairs);
 	}
 
-	/* Parse the object label */
+	/* Parse the object label (convert from comma-separated to newline) */
 	memset(&obj_label, 0, sizeof(obj_label));
 	if (test_io->vt_object_label[0] != '\0') {
-		vlabel_label_parse(test_io->vt_object_label,
-		    strlen(test_io->vt_object_label), &obj_label);
+		convert_label_format(test_io->vt_object_label,
+		    converted, sizeof(converted));
+		vlabel_label_parse(converted, strlen(converted), &obj_label);
+		VLABEL_DPRINTF("test_access: parsed obj '%s' -> npairs=%u",
+		    test_io->vt_object_label, obj_label.vl_npairs);
 	}
 
 	test_io->vt_result = EACCES;	/* Default deny */
@@ -746,27 +776,42 @@ vlabel_rules_test_access(struct vlabel_test_io *test_io)
 
 	rw_rlock(&vlabel_rules_lock);
 
+	VLABEL_DPRINTF("test_access: checking %u rules", vlabel_rule_count);
+
 	for (i = 0; i < VLABEL_MAX_RULES; i++) {
 		rule = vlabel_rules[i];
 		if (rule == NULL)
 			continue;
 
+		VLABEL_DPRINTF("test_access: rule[%d] id=%u action=%u ops=0x%x "
+		    "subj_npairs=%u obj_npairs=%u",
+		    i, rule->vr_id, rule->vr_action, rule->vr_operations,
+		    rule->vr_subject.vp_npairs, rule->vr_object.vp_npairs);
+
 		/* Check if operation is covered by this rule */
-		if ((rule->vr_operations & test_io->vt_operation) == 0)
+		if ((rule->vr_operations & test_io->vt_operation) == 0) {
+			VLABEL_DPRINTF("test_access: rule %u op mismatch", rule->vr_id);
 			continue;
+		}
 
 		/* Check subject pattern */
-		if (!vlabel_pattern_match(&subj_label, &rule->vr_subject))
+		if (!vlabel_pattern_match(&subj_label, &rule->vr_subject)) {
+			VLABEL_DPRINTF("test_access: rule %u subj mismatch", rule->vr_id);
 			continue;
+		}
 
 		/* Check object pattern */
-		if (!vlabel_pattern_match(&obj_label, &rule->vr_object))
+		if (!vlabel_pattern_match(&obj_label, &rule->vr_object)) {
+			VLABEL_DPRINTF("test_access: rule %u obj mismatch", rule->vr_id);
 			continue;
+		}
 
 		/* Note: We skip context matching in test mode since
 		 * we don't have a real credential to test against */
 
 		/* Rule matches */
+		VLABEL_DPRINTF("test_access: rule %u MATCHED action=%u",
+		    rule->vr_id, rule->vr_action);
 		test_io->vt_rule_id = rule->vr_id;
 		if (rule->vr_action == VLABEL_ACTION_ALLOW ||
 		    rule->vr_action == VLABEL_ACTION_TRANSITION) {

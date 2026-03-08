@@ -82,23 +82,25 @@ vlabel_label_init(void)
  *
  * Called during module unload.
  *
- * NOTE: We intentionally do NOT destroy the UMA zone here because
- * there may still be vnodes with our labels attached. The MAC framework
- * calls vnode_destroy_label AFTER mpo_destroy, so our zone must remain
- * valid. The zone memory will persist until reboot, but this is
- * acceptable for a security module that's typically loaded at boot.
+ * NOTE: We do NOT destroy the UMA zone here because:
+ * 1. Labels may still be attached to vnodes/creds that haven't been
+ *    destroyed yet (MAC framework calls label_destroy callbacks AFTER
+ *    mpo_destroy in some cases)
+ * 2. uma_zdestroy() requires the zone to be empty and will panic if not
+ *
+ * This is why the module uses MPC_LOADTIME_FLAG_NOTLATE (no UNLOADOK) -
+ * the module is designed to be loaded at boot and never unloaded.
+ * This follows the pattern of mac_biba and mac_lomac.
  */
 void
 vlabel_label_destroy(void)
 {
 
-	/*
-	 * Don't destroy the zone - labels may still be in use.
-	 * Just log statistics for debugging.
-	 */
 	VLABEL_DPRINTF("label subsystem destroyed (alloc=%ju, freed=%ju)",
 	    (uintmax_t)vlabel_labels_allocated,
 	    (uintmax_t)vlabel_labels_freed);
+
+	/* Don't destroy the zone - see note above */
 }
 
 /*
