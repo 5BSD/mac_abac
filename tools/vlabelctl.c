@@ -208,6 +208,16 @@ usage(void)
 	    "  rule remove <id>\n"
 	    "      Remove a rule by ID\n"
 	    "\n"
+	    "  rule load <file>\n"
+	    "      Load rules from a file (one rule per line)\n"
+	    "      Lines starting with # are comments\n"
+	    "\n"
+	    "  rule validate \"<rule>\"\n"
+	    "      Validate a rule without loading it\n"
+	    "\n"
+	    "  rule validate -f <file>\n"
+	    "      Validate all rules in a file\n"
+	    "\n"
 	    "  rule list\n"
 	    "      List all loaded rules\n"
 	    "\n"
@@ -670,7 +680,7 @@ pattern_to_string(const struct vlabel_pattern_io *p, char *buf, size_t buflen)
 }
 
 /*
- * rule add|remove|clear|list
+ * rule add|remove|clear|list|load|validate
  */
 static int
 cmd_rule(int argc, char *argv[])
@@ -683,7 +693,12 @@ cmd_rule(int argc, char *argv[])
 	if (argc < 1)
 		usage();
 
-	open_device();
+	/*
+	 * validate doesn't need the device - it just parses locally.
+	 * All other commands need it.
+	 */
+	if (strcmp(argv[0], "validate") != 0)
+		open_device();
 
 	if (strcmp(argv[0], "add") == 0) {
 		if (argc < 2)
@@ -715,6 +730,179 @@ cmd_rule(int argc, char *argv[])
 			err(EX_OSERR, "ioctl(RULES_CLEAR)");
 
 		printf("all rules cleared\n");
+
+	} else if (strcmp(argv[0], "load") == 0) {
+		FILE *fp;
+		char line[2048];
+		char *start, *end, *comment;
+		int lineno = 0;
+		int loaded = 0;
+		int errors = 0;
+
+		if (argc < 2)
+			errx(EX_USAGE, "rule load requires a file path");
+
+		fp = fopen(argv[1], "r");
+		if (fp == NULL)
+			err(EX_NOINPUT, "open %s", argv[1]);
+
+		while (fgets(line, sizeof(line), fp) != NULL) {
+			lineno++;
+
+			/* Strip comments */
+			comment = strchr(line, '#');
+			if (comment != NULL)
+				*comment = '\0';
+
+			/* Trim leading whitespace */
+			start = line;
+			while (*start == ' ' || *start == '\t')
+				start++;
+
+			/* Trim trailing whitespace */
+			end = start + strlen(start) - 1;
+			while (end > start && (*end == '\n' || *end == '\r' ||
+			    *end == ' ' || *end == '\t')) {
+				*end = '\0';
+				end--;
+			}
+
+			/* Skip empty lines */
+			if (*start == '\0')
+				continue;
+
+			/* Parse and add rule */
+			ret = vlabeld_parse_line(start, &rule);
+			if (ret < 0) {
+				warnx("%s:%d: invalid rule syntax: %s",
+				    argv[1], lineno, start);
+				errors++;
+				continue;
+			}
+			if (ret > 0) /* empty after parsing */
+				continue;
+
+			if (ioctl(dev_fd, VLABEL_IOC_RULE_ADD, &rule) < 0) {
+				warn("%s:%d: failed to add rule", argv[1], lineno);
+				errors++;
+				continue;
+			}
+
+			loaded++;
+		}
+
+		fclose(fp);
+
+		printf("loaded %d rules", loaded);
+		if (errors > 0)
+			printf(" (%d errors)", errors);
+		printf("\n");
+
+		return (errors > 0 ? 1 : 0);
+
+	} else if (strcmp(argv[0], "validate") == 0) {
+		FILE *fp;
+		char line[2048];
+		char *start, *end, *comment;
+		int lineno = 0;
+		int valid = 0;
+		int errors = 0;
+		int warnings = 0;
+		int from_file = 0;
+		const char *input;
+
+		/* Parse arguments: validate "rule" or validate -f file */
+		if (argc >= 3 && strcmp(argv[1], "-f") == 0) {
+			from_file = 1;
+			input = argv[2];
+		} else if (argc >= 2) {
+			from_file = 0;
+			input = argv[1];
+		} else {
+			errx(EX_USAGE,
+			    "rule validate requires a rule or -f <file>");
+		}
+
+		if (!from_file) {
+			/* Validate single rule - doesn't need device */
+			ret = vlabeld_parse_line(input, &rule);
+			if (ret < 0) {
+				printf("ERROR: invalid rule syntax\n");
+				return (1);
+			}
+			if (ret > 0) {
+				printf("ERROR: empty rule\n");
+				return (1);
+			}
+
+			/* Check for warnings */
+			if (rule.vr_action == VLABEL_ACTION_TRANSITION &&
+			    rule.vr_newlabel[0] == '\0') {
+				printf("WARNING: transition rule has no newlabel\n");
+			}
+
+			printf("OK\n");
+			return (0);
+		}
+
+		/* Validate file */
+		fp = fopen(input, "r");
+		if (fp == NULL)
+			err(EX_NOINPUT, "open %s", input);
+
+		while (fgets(line, sizeof(line), fp) != NULL) {
+			lineno++;
+
+			/* Strip comments */
+			comment = strchr(line, '#');
+			if (comment != NULL)
+				*comment = '\0';
+
+			/* Trim leading whitespace */
+			start = line;
+			while (*start == ' ' || *start == '\t')
+				start++;
+
+			/* Trim trailing whitespace */
+			end = start + strlen(start) - 1;
+			while (end > start && (*end == '\n' || *end == '\r' ||
+			    *end == ' ' || *end == '\t')) {
+				*end = '\0';
+				end--;
+			}
+
+			/* Skip empty lines */
+			if (*start == '\0')
+				continue;
+
+			/* Parse rule */
+			ret = vlabeld_parse_line(start, &rule);
+			if (ret < 0) {
+				printf("Line %d: ERROR - %s\n", lineno, start);
+				errors++;
+				continue;
+			}
+			if (ret > 0)
+				continue;
+
+			/* Check for warnings */
+			if (rule.vr_action == VLABEL_ACTION_TRANSITION &&
+			    rule.vr_newlabel[0] == '\0') {
+				printf("Line %d: WARNING - transition without "
+				    "newlabel: %s\n", lineno, start);
+				warnings++;
+			}
+
+			printf("Line %d: OK - %s\n", lineno, start);
+			valid++;
+		}
+
+		fclose(fp);
+
+		printf("\nSummary: %d valid, %d errors, %d warnings\n",
+		    valid, errors, warnings);
+
+		return (errors > 0 ? 1 : 0);
 
 	} else if (strcmp(argv[0], "list") == 0) {
 		struct vlabel_rule_io *rules;

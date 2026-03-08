@@ -12,6 +12,7 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
+#include <sys/malloc.h>
 #include <sys/mount.h>
 #include <sys/namei.h>
 #include <sys/sbuf.h>
@@ -80,7 +81,7 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
     struct vnode *vp, struct label *vplabel)
 {
 	struct vlabel_label *vl;
-	char buf[VLABEL_MAX_LABEL_LEN];
+	char *buf;
 	int buflen, error;
 
 	vl = SLOT(vplabel);
@@ -90,10 +91,18 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 	}
 
 	/*
+	 * Allocate buffer on heap - VLABEL_MAX_LABEL_LEN (12KB) is too
+	 * large for the kernel stack (typically 4-8KB).
+	 *
+	 * M_WAITOK guarantees success (kernel will sleep until memory
+	 * is available, or panic if impossible).
+	 */
+	buf = malloc(VLABEL_MAX_LABEL_LEN, M_TEMP, M_WAITOK | M_ZERO);
+
+	/*
 	 * Read the label from the system:vlabel extended attribute.
 	 */
-	buflen = sizeof(buf) - 1;
-	bzero(buf, sizeof(buf));
+	buflen = VLABEL_MAX_LABEL_LEN - 1;
 
 	error = vn_extattr_get(vp, IO_NODELOCKED, VLABEL_EXTATTR_NAMESPACE,
 	    vlabel_extattr_name, &buflen, buf, curthread);
@@ -105,6 +114,7 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 		/*
 		 * No label on this vnode - use default object label.
 		 */
+		free(buf, M_TEMP);
 		vlabel_label_set_default(vl, false);
 		atomic_add_64(&vlabel_labels_default, 1);
 		VLABEL_DPRINTF("associate_extattr: no label (err=%d), using default",
@@ -116,6 +126,7 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 		 */
 		VLABEL_DPRINTF("associate_extattr: error %d reading extattr",
 		    error);
+		free(buf, M_TEMP);
 		vlabel_label_set_default(vl, false);
 		return (0);
 	}
@@ -128,10 +139,12 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 	if (error != 0) {
 		VLABEL_DPRINTF("associate_extattr: parse error %d for '%s'",
 		    error, buf);
+		free(buf, M_TEMP);
 		vlabel_label_set_default(vl, false);
 		return (0);
 	}
 
+	free(buf, M_TEMP);
 	atomic_add_64(&vlabel_labels_read, 1);
 
 	VLABEL_DPRINTF("associate_extattr: loaded label '%s'", vl->vl_raw);

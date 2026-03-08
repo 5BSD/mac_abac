@@ -1,0 +1,2 @@
+# Minimal test policy
+allow exec * -> *

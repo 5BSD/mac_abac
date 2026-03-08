@@ -57,24 +57,26 @@
  * VLABEL_MAX_LABEL_LEN: Maximum total length of a label string (per label).
  *   - Stored in extended attributes on files
  *   - Used in ioctl structures for rule patterns
- *   - Must be >= VLABEL_MAX_PAIRS * (VLABEL_MAX_KEY_LEN + VLABEL_MAX_VALUE_LEN + 2)
- *   - 32 pairs * (64 + 256 + 2) = 10,304 bytes theoretical max
- *   - Set to 12KB to allow headroom
+ *   - Limited by FreeBSD ioctl max size (8KB for entire structure)
+ *   - struct vlabel_rule_io uses ~3x this value, so max is ~2.5KB
+ *   - Set to 1KB (struct becomes ~3KB, well under 8KB limit)
  *
  * VLABEL_MAX_KEY_LEN: Maximum length of a single key name (per key).
- *   - Includes null terminator, so usable length is 63 bytes
+ *   - 32 bytes total (31 usable + null terminator)
+ *   - Typical keys: type, domain, level, tenant, env
  *
  * VLABEL_MAX_VALUE_LEN: Maximum length of a single value (per value).
- *   - Includes null terminator, so usable length is 255 bytes
+ *   - 96 bytes total (95 usable + null terminator)
+ *   - Typical values: untrusted, web, production
  *
  * VLABEL_MAX_PAIRS: Maximum number of key=value pairs per label.
  *   - Applies to both file labels and rule patterns
- *   - A single label can have at most 32 key=value pairs
+ *   - This is a kernel parsing limit, independent of ioctl size
  */
-#define VLABEL_MAX_LABEL_LEN		12288	/* Max label string length (12KB) */
-#define VLABEL_MAX_KEY_LEN		64	/* Max key length (63 usable + null) */
-#define VLABEL_MAX_VALUE_LEN		256	/* Max value length (255 usable + null) */
-#define VLABEL_MAX_PAIRS		32	/* Max key=value pairs per label */
+#define VLABEL_MAX_LABEL_LEN		1024	/* Max label string length (1KB) */
+#define VLABEL_MAX_KEY_LEN		32	/* Max key length (32 bytes including null) */
+#define VLABEL_MAX_VALUE_LEN		96	/* Max value length (96 bytes including null) */
+#define VLABEL_MAX_PAIRS		8	/* Max key=value pairs per label */
 
 /*
  * Rule constraints (system-wide limits)

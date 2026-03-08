@@ -1,0 +1,26 @@
+# Multi-tenant isolation policy
+# Each tenant can only access their own data
+
+# Tenant A (acme) isolation
+allow all tenant=acme -> tenant=acme
+deny read,write,exec tenant=acme -> tenant=globex
+deny read,write,exec tenant=acme -> tenant=initech
+
+# Tenant B (globex) isolation
+allow all tenant=globex -> tenant=globex
+deny read,write,exec tenant=globex -> tenant=acme
+deny read,write,exec tenant=globex -> tenant=initech
+
+# Tenant C (initech) isolation
+allow all tenant=initech -> tenant=initech
+deny read,write,exec tenant=initech -> tenant=acme
+deny read,write,exec tenant=initech -> tenant=globex
+
+# All tenants can read shared platform binaries
+allow read,exec * -> type=platform
+
+# All tenants can access shared libraries
+allow read,mmap * -> type=shared
+
+# Default deny cross-tenant access
+deny all * -> tenant=*

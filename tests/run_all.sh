@@ -77,6 +77,9 @@ fi
 run_test_script "vlabelctl Commands" ./02_vlabelctl.sh "$VLABELCTL"
 run_test_script "Label Format" ./03_label_format.sh "$VLABELCTL"
 run_test_script "Default Policy" ./04_default_policy.sh "$VLABELCTL"
+run_test_script "Debug/Signal/Sched" ./05_debug_check.sh "$VLABELCTL"
+run_test_script "Rule Validation" ./06_rule_validate.sh "$VLABELCTL"
+run_test_script "Rule Load" ./07_rule_load.sh "$VLABELCTL"
 
 # Summary
 echo ""

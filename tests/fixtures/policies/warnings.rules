@@ -1,0 +1,14 @@
+# Rules that should generate warnings but not errors
+
+# Transition without newlabel - should warn
+transition exec * -> type=app
+
+# Another transition missing newlabel
+transition exec type=user -> name=setuid
+
+# Valid rules mixed in
+allow exec * -> *
+deny exec * -> type=blocked
+
+# One more transition without newlabel
+transition exec type=init -> type=daemon

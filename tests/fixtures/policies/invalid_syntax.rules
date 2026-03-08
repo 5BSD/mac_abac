@@ -1,0 +1,35 @@
+# Invalid rules for testing error detection
+# This file should produce multiple errors
+
+# Missing arrow separator
+deny exec * type=untrusted
+
+# Invalid action (not allow/deny/transition)
+permit exec * -> *
+
+# Invalid operation name
+deny foo * -> *
+
+# Empty subject pattern where not allowed
+deny exec -> type=untrusted
+
+# Missing object pattern
+allow exec * ->
+
+# Complete garbage
+this is not a rule at all
+
+# Another garbage line
+random words here 123
+
+# Valid rule to ensure parser continues after errors
+allow exec * -> *
+
+# More invalid: no operation
+allow * -> *
+
+# Invalid: empty string after parsing
+
+
+# Valid rule at the end
+deny exec * -> type=blocked
