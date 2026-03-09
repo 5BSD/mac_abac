@@ -30,3 +30,4 @@ swift/.build/
 
 daemon/vlabeld
 tools/vlabelctl
+tools/vlabelctl

@@ -426,8 +426,8 @@ ops_to_string(uint32_t ops, char *buf, size_t buflen)
 /*
  * Build a rule_arg buffer from parsed rule
  *
- * The daemon's vlabeld_parse_line() returns vlabel_rule_io (old ioctl format).
- * We need to convert it to vlabel_rule_arg (new syscall format).
+ * The daemon's vlabeld_parse_line() returns vlabel_rule_io (userland format).
+ * We convert it to vlabel_rule_arg (kernel mac_syscall format).
  */
 static int
 build_rule_arg(const char *rule_str, char **bufp, size_t *lenp)

@@ -75,6 +75,10 @@ echo ""
 ORIG_DEFAULT=$("$VLABELCTL" default)
 ORIG_MODE=$("$VLABELCTL" mode)
 
+# SAFETY: Run in permissive mode during tests to avoid lockout
+# The default policy affects rule evaluation, not enforcement
+"$VLABELCTL" mode permissive >/dev/null 2>&1
+
 # Clear all rules for testing
 "$VLABELCTL" rule clear >/dev/null 2>&1
 

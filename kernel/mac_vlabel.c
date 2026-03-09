@@ -221,6 +221,7 @@ static struct mac_policy_ops vlabel_ops = {
 	.mpo_vnode_destroy_label = vlabel_vnode_destroy_label,
 	.mpo_vnode_copy_label = vlabel_vnode_copy_label,
 	.mpo_vnode_associate_extattr = vlabel_vnode_associate_extattr,
+	.mpo_vnode_associate_singlelabel = vlabel_vnode_associate_singlelabel,
 	.mpo_vnode_create_extattr = vlabel_vnode_create_extattr,
 	.mpo_vnode_setlabel_extattr = vlabel_vnode_setlabel_extattr,
 	.mpo_vnode_relabel = vlabel_vnode_relabel,

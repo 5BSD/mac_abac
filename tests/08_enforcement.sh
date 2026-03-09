@@ -79,21 +79,23 @@ info "=== Setup ==="
 # This test uses method 2 if available, falling back to method 1 with a
 # warning if the label isn't being read from extattr.
 
+USE_PRELABELED=0
+
 # Check if pre-labeled test binary exists from deploy-test.sh
 # If /root/test_untrusted exists, use that instead
 if [ -f "/root/test_untrusted" ]; then
-	TEST_BIN_PRELABELED="/root/test_untrusted"
-	LABEL=$(getextattr -q system vlabel "$TEST_BIN_PRELABELED" 2>&1)
+	LABEL=$(getextattr -q system vlabel "/root/test_untrusted" 2>&1)
 	if echo "$LABEL" | grep -q "untrusted"; then
-		info "Using pre-labeled test binary: $TEST_BIN_PRELABELED"
-		TEST_BIN="$TEST_BIN_PRELABELED"
+		info "Using pre-labeled test binary: /root/test_untrusted"
+		TEST_BIN="/root/test_untrusted"
+		USE_PRELABELED=1
 	fi
 fi
 
 # If no pre-labeled binary, create one (may not work due to vnode caching)
-if [ "$TEST_BIN" = "/root/vlabel_test_$$" ]; then
+if [ "$USE_PRELABELED" -eq 0 ]; then
 	warn "Creating test binary on-the-fly (may not work due to vnode label caching)"
-	warn "For reliable tests, run deploy-test.sh first to create pre-labeled binaries"
+	warn "For reliable tests, run scripts/deploy-test.sh first"
 
 	# Remove any existing test binary
 	rm -f "$TEST_BIN"
@@ -119,6 +121,39 @@ info "Test binary label (vlabelctl): $LABEL2"
 if [ -z "$LABEL" ]; then
 	warn "Failed to set label - filesystem may not support system extattrs"
 	warn "Try running test on UFS or ZFS (not tmpfs)"
+fi
+
+# Check if labels are being read from extattr
+# Get current stats before running test binary
+STATS_BEFORE=$("$VLABELCTL" stats 2>&1)
+LABELS_READ_BEFORE=$(echo "$STATS_BEFORE" | grep "Labels read:" | awk '{print $3}')
+LABELS_READ_BEFORE=${LABELS_READ_BEFORE:-0}
+
+# Touch the test binary to trigger label association (if not cached)
+"$TEST_BIN" >/dev/null 2>&1 || true
+
+STATS_AFTER=$("$VLABELCTL" stats 2>&1)
+LABELS_READ_AFTER=$(echo "$STATS_AFTER" | grep "Labels read:" | awk '{print $3}')
+LABELS_READ_AFTER=${LABELS_READ_AFTER:-0}
+
+if [ "$USE_PRELABELED" -eq 0 ] && [ "$LABELS_READ_AFTER" -eq "$LABELS_READ_BEFORE" ]; then
+	warn ""
+	warn "VNODE LABEL CACHING DETECTED"
+	warn "The kernel is not reading labels from extattr for on-the-fly binaries."
+	warn "This happens when binaries are created after the module is loaded."
+	warn ""
+	warn "To fix: Run scripts/deploy-test.sh to:"
+	warn "  1. Create labeled test binaries"
+	warn "  2. Load the module"
+	warn "  3. Then run tests"
+	warn ""
+	warn "Skipping enforcement tests (they would give false results)"
+	echo ""
+	echo "TESTS SKIPPED: 4"
+	echo "Passed: 0"
+	echo "Failed: 0"
+	echo "Skipped: 4 (vnode label caching - run deploy-test.sh first)"
+	exit 0
 fi
 
 # Clear any existing rules

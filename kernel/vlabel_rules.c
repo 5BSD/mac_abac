@@ -302,7 +302,7 @@ vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 {
 	const struct vlabel_rule *rule;
 	int i, result;
-	uint32_t matched_rule_id __unused = 0;
+	uint32_t matched_rule_id = 0;	/* Used by DTrace probes */
 
 	atomic_add_64(&vlabel_checks, 1);
 
@@ -384,6 +384,8 @@ out:
 
 	/* DTrace: check return */
 	SDT_PROBE2(vlabel, rules, check, return, result, op);
+
+	(void)matched_rule_id;	/* Silence warning when DTrace compiled out */
 
 	return (result);
 }
@@ -681,7 +683,7 @@ vlabel_rules_clear(void)
 {
 	struct vlabel_rule *rule;
 	int i;
-	uint32_t cleared __unused = 0;
+	uint32_t cleared = 0;
 
 	rw_wlock(&vlabel_rules_lock);
 
@@ -701,11 +703,13 @@ vlabel_rules_clear(void)
 	/* DTrace: rules cleared */
 	SDT_PROBE1(vlabel, rules, rule, clear, cleared);
 
+	(void)cleared;	/* Silence warning when DTrace compiled out */
+
 	VLABEL_DPRINTF("rules_clear: all rules cleared");
 }
 
 /*
- * Get statistics for ioctl
+ * Get statistics (via mac_syscall)
  */
 void
 vlabel_rules_get_stats(struct vlabel_stats *stats)

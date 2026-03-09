@@ -81,9 +81,13 @@ vlabel_vnode_copy_label(struct label *src, struct label *dest)
 		vlabel_label_copy(srcvl, dstvl);
 }
 
-int
-vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
-    struct vnode *vp, struct label *vplabel)
+/*
+ * Helper function to read label from extended attribute.
+ * Used by both associate_extattr (UFS multilabel) and
+ * associate_singlelabel (ZFS and other filesystems).
+ */
+static void
+vlabel_vnode_read_extattr(struct vnode *vp, struct label *vplabel)
 {
 	struct vlabel_label *vl;
 	char *buf;
@@ -91,8 +95,8 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 
 	vl = SLOT(vplabel);
 	if (vl == NULL) {
-		VLABEL_DPRINTF("associate_extattr: NULL label slot");
-		return (0);
+		VLABEL_DPRINTF("read_extattr: NULL label slot");
+		return;
 	}
 
 	/*
@@ -112,7 +116,7 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 	error = vn_extattr_get(vp, IO_NODELOCKED, VLABEL_EXTATTR_NAMESPACE,
 	    vlabel_extattr_name, &buflen, buf, curthread);
 
-	VLABEL_DPRINTF("associate_extattr: vn_extattr_get returned %d, buflen=%d",
+	VLABEL_DPRINTF("read_extattr: vn_extattr_get returned %d, buflen=%d",
 	    error, buflen);
 
 	if (error == ENOATTR || error == EOPNOTSUPP) {
@@ -124,18 +128,18 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 		/* DTrace: default label assigned */
 		SDT_PROBE1(vlabel, label, extattr, default, 0);
 		atomic_add_64(&vlabel_labels_default, 1);
-		VLABEL_DPRINTF("associate_extattr: no label (err=%d), using default",
+		VLABEL_DPRINTF("read_extattr: no label (err=%d), using default",
 		    error);
-		return (0);
+		return;
 	} else if (error != 0) {
 		/*
 		 * Error reading extattr - use default and log.
 		 */
-		VLABEL_DPRINTF("associate_extattr: error %d reading extattr",
+		VLABEL_DPRINTF("read_extattr: error %d reading extattr",
 		    error);
 		free(buf, M_TEMP);
 		vlabel_label_set_default(vl, false);
-		return (0);
+		return;
 	}
 
 	/*
@@ -144,11 +148,11 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 	buf[buflen] = '\0';
 	error = vlabel_label_parse(buf, buflen, vl);
 	if (error != 0) {
-		VLABEL_DPRINTF("associate_extattr: parse error %d for '%s'",
+		VLABEL_DPRINTF("read_extattr: parse error %d for '%s'",
 		    error, buf);
 		free(buf, M_TEMP);
 		vlabel_label_set_default(vl, false);
-		return (0);
+		return;
 	}
 
 	free(buf, M_TEMP);
@@ -156,8 +160,34 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 	SDT_PROBE2(vlabel, label, extattr, read, vl->vl_raw, vp);
 	atomic_add_64(&vlabel_labels_read, 1);
 
-	VLABEL_DPRINTF("associate_extattr: loaded label '%s'", vl->vl_raw);
+	VLABEL_DPRINTF("read_extattr: loaded label '%s'", vl->vl_raw);
+}
+
+/*
+ * Associate vnode label from extended attribute (UFS with multilabel).
+ */
+int
+vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
+    struct vnode *vp, struct label *vplabel)
+{
+
+	vlabel_vnode_read_extattr(vp, vplabel);
 	return (0);
+}
+
+/*
+ * Associate vnode label for single-label filesystems (ZFS, tmpfs, etc).
+ *
+ * Even though these filesystems don't set MNT_MULTILABEL, they may still
+ * support extended attributes. We attempt to read per-file labels from
+ * extattr, falling back to the default label if not present.
+ */
+void
+vlabel_vnode_associate_singlelabel(struct mount *mp, struct label *mplabel,
+    struct vnode *vp, struct label *vplabel)
+{
+
+	vlabel_vnode_read_extattr(vp, vplabel);
 }
 
 int
@@ -166,7 +196,11 @@ vlabel_vnode_create_extattr(struct ucred *cred, struct mount *mp,
     struct vnode *vp, struct label *vplabel, struct componentname *cnp)
 {
 
-	/* TODO: Set default label extattr on new file */
+	/*
+	 * Stub: New files get the default object label assigned in
+	 * vlabel_vnode_init_label(). Setting extattr automatically on
+	 * file creation is not implemented - use vlabelctl label set.
+	 */
 	return (0);
 }
 
@@ -200,7 +234,10 @@ vlabel_vnode_relabel(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, struct label *newlabel)
 {
 
-	/* TODO: Update vnode label */
+	/*
+	 * Stub: Label updates are handled via extattr and setlabel_extattr.
+	 * This callback is currently a no-op.
+	 */
 }
 
 int
@@ -208,7 +245,10 @@ vlabel_vnode_externalize_label(struct label *label, char *element_name,
     struct sbuf *sb, int *claimed)
 {
 
-	/* TODO: Externalize vnode label to string */
+	/*
+	 * Stub: Label externalization (for mac_get_file) not implemented.
+	 * Use vlabelctl label get or getextattr to read labels.
+	 */
 	return (0);
 }
 
@@ -217,7 +257,10 @@ vlabel_vnode_internalize_label(struct label *label, char *element_name,
     char *element_data, int *claimed)
 {
 
-	/* TODO: Internalize vnode label from string */
+	/*
+	 * Stub: Label internalization (for mac_set_file) not implemented.
+	 * Use vlabelctl label set or setextattr to write labels.
+	 */
 	return (0);
 }
 

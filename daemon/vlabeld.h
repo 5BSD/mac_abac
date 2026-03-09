@@ -12,7 +12,7 @@
 #include <stdint.h>
 
 /*
- * Include the shared kernel/userland header for ioctl definitions
+ * Include the shared kernel/userland header for mac_syscall definitions
  */
 #include "../kernel/mac_vlabel.h"
 

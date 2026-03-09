@@ -114,20 +114,9 @@ else
     printf "${YELLOW}>>> Skipping: DTrace Probes (dtrace not available)${NC}\n"
 fi
 
-# NOTE: Enforcement test (08_enforcement.sh) is SKIPPED in the automated suite.
-# It requires special conditions:
-#   1. Test binaries must be labeled BEFORE module load
-#   2. Module must not have been unloaded/reloaded (clears vnode labels)
-#   3. Test binaries must not have been accessed since module load
-#
-# To run enforcement tests properly:
-#   1. Reboot or fresh boot
-#   2. Run: scripts/deploy-test.sh (sets up labeled binaries before module load)
-#   3. Run: tests/08_enforcement.sh /usr/local/bin/vlabelctl
-#
-echo ""
-printf "${YELLOW}>>> Skipping: Enforcement (requires fresh module load)${NC}\n"
-echo "    Run manually after fresh boot with: ./08_enforcement.sh"
+# Enforcement test - requires labeled binaries set up before module load
+# Run scripts/deploy-test.sh to set up the test environment properly
+run_test_script "Enforcement" ./08_enforcement.sh "$VLABELCTL"
 
 # Summary
 echo ""

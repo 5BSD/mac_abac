@@ -116,16 +116,17 @@
 
 /*
  * Context assertion flags
+ *
+ * Note: UID and RUID both use vc_uid field, so they cannot be used
+ * simultaneously in the same rule. Use UID for effective UID checks
+ * or RUID for real UID checks, but not both.
  */
 #define VLABEL_CTX_CAP_SANDBOXED	0x00000001
 #define VLABEL_CTX_JAIL			0x00000002
-#define VLABEL_CTX_UID			0x00000004
-#define VLABEL_CTX_GID			0x00000008
-#define VLABEL_CTX_EUID			0x00000010
-#define VLABEL_CTX_RUID			0x00000020
-#define VLABEL_CTX_SID			0x00000040
+#define VLABEL_CTX_UID			0x00000004	/* Effective UID */
+#define VLABEL_CTX_GID			0x00000008	/* Effective GID */
+#define VLABEL_CTX_RUID			0x00000020	/* Real UID (uses vc_uid) */
 #define VLABEL_CTX_HAS_TTY		0x00000080
-#define VLABEL_CTX_PARENT_LABEL		0x00000100
 
 /*
  * Pattern match flags
@@ -487,6 +488,8 @@ void vlabel_vnode_init_label(struct label *label);
 void vlabel_vnode_destroy_label(struct label *label);
 void vlabel_vnode_copy_label(struct label *src, struct label *dest);
 int vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
+    struct vnode *vp, struct label *vplabel);
+void vlabel_vnode_associate_singlelabel(struct mount *mp, struct label *mplabel,
     struct vnode *vp, struct label *vplabel);
 int vlabel_vnode_create_extattr(struct ucred *cred, struct mount *mp,
     struct label *mplabel, struct vnode *dvp, struct label *dvplabel,
