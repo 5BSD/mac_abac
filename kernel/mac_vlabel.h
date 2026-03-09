@@ -488,6 +488,20 @@ int vlabel_label_to_string(const struct vlabel_label *vl, char *buf, size_t bufl
 int vlabel_pattern_parse(const char *str, size_t len, struct vlabel_pattern *pattern);
 
 /*
+ * Function prototypes - vlabel_match.c
+ */
+bool vlabel_pattern_match(const struct vlabel_label *label,
+    const struct vlabel_pattern *pattern);
+bool vlabel_context_matches(const struct vlabel_context *ctx,
+    struct ucred *cred, struct proc *proc);
+bool vlabel_rule_matches(const struct vlabel_rule *rule,
+    const struct vlabel_label *subj, const struct vlabel_label *obj,
+    uint32_t op, struct ucred *subj_cred, struct proc *obj_proc);
+size_t vlabel_pattern_to_string(const struct vlabel_pattern *pattern,
+    char *buf, size_t buflen);
+void vlabel_convert_label_format(const char *src, char *dst, size_t dstlen);
+
+/*
  * Function prototypes - vlabel_rules.c
  */
 void vlabel_rules_init(void);
@@ -498,11 +512,15 @@ bool vlabel_rules_will_transition(struct ucred *cred, struct vlabel_label *subj,
     struct vlabel_label *obj);
 int vlabel_rules_get_transition(struct ucred *cred, struct vlabel_label *subj,
     struct vlabel_label *obj, struct vlabel_label *newlabel);
-int vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data);
 int vlabel_rule_remove(uint32_t id);
 void vlabel_rules_clear(void);
-int vlabel_rules_load(struct vlabel_rule_load_arg *load_arg);
 void vlabel_rules_get_stats(struct vlabel_stats *stats);
+
+/*
+ * Function prototypes - vlabel_syscall.c
+ */
+int vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data);
+int vlabel_rules_load(struct vlabel_rule_load_arg *load_arg);
 int vlabel_rules_list(struct vlabel_rule_list_arg *list_arg);
 int vlabel_rules_test_access(const char *subject, size_t subject_len,
     const char *object, size_t object_len, uint32_t operation,
