@@ -7,6 +7,8 @@
  * vlabelctl - Rule command handlers
  *
  * Handles: rule add|remove|clear|list|load|append|validate
+ *
+ * Supports both line format (.rules) and UCL/JSON format (.ucl, .json, .conf)
  */
 
 #include <sys/types.h>
@@ -14,14 +16,73 @@
 
 #include <err.h>
 #include <errno.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sysexits.h>
 
 #include "../kernel/mac_vlabel.h"
 #include "../daemon/vlabeld.h"
 #include "vlabelctl.h"
+
+/*
+ * Context for UCL rule loading callback
+ */
+struct ucl_load_ctx {
+	char	*buf;
+	size_t	 buflen;
+	size_t	 bufused;
+	int	 count;
+	int	 errors;
+};
+
+/*
+ * Stub implementations for vlabeld functions used by parse_ucl.c
+ * These are only needed when linking parse_ucl.o into vlabelctl.
+ */
+void
+vlabeld_log(int priority __unused, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	fprintf(stderr, "\n");
+	va_end(ap);
+}
+
+int
+vlabeld_set_mode(int mode __unused)
+{
+	/* vlabelctl doesn't use mode from UCL files - use 'vlabelctl mode' */
+	return (0);
+}
+
+int
+vlabeld_add_rule(struct vlabel_rule_io *rule __unused)
+{
+	/* Not used - we use the callback interface instead */
+	return (0);
+}
+
+/*
+ * Check if file has UCL/JSON extension
+ */
+static int
+is_ucl_file(const char *path)
+{
+	const char *ext;
+
+	ext = strrchr(path, '.');
+	if (ext == NULL)
+		return (0);
+
+	return (strcasecmp(ext, ".ucl") == 0 ||
+	    strcasecmp(ext, ".json") == 0 ||
+	    strcasecmp(ext, ".conf") == 0);
+}
 
 /*
  * Build a rule_arg buffer from parsed rule
@@ -89,6 +150,150 @@ build_rule_arg(const char *rule_str, char **bufp, size_t *lenp)
 
 	*bufp = buf;
 	*lenp = total_len;
+	return (0);
+}
+
+/*
+ * Build rule_arg buffer from vlabel_rule_io
+ * Used by UCL callback to convert parsed rules to kernel format.
+ */
+static int
+build_rule_arg_from_io(struct vlabel_rule_io *rule_io, char **bufp, size_t *lenp)
+{
+	struct vlabel_rule_arg *arg;
+	char *buf, *data;
+	size_t subject_len, object_len, newlabel_len, total_len;
+
+	/* Calculate lengths (include null terminators) */
+	subject_len = strlen(rule_io->vr_subject.vp_pattern) + 1;
+	object_len = strlen(rule_io->vr_object.vp_pattern) + 1;
+	newlabel_len = (rule_io->vr_action == VLABEL_ACTION_TRANSITION) ?
+	    strlen(rule_io->vr_newlabel) + 1 : 0;
+
+	total_len = sizeof(struct vlabel_rule_arg) + subject_len + object_len + newlabel_len;
+
+	buf = calloc(1, total_len);
+	if (buf == NULL)
+		return (-1);
+
+	arg = (struct vlabel_rule_arg *)buf;
+	arg->vr_action = rule_io->vr_action;
+	arg->vr_operations = rule_io->vr_operations;
+	arg->vr_subject_flags = rule_io->vr_subject.vp_flags;
+	arg->vr_object_flags = rule_io->vr_object.vp_flags;
+	/* Copy subject context constraints */
+	arg->vr_subj_context.vc_flags = rule_io->vr_subj_context.vc_flags;
+	arg->vr_subj_context.vc_cap_sandboxed = rule_io->vr_subj_context.vc_cap_sandboxed;
+	arg->vr_subj_context.vc_has_tty = rule_io->vr_subj_context.vc_has_tty;
+	arg->vr_subj_context.vc_jail_check = rule_io->vr_subj_context.vc_jail_check;
+	arg->vr_subj_context.vc_uid = rule_io->vr_subj_context.vc_uid;
+	arg->vr_subj_context.vc_gid = rule_io->vr_subj_context.vc_gid;
+	/* Copy object context constraints */
+	arg->vr_obj_context.vc_flags = rule_io->vr_obj_context.vc_flags;
+	arg->vr_obj_context.vc_cap_sandboxed = rule_io->vr_obj_context.vc_cap_sandboxed;
+	arg->vr_obj_context.vc_has_tty = rule_io->vr_obj_context.vc_has_tty;
+	arg->vr_obj_context.vc_jail_check = rule_io->vr_obj_context.vc_jail_check;
+	arg->vr_obj_context.vc_uid = rule_io->vr_obj_context.vc_uid;
+	arg->vr_obj_context.vc_gid = rule_io->vr_obj_context.vc_gid;
+	arg->vr_subject_len = subject_len;
+	arg->vr_object_len = object_len;
+	arg->vr_newlabel_len = newlabel_len;
+
+	/* Copy strings */
+	data = buf + sizeof(struct vlabel_rule_arg);
+	memcpy(data, rule_io->vr_subject.vp_pattern, subject_len);
+	data += subject_len;
+	memcpy(data, rule_io->vr_object.vp_pattern, object_len);
+	data += object_len;
+	if (newlabel_len > 0)
+		memcpy(data, rule_io->vr_newlabel, newlabel_len);
+
+	*bufp = buf;
+	*lenp = total_len;
+	return (0);
+}
+
+/*
+ * Callback for UCL rule parsing - adds rule to packed buffer
+ */
+static int
+ucl_rule_callback(struct vlabel_rule_io *rule, void *ctx)
+{
+	struct ucl_load_ctx *lctx = ctx;
+	char *rule_buf;
+	size_t rule_len;
+
+	if (build_rule_arg_from_io(rule, &rule_buf, &rule_len) < 0) {
+		lctx->errors++;
+		return (-1);
+	}
+
+	/* Grow buffer if needed */
+	if (lctx->bufused + rule_len > lctx->buflen) {
+		size_t newlen = lctx->buflen == 0 ? 8192 : lctx->buflen * 2;
+		char *newbuf;
+
+		while (newlen < lctx->bufused + rule_len)
+			newlen *= 2;
+		newbuf = realloc(lctx->buf, newlen);
+		if (newbuf == NULL) {
+			free(rule_buf);
+			lctx->errors++;
+			return (-1);
+		}
+		lctx->buf = newbuf;
+		lctx->buflen = newlen;
+	}
+
+	/* Append rule to buffer */
+	memcpy(lctx->buf + lctx->bufused, rule_buf, rule_len);
+	lctx->bufused += rule_len;
+	lctx->count++;
+
+	free(rule_buf);
+	return (0);
+}
+
+/*
+ * Load rules from UCL/JSON file
+ */
+static int
+load_ucl_rules(const char *path)
+{
+	struct ucl_load_ctx ctx;
+	struct vlabel_rule_load_arg load_arg;
+
+	memset(&ctx, 0, sizeof(ctx));
+
+	if (vlabeld_parse_ucl_with_callback(path, false, ucl_rule_callback, &ctx) < 0) {
+		free(ctx.buf);
+		return (-1);
+	}
+
+	if (ctx.errors > 0) {
+		warnx("aborting load due to %d parse errors", ctx.errors);
+		free(ctx.buf);
+		return (-1);
+	}
+
+	if (ctx.count == 0) {
+		printf("no rules to load (clearing existing rules)\n");
+	}
+
+	/* Atomic load via kernel syscall */
+	memset(&load_arg, 0, sizeof(load_arg));
+	load_arg.vrl_count = ctx.count;
+	load_arg.vrl_buflen = ctx.bufused;
+	load_arg.vrl_buf = ctx.buf;
+
+	if (vlabel_syscall(VLABEL_SYS_RULE_LOAD, &load_arg) < 0) {
+		free(ctx.buf);
+		err(EX_OSERR, "RULE_LOAD");
+	}
+
+	free(ctx.buf);
+
+	printf("loaded %u rules from %s (atomic)\n", load_arg.vrl_loaded, path);
 	return (0);
 }
 
@@ -208,10 +413,20 @@ cmd_rule(int argc, char *argv[])
 		return (errors > 0 ? 1 : 0);
 
 	} else if (strcmp(argv[0], "remove") == 0) {
+		char *endptr;
+		unsigned long ulid;
+
 		if (argc < 2)
 			errx(EX_USAGE, "rule remove requires a rule ID");
 
-		id = (uint32_t)strtoul(argv[1], NULL, 10);
+		errno = 0;
+		ulid = strtoul(argv[1], &endptr, 10);
+		if (errno != 0 || *endptr != '\0' || argv[1][0] == '\0')
+			errx(EX_USAGE, "invalid rule ID: %s", argv[1]);
+		if (ulid > UINT32_MAX)
+			errx(EX_USAGE, "rule ID out of range: %s", argv[1]);
+
+		id = (uint32_t)ulid;
 		if (vlabel_syscall(VLABEL_SYS_RULE_REMOVE, &id) < 0)
 			err(EX_OSERR, "RULE_REMOVE");
 
@@ -227,8 +442,8 @@ cmd_rule(int argc, char *argv[])
 		/*
 		 * Atomic rule load - like PF's pfctl -f
 		 *
-		 * First pass: parse all rules, build packed buffer
-		 * Second pass: send to kernel atomically
+		 * Supports both line format (.rules) and UCL/JSON format
+		 * (.ucl, .json, .conf). Format is auto-detected by extension.
 		 *
 		 * On success: old rules are cleared, new rules loaded
 		 * On failure: old rules remain unchanged
@@ -252,6 +467,12 @@ cmd_rule(int argc, char *argv[])
 		if (argc < 2)
 			errx(EX_USAGE, "rule load requires a file path");
 
+		/* Check file format and dispatch to appropriate loader */
+		if (is_ucl_file(argv[1])) {
+			return load_ucl_rules(argv[1]);
+		}
+
+		/* Line format parsing */
 		fp = fopen(argv[1], "r");
 		if (fp == NULL)
 			err(EX_NOINPUT, "open %s", argv[1]);

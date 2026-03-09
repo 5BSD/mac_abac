@@ -4,8 +4,8 @@
 mode = "enforcing";
 
 rules = [
-    # Basic deny rule with single operation
     {
+        # Basic deny rule with single operation
         id = 1;
         action = "deny";
         operations = ["exec"];
@@ -13,8 +13,8 @@ rules = [
         object = { type = "malware"; };
     },
 
-    # Multiple operations as array
     {
+        # Multiple operations as array
         id = 2;
         action = "allow";
         operations = ["read", "write", "mmap", "stat"];
@@ -22,8 +22,8 @@ rules = [
         object = { domain = "app"; };
     },
 
-    # All operations with wildcard
     {
+        # All operations with wildcard
         id = 3;
         action = "allow";
         operations = ["all"];
@@ -31,8 +31,8 @@ rules = [
         object = "*";
     },
 
-    # Subject context constraint (jail)
     {
+        # Subject context constraint (jail)
         id = 4;
         action = "deny";
         operations = ["exec"];
@@ -41,8 +41,8 @@ rules = [
         context = { jail = "any"; };
     },
 
-    # Subject context constraint (uid)
     {
+        # Subject context constraint (uid)
         id = 5;
         action = "allow";
         operations = ["exec"];
@@ -51,8 +51,8 @@ rules = [
         context = { uid = 0; };
     },
 
-    # Subject context constraint (sandboxed)
     {
+        # Subject context constraint (sandboxed)
         id = 6;
         action = "deny";
         operations = ["exec", "mmap"];
@@ -61,8 +61,8 @@ rules = [
         context = { sandboxed = true; };
     },
 
-    # Object context constraint (for process ops)
     {
+        # Object context constraint (for process ops)
         id = 7;
         action = "deny";
         operations = ["debug"];
@@ -71,8 +71,8 @@ rules = [
         obj_context = { sandboxed = true; };
     },
 
-    # Transition rule with newlabel
     {
+        # Transition rule with newlabel
         id = 10;
         action = "transition";
         operations = ["exec"];
@@ -81,8 +81,8 @@ rules = [
         newlabel = "type=admin,domain=system";
     },
 
-    # Complex multi-field patterns
     {
+        # Complex multi-field patterns
         id = 11;
         action = "allow";
         operations = ["read", "write"];
@@ -90,8 +90,8 @@ rules = [
         object = { type = "data"; domain = "web"; sensitivity = "public"; };
     },
 
-    # Pattern with negation
     {
+        # Pattern with negation
         id = 12;
         action = "deny";
         operations = ["exec"];
@@ -99,8 +99,8 @@ rules = [
         object = { type = "dangerous"; negate = true; };
     },
 
-    # Process operations
     {
+        # Process operations
         id = 20;
         action = "allow";
         operations = ["debug", "signal", "sched"];
@@ -108,8 +108,8 @@ rules = [
         object = { type = "worker"; };
     },
 
-    # Single operation as string (not array)
     {
+        # Single operation as string (not array)
         id = 21;
         action = "allow";
         operations = "read";
@@ -117,8 +117,8 @@ rules = [
         object = { type = "public"; };
     },
 
-    # Catch-all allow
     {
+        # Catch-all allow
         id = 100;
         action = "allow";
         operations = ["all"];

@@ -3,15 +3,14 @@
 # Test: Policy Format Parsing
 #
 # Tests the different policy file formats supported by vLabel:
-# 1. Line format (.rules) - used by vlabelctl rule load/add
-# 2. UCL format (.ucl) - used by vlabeld daemon
-# 3. JSON format (.json) - also supported by vlabeld (UCL is JSON superset)
+# 1. Line format (.rules) - vlabelctl rule load/add
+# 2. UCL format (.ucl) - vlabelctl rule load (auto-detected by extension)
+# 3. JSON format (.json) - vlabelctl rule load (UCL is JSON superset)
 #
 # Prerequisites:
 # - Must be run as root
 # - Module must be loaded
 # - vlabelctl must be built
-# - vlabeld must be built (for UCL/JSON tests)
 #
 
 set -e
@@ -26,14 +25,6 @@ elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
 	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
 else
 	VLABELCTL="./tools/vlabelctl"
-fi
-
-if [ -n "$2" ]; then
-	VLABELD="$2"
-elif [ -x "$SCRIPT_DIR/../daemon/vlabeld" ]; then
-	VLABELD="$SCRIPT_DIR/../daemon/vlabeld"
-else
-	VLABELD="./daemon/vlabeld"
 fi
 
 MODULE_NAME="mac_vlabel"
@@ -59,7 +50,6 @@ echo "Policy Format Tests"
 echo "============================================"
 echo ""
 info "Using vlabelctl: $VLABELCTL"
-info "Using vlabeld: $VLABELD"
 info "Using fixtures: $FIXTURES"
 echo ""
 
@@ -252,47 +242,34 @@ fi
 echo ""
 info "=== UCL Format (.ucl) Tests ==="
 
-# Check if vlabeld exists
-if [ ! -x "$VLABELD" ]; then
-	warn "vlabeld not found, skipping UCL tests"
-	skip "UCL format tests (vlabeld not available)"
+# vlabelctl now supports UCL format directly via 'rule load'
+run_test
+info "Test: Basic UCL file parsing"
+"$VLABELCTL" rule clear >/dev/null
+OUTPUT=$("$VLABELCTL" rule load "$FIXTURES/ucl/basic.ucl" 2>&1)
+if echo "$OUTPUT" | grep -q "loaded.*rules"; then
+	pass "basic.ucl loaded"
 else
-	run_test
-	info "Test: Basic UCL file parsing"
-	"$VLABELCTL" rule clear >/dev/null
-	OUTPUT=$("$VLABELD" -t -c "$FIXTURES/ucl/basic.ucl" 2>&1)
-	if echo "$OUTPUT" | grep -q "loaded 3 rules\|rules: 3\|3 rules"; then
-		pass "basic.ucl parsed"
-	elif echo "$OUTPUT" | grep -qi "success\|ok\|loaded"; then
-		pass "basic.ucl parsed (different output format)"
-	else
-		# Test mode may just validate without loading
-		if [ $? -eq 0 ]; then
-			pass "basic.ucl validated"
-		else
-			fail "basic.ucl (got: $OUTPUT)"
-		fi
-	fi
+	fail "basic.ucl (got: $OUTPUT)"
+fi
 
-	run_test
-	info "Test: Complete UCL with all features"
-	"$VLABELCTL" rule clear >/dev/null
-	OUTPUT=$("$VLABELD" -t -c "$FIXTURES/ucl/complete.ucl" 2>&1)
-	EXIT_CODE=$?
-	if [ $EXIT_CODE -eq 0 ]; then
-		pass "complete.ucl validated"
-	else
-		fail "complete.ucl (exit: $EXIT_CODE, got: $OUTPUT)"
-	fi
+run_test
+info "Test: Complete UCL with all features"
+"$VLABELCTL" rule clear >/dev/null
+OUTPUT=$("$VLABELCTL" rule load "$FIXTURES/ucl/complete.ucl" 2>&1)
+if echo "$OUTPUT" | grep -q "loaded.*rules"; then
+	pass "complete.ucl loaded"
+else
+	fail "complete.ucl (got: $OUTPUT)"
+fi
 
-	run_test
-	info "Test: Invalid UCL reports errors"
-	"$VLABELCTL" rule clear >/dev/null
-	if "$VLABELD" -t -c "$FIXTURES/ucl/invalid.ucl" >/dev/null 2>&1; then
-		fail "invalid.ucl should report errors"
-	else
-		pass "invalid.ucl reports errors"
-	fi
+run_test
+info "Test: Invalid UCL reports errors"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule load "$FIXTURES/ucl/invalid.ucl" >/dev/null 2>&1; then
+	fail "invalid.ucl should report errors"
+else
+	pass "invalid.ucl reports errors"
 fi
 
 # ===========================================
@@ -301,49 +278,43 @@ fi
 echo ""
 info "=== JSON Format (.json) Tests ==="
 
-if [ ! -x "$VLABELD" ]; then
-	warn "vlabeld not found, skipping JSON tests"
-	skip "JSON format tests (vlabeld not available)"
+# vlabelctl supports JSON format (UCL is a superset of JSON)
+run_test
+info "Test: Basic JSON file parsing"
+"$VLABELCTL" rule clear >/dev/null
+OUTPUT=$("$VLABELCTL" rule load "$FIXTURES/json/basic.json" 2>&1)
+if echo "$OUTPUT" | grep -q "loaded.*rules"; then
+	pass "basic.json loaded"
 else
-	run_test
-	info "Test: Basic JSON file parsing"
-	"$VLABELCTL" rule clear >/dev/null
-	OUTPUT=$("$VLABELD" -t -c "$FIXTURES/json/basic.json" 2>&1)
-	EXIT_CODE=$?
-	if [ $EXIT_CODE -eq 0 ]; then
-		pass "basic.json validated"
-	else
-		fail "basic.json (exit: $EXIT_CODE, got: $OUTPUT)"
-	fi
+	fail "basic.json (got: $OUTPUT)"
+fi
 
-	run_test
-	info "Test: Complete JSON with all features"
-	"$VLABELCTL" rule clear >/dev/null
-	OUTPUT=$("$VLABELD" -t -c "$FIXTURES/json/complete.json" 2>&1)
-	EXIT_CODE=$?
-	if [ $EXIT_CODE -eq 0 ]; then
-		pass "complete.json validated"
-	else
-		fail "complete.json (exit: $EXIT_CODE, got: $OUTPUT)"
-	fi
+run_test
+info "Test: Complete JSON with all features"
+"$VLABELCTL" rule clear >/dev/null
+OUTPUT=$("$VLABELCTL" rule load "$FIXTURES/json/complete.json" 2>&1)
+if echo "$OUTPUT" | grep -q "loaded.*rules"; then
+	pass "complete.json loaded"
+else
+	fail "complete.json (got: $OUTPUT)"
+fi
 
-	run_test
-	info "Test: Invalid JSON reports errors"
-	"$VLABELCTL" rule clear >/dev/null
-	if "$VLABELD" -t -c "$FIXTURES/json/invalid.json" >/dev/null 2>&1; then
-		fail "invalid.json should report errors"
-	else
-		pass "invalid.json reports errors"
-	fi
+run_test
+info "Test: Invalid JSON reports errors"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule load "$FIXTURES/json/invalid.json" >/dev/null 2>&1; then
+	fail "invalid.json should report errors"
+else
+	pass "invalid.json reports errors"
+fi
 
-	run_test
-	info "Test: Malformed JSON rejected"
-	"$VLABELCTL" rule clear >/dev/null
-	if "$VLABELD" -t -c "$FIXTURES/json/malformed.json" >/dev/null 2>&1; then
-		fail "malformed.json should be rejected"
-	else
-		pass "malformed.json rejected"
-	fi
+run_test
+info "Test: Malformed JSON rejected"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule load "$FIXTURES/json/malformed.json" >/dev/null 2>&1; then
+	fail "malformed.json should be rejected"
+else
+	pass "malformed.json rejected"
 fi
 
 # ===========================================

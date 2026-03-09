@@ -382,13 +382,20 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 		if (error)
 			break;
 
-		/* Calculate and copyin variable data */
-		data_len = rule_arg.vr_subject_len + rule_arg.vr_object_len +
-		    rule_arg.vr_newlabel_len;
-		if (data_len > VLABEL_MAX_LABEL_LEN * 3) {
+		/*
+		 * Validate individual lengths before summing to prevent
+		 * integer overflow attacks.
+		 */
+		if (rule_arg.vr_subject_len > VLABEL_MAX_LABEL_LEN ||
+		    rule_arg.vr_object_len > VLABEL_MAX_LABEL_LEN ||
+		    rule_arg.vr_newlabel_len > VLABEL_MAX_LABEL_LEN) {
 			error = EINVAL;
 			break;
 		}
+
+		/* Calculate and copyin variable data */
+		data_len = rule_arg.vr_subject_len + rule_arg.vr_object_len +
+		    rule_arg.vr_newlabel_len;
 
 		data = malloc(data_len, M_TEMP, M_WAITOK);
 		error = copyin((char *)arg + sizeof(rule_arg), data, data_len);
@@ -453,12 +460,18 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 		if (error)
 			break;
 
-		/* Copyin variable data */
-		data_len = test_arg.vt_subject_len + test_arg.vt_object_len;
-		if (data_len > VLABEL_MAX_LABEL_LEN * 2) {
+		/*
+		 * Validate individual lengths before summing to prevent
+		 * integer overflow attacks.
+		 */
+		if (test_arg.vt_subject_len > VLABEL_MAX_LABEL_LEN ||
+		    test_arg.vt_object_len > VLABEL_MAX_LABEL_LEN) {
 			error = EINVAL;
 			break;
 		}
+
+		/* Copyin variable data */
+		data_len = test_arg.vt_subject_len + test_arg.vt_object_len;
 
 		data = malloc(data_len, M_TEMP, M_WAITOK);
 		error = copyin((char *)arg + sizeof(test_arg), data, data_len);
@@ -511,7 +524,7 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 			}
 
 			vp = fp->f_vnode;
-			if (vp->v_label != NULL) {
+			if (vp != NULL && vp->v_label != NULL) {
 				vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
 				vlabel_vnode_refresh_label(vp, vp->v_label);
 				VOP_UNLOCK(vp);

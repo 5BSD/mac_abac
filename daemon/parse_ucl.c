@@ -231,6 +231,8 @@ parse_pattern(const ucl_object_t *obj, struct vlabel_pattern_io *pattern)
 	first = true;
 
 	while ((val = ucl_object_iterate(obj, &it, true)) != NULL) {
+		size_t copied;
+
 		key = ucl_object_key(val);
 
 		/* Skip special keys */
@@ -252,13 +254,21 @@ parse_pattern(const ucl_object_t *obj, struct vlabel_pattern_io *pattern)
 		}
 		first = false;
 
-		pos += strlcpy(pattern->vp_pattern + pos, key,
+		/*
+		 * strlcpy returns total length it tried to copy, not actual.
+		 * Clamp position to avoid buffer overflow on truncation.
+		 */
+		copied = strlcpy(pattern->vp_pattern + pos, key,
 		    sizeof(pattern->vp_pattern) - pos);
+		pos = (pos + copied >= sizeof(pattern->vp_pattern)) ?
+		    sizeof(pattern->vp_pattern) - 1 : pos + copied;
 		if (pos < sizeof(pattern->vp_pattern) - 1) {
 			pattern->vp_pattern[pos++] = '=';
 		}
-		pos += strlcpy(pattern->vp_pattern + pos, str,
+		copied = strlcpy(pattern->vp_pattern + pos, str,
 		    sizeof(pattern->vp_pattern) - pos);
+		pos = (pos + copied >= sizeof(pattern->vp_pattern)) ?
+		    sizeof(pattern->vp_pattern) - 1 : pos + copied;
 	}
 
 	/* If pattern is empty, treat as wildcard */
@@ -530,6 +540,96 @@ vlabeld_parse_ucl(const char *path, bool verbose)
 	/* Parse rules */
 	obj = ucl_object_lookup(root, "rules");
 	if (parse_rules(obj) < 0)
+		error = -1;
+
+	ucl_object_unref(root);
+
+	return (error);
+}
+
+/*
+ * Parse rules with callback - for vlabelctl to build packed buffers
+ */
+static int
+parse_rules_with_callback(const ucl_object_t *obj,
+    vlabel_rule_callback_t callback, void *ctx)
+{
+	const ucl_object_t *rule_obj;
+	ucl_object_iter_t it = NULL;
+	struct vlabel_rule_io rule;
+	int count = 0;
+	int errors = 0;
+
+	if (obj == NULL || ucl_object_type(obj) != UCL_ARRAY) {
+		vlabeld_log(LOG_WARNING, "no 'rules' array found in policy");
+		return (0);
+	}
+
+	while ((rule_obj = ucl_object_iterate(obj, &it, true)) != NULL) {
+		if (parse_rule(rule_obj, &rule) < 0) {
+			errors++;
+			continue;
+		}
+
+		if (callback(&rule, ctx) < 0) {
+			errors++;
+			continue;
+		}
+
+		count++;
+	}
+
+	vlabeld_log(LOG_INFO, "parsed %d rules (%d errors)", count, errors);
+
+	return (errors > 0 ? -1 : 0);
+}
+
+/*
+ * Parse UCL file with callback for each rule
+ * This is used by vlabelctl which needs to build packed rule buffers
+ * rather than sending rules directly to kernel.
+ */
+int
+vlabeld_parse_ucl_with_callback(const char *path, bool verbose,
+    vlabel_rule_callback_t callback, void *ctx)
+{
+	struct ucl_parser *parser;
+	ucl_object_t *root;
+	const ucl_object_t *obj;
+	const char *errmsg;
+	int error = 0;
+
+	verbose_mode = verbose;
+
+	log_verbose("parsing UCL file: %s", path);
+
+	parser = ucl_parser_new(UCL_PARSER_KEY_LOWERCASE);
+	if (parser == NULL) {
+		vlabeld_log(LOG_ERR, "ucl_parser_new failed");
+		return (-1);
+	}
+
+	/* Enable include support */
+	ucl_parser_set_filevars(parser, path, true);
+
+	if (!ucl_parser_add_file(parser, path)) {
+		errmsg = ucl_parser_get_error(parser);
+		vlabeld_log(LOG_ERR, "parse error: %s", errmsg ? errmsg : "unknown");
+		ucl_parser_free(parser);
+		return (-1);
+	}
+
+	root = ucl_parser_get_object(parser);
+	ucl_parser_free(parser);
+
+	if (root == NULL) {
+		vlabeld_log(LOG_ERR, "failed to get UCL object");
+		return (-1);
+	}
+
+	/* Parse rules only - mode is not handled by vlabelctl load */
+	obj = ucl_object_lookup(root, "rules");
+	if (parse_rules_with_callback(obj, callback, ctx) < 0)
 		error = -1;
 
 	ucl_object_unref(root);

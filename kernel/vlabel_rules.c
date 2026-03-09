@@ -29,9 +29,16 @@
 
 /*
  * Rule table storage
+ *
+ * vlabel_rule_count: number of non-NULL rules (for stats/limits)
+ * vlabel_rule_end: index after last rule (for iteration bounds)
+ *
+ * Rules are appended at vlabel_rule_end. Removals leave holes (NULL).
+ * Iteration must scan 0..vlabel_rule_end-1, skipping NULLs.
  */
 struct vlabel_rule *vlabel_rules[VLABEL_MAX_RULES];
 int vlabel_rule_count;
+int vlabel_rule_end;
 struct rwlock vlabel_rules_lock;
 
 /*
@@ -87,6 +94,7 @@ vlabel_rules_init(void)
 	rw_init(&vlabel_rules_lock, "vlabel rules");
 	memset(vlabel_rules, 0, sizeof(vlabel_rules));
 	vlabel_rule_count = 0;
+	vlabel_rule_end = 0;
 
 	vlabel_checks = 0;
 	vlabel_allowed = 0;
@@ -160,7 +168,7 @@ vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 
 	result = EACCES;	/* Default deny */
 
-	for (i = 0; i < vlabel_rule_count; i++) {
+	for (i = 0; i < vlabel_rule_end; i++) {
 		rule = vlabel_rules[i];
 		if (rule == NULL)
 			continue;
@@ -247,7 +255,7 @@ vlabel_rules_will_transition(struct ucred *cred, struct vlabel_label *subj,
 
 	rw_rlock(&vlabel_rules_lock);
 
-	for (i = 0; i < vlabel_rule_count; i++) {
+	for (i = 0; i < vlabel_rule_end; i++) {
 		rule = vlabel_rules[i];
 		if (rule == NULL)
 			continue;
@@ -291,7 +299,7 @@ vlabel_rules_get_transition(struct ucred *cred, struct vlabel_label *subj,
 
 	rw_rlock(&vlabel_rules_lock);
 
-	for (i = 0; i < vlabel_rule_count; i++) {
+	for (i = 0; i < vlabel_rule_end; i++) {
 		rule = vlabel_rules[i];
 		if (rule == NULL)
 			continue;
@@ -372,6 +380,7 @@ vlabel_rules_clear(void)
 	}
 
 	vlabel_rule_count = 0;
+	vlabel_rule_end = 0;
 
 	rw_wunlock(&vlabel_rules_lock);
 

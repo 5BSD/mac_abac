@@ -467,13 +467,20 @@ vlabel_pattern_parse(const char *str, size_t len, struct vlabel_pattern *pattern
 	const char *p, *end, *comma, *eq;
 	size_t keylen, valuelen;
 	struct vlabel_pair *pair;
+	uint32_t saved_flags;
 
 	if (str == NULL || pattern == NULL)
 		return (EINVAL);
 
+	/*
+	 * Save flags before memset - the caller may have already set flags
+	 * (e.g., VLABEL_MATCH_NEGATE from the syscall argument).
+	 */
+	saved_flags = pattern->vp_flags;
 	memset(pattern, 0, sizeof(*pattern));
+	pattern->vp_flags = saved_flags;
 
-	/* Check for negation prefix */
+	/* Check for negation prefix (also handle '!' in string itself) */
 	if (len > 0 && str[0] == '!') {
 		pattern->vp_flags |= VLABEL_MATCH_NEGATE;
 		str++;

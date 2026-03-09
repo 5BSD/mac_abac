@@ -29,6 +29,7 @@
  */
 extern struct vlabel_rule *vlabel_rules[];
 extern int vlabel_rule_count;
+extern int vlabel_rule_end;
 extern struct rwlock vlabel_rules_lock;
 extern uint32_t vlabel_next_rule_id;
 
@@ -149,29 +150,34 @@ vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data)
 	/* Assign rule ID */
 	newrule->vr_id = vlabel_next_rule_id++;
 
-	/* Find empty slot */
-	for (i = 0; i < VLABEL_MAX_RULES; i++) {
-		if (vlabel_rules[i] == NULL) {
-			vlabel_rules[i] = newrule;
-			vlabel_rule_count++;
-			/* Return assigned ID to caller */
-			arg->vr_id = newrule->vr_id;
-			rw_wunlock(&vlabel_rules_lock);
-			/* DTrace: rule added */
-			SDT_PROBE3(vlabel, rules, rule, add,
-			    newrule->vr_id, newrule->vr_action,
-			    newrule->vr_operations);
-			VLABEL_DPRINTF("rule_add: added rule %u at slot %d "
-			    "action=%u ops=0x%x",
-			    newrule->vr_id, i, newrule->vr_action,
-			    newrule->vr_operations);
-			return (0);
-		}
+	/* Check if table is full */
+	if (vlabel_rule_end >= VLABEL_MAX_RULES) {
+		rw_wunlock(&vlabel_rules_lock);
+		free(newrule, M_TEMP);
+		return (ENOSPC);
 	}
 
+	/*
+	 * Append at end: place new rule at vlabel_rule_end.
+	 * This ensures new rules are checked after existing ones
+	 * (intuitive first-match ordering).
+	 */
+	i = vlabel_rule_end;
+	vlabel_rules[i] = newrule;
+	vlabel_rule_count++;
+	vlabel_rule_end++;
+	/* Return assigned ID to caller */
+	arg->vr_id = newrule->vr_id;
 	rw_wunlock(&vlabel_rules_lock);
-	free(newrule, M_TEMP);
-	return (ENOSPC);
+	/* DTrace: rule added */
+	SDT_PROBE3(vlabel, rules, rule, add,
+	    newrule->vr_id, newrule->vr_action,
+	    newrule->vr_operations);
+	VLABEL_DPRINTF("rule_add: added rule %u at slot %d "
+	    "action=%u ops=0x%x",
+	    newrule->vr_id, i, newrule->vr_action,
+	    newrule->vr_operations);
+	return (0);
 }
 
 /*
@@ -183,7 +189,7 @@ vlabel_rule_add_locked(struct vlabel_rule_arg *arg, const char *data)
 	struct vlabel_rule *newrule;
 	const char *subject_str, *object_str, *newlabel_str;
 	char *converted;
-	int i, error;
+	int error;
 
 	if (arg == NULL || data == NULL)
 		return (EINVAL);
@@ -265,20 +271,22 @@ vlabel_rule_add_locked(struct vlabel_rule_arg *arg, const char *data)
 	/* Assign rule ID */
 	newrule->vr_id = vlabel_next_rule_id++;
 
-	/* Find empty slot */
-	for (i = 0; i < VLABEL_MAX_RULES; i++) {
-		if (vlabel_rules[i] == NULL) {
-			vlabel_rules[i] = newrule;
-			vlabel_rule_count++;
-			SDT_PROBE3(vlabel, rules, rule, add,
-			    newrule->vr_id, newrule->vr_action,
-			    newrule->vr_operations);
-			return (0);
-		}
+	/* Check if table is full */
+	if (vlabel_rule_end >= VLABEL_MAX_RULES) {
+		free(newrule, M_TEMP);
+		return (ENOSPC);
 	}
 
-	free(newrule, M_TEMP);
-	return (ENOSPC);
+	/*
+	 * Append at end: place new rule at vlabel_rule_end.
+	 */
+	vlabel_rules[vlabel_rule_end] = newrule;
+	vlabel_rule_count++;
+	vlabel_rule_end++;
+	SDT_PROBE3(vlabel, rules, rule, add,
+	    newrule->vr_id, newrule->vr_action,
+	    newrule->vr_operations);
+	return (0);
 }
 
 /*
@@ -288,7 +296,7 @@ int
 vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 {
 	struct vlabel_rule *old_rules[VLABEL_MAX_RULES];
-	int old_count;
+	int old_count, old_end;
 	char *kbuf;
 	size_t offset;
 	uint32_t i, loaded;
@@ -318,11 +326,13 @@ vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 
 	/* Save old rules for rollback */
 	old_count = vlabel_rule_count;
+	old_end = vlabel_rule_end;
 	for (i = 0; i < VLABEL_MAX_RULES; i++) {
 		old_rules[i] = vlabel_rules[i];
 		vlabel_rules[i] = NULL;
 	}
 	vlabel_rule_count = 0;
+	vlabel_rule_end = 0;
 
 	/* Parse and add new rules */
 	offset = 0;
@@ -341,6 +351,17 @@ vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 
 		arg = (struct vlabel_rule_arg *)(kbuf + offset);
 		data = kbuf + offset + sizeof(struct vlabel_rule_arg);
+
+		/*
+		 * Validate length fields before calculating rule_size to
+		 * prevent integer overflow. Each length must be reasonable.
+		 */
+		if (arg->vr_subject_len > VLABEL_MAX_LABEL_LEN ||
+		    arg->vr_object_len > VLABEL_MAX_LABEL_LEN ||
+		    arg->vr_newlabel_len > VLABEL_MAX_LABEL_LEN) {
+			error = EINVAL;
+			break;
+		}
 
 		rule_size = sizeof(struct vlabel_rule_arg) +
 		    arg->vr_subject_len + arg->vr_object_len + arg->vr_newlabel_len;
@@ -369,6 +390,7 @@ vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 			vlabel_rules[i] = old_rules[i];
 		}
 		vlabel_rule_count = old_count;
+		vlabel_rule_end = old_end;
 		VLABEL_DPRINTF("rules_load: rollback, restored %d rules", old_count);
 	} else {
 		/* Success: free old rules */
@@ -493,13 +515,13 @@ vlabel_rules_list(struct vlabel_rule_list_arg *list_arg)
 
 	/* Skip to offset */
 	slot = 0;
-	for (i = 0; i < VLABEL_MAX_RULES && slot < (int)offset; i++) {
+	for (i = 0; i < vlabel_rule_end && slot < (int)offset; i++) {
 		if (vlabel_rules[i] != NULL)
 			slot++;
 	}
 
 	/* Serialize rules */
-	for (; i < VLABEL_MAX_RULES; i++) {
+	for (; i < vlabel_rule_end; i++) {
 		rule = vlabel_rules[i];
 		if (rule == NULL)
 			continue;
@@ -575,7 +597,7 @@ vlabel_rules_test_access(const char *subject, size_t subject_len,
 
 	rw_rlock(&vlabel_rules_lock);
 
-	for (i = 0; i < VLABEL_MAX_RULES; i++) {
+	for (i = 0; i < vlabel_rule_end; i++) {
 		rule = vlabel_rules[i];
 		if (rule == NULL)
 			continue;

@@ -60,4 +60,17 @@ int vlabeld_parse_ucl(const char *path, bool verbose);
  */
 int vlabeld_parse_line(const char *line, struct vlabel_rule_io *rule);
 
+/*
+ * Callback type for rule iteration during UCL parsing
+ * Return 0 to continue, non-zero to stop parsing
+ */
+typedef int (*vlabel_rule_callback_t)(struct vlabel_rule_io *rule, void *ctx);
+
+/*
+ * Parse UCL file and call callback for each rule (parse_ucl.c)
+ * Used by vlabelctl for building packed rule buffers
+ */
+int vlabeld_parse_ucl_with_callback(const char *path, bool verbose,
+    vlabel_rule_callback_t callback, void *ctx);
+
 #endif /* !_VLABELD_H_ */

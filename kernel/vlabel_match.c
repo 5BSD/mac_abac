@@ -100,11 +100,21 @@ vlabel_context_matches(const struct vlabel_context *ctx,
 			if (td != NULL)
 				is_sandboxed = IN_CAPABILITY_MODE(td);
 		} else if (proc != NULL) {
-			/* Object: check target process's credential for capmode */
+			/*
+			 * Object: check target process's credential for capmode.
+			 * Hold a reference to the credential to prevent it from
+			 * being freed while we're checking it.
+			 */
+			struct ucred *proc_cred;
 			PROC_LOCK(proc);
-			if (proc->p_ucred != NULL)
-				is_sandboxed = (proc->p_ucred->cr_flags & CRED_FLAG_CAPMODE) != 0;
+			proc_cred = proc->p_ucred;
+			if (proc_cred != NULL)
+				crhold(proc_cred);
 			PROC_UNLOCK(proc);
+			if (proc_cred != NULL) {
+				is_sandboxed = (proc_cred->cr_flags & CRED_FLAG_CAPMODE) != 0;
+				crfree(proc_cred);
+			}
 		}
 
 		if (is_sandboxed != ctx->vc_cap_sandboxed) {
@@ -181,8 +191,16 @@ vlabel_context_matches(const struct vlabel_context *ctx,
 	if (ctx->vc_flags & VLABEL_CTX_HAS_TTY) {
 		bool has_tty = false;
 
-		if (check_proc != NULL && check_proc->p_session != NULL)
-			has_tty = (check_proc->p_session->s_ttyp != NULL);
+		/*
+		 * Access session pointer under process lock to avoid
+		 * race conditions with session changes.
+		 */
+		if (check_proc != NULL) {
+			PROC_LOCK(check_proc);
+			if (check_proc->p_session != NULL)
+				has_tty = (check_proc->p_session->s_ttyp != NULL);
+			PROC_UNLOCK(check_proc);
+		}
 
 		if (has_tty != ctx->vc_has_tty) {
 			VLABEL_DPRINTF("context: tty mismatch "
@@ -265,7 +283,7 @@ vlabel_pattern_to_string(const struct vlabel_pattern *pattern, char *buf,
 	/* Build comma-separated key=value string */
 	for (i = 0; i < pattern->vp_npairs && pos < buflen - 1; i++) {
 		const struct vlabel_pair *pair = &pattern->vp_pairs[i];
-		size_t needed;
+		size_t needed, copied;
 
 		if (i > 0 && pos < buflen - 1)
 			buf[pos++] = ',';
@@ -275,10 +293,16 @@ vlabel_pattern_to_string(const struct vlabel_pattern *pattern, char *buf,
 		if (pos + needed >= buflen)
 			break;
 
-		pos += strlcpy(buf + pos, pair->vp_key, buflen - pos);
+		/*
+		 * strlcpy returns total length it tried to copy, not actual.
+		 * Clamp position to avoid buffer overflow on truncation.
+		 */
+		copied = strlcpy(buf + pos, pair->vp_key, buflen - pos);
+		pos = (pos + copied >= buflen) ? buflen - 1 : pos + copied;
 		if (pos < buflen - 1)
 			buf[pos++] = '=';
-		pos += strlcpy(buf + pos, pair->vp_value, buflen - pos);
+		copied = strlcpy(buf + pos, pair->vp_value, buflen - pos);
+		pos = (pos + copied >= buflen) ? buflen - 1 : pos + copied;
 	}
 
 	return (pos);

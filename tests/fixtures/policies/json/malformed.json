@@ -3,8 +3,11 @@
     "rules": [
         {
             "id": 1,
-            "action": "allow"
-            "operations": ["exec"]
+            "action": "allow",
+            "operations": [["nested array that is invalid"]]
         }
     ]
+    # This comment makes it invalid JSON but valid UCL
+    # So we need something that breaks UCL too:
+    unclosed_string = "this string never closes
 }
