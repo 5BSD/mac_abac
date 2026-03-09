@@ -1,0 +1,27 @@
+# Basic UCL policy file for testing
+# UCL format with comments and flexible syntax
+
+mode = "permissive";
+
+rules = [
+    {
+        id = 1;
+        action = "deny";
+        operations = ["exec"];
+        object = { type = "untrusted"; };
+    },
+    {
+        id = 2;
+        action = "allow";
+        operations = ["read", "write"];
+        subject = { domain = "web"; };
+        object = { domain = "web"; };
+    },
+    {
+        id = 3;
+        action = "allow";
+        operations = ["exec"];
+        subject = "*";
+        object = "*";
+    }
+];

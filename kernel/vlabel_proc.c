@@ -62,8 +62,8 @@ vlabel_proc_check_debug(struct ucred *cred, struct proc *p)
 	VLABEL_DPRINTF("check_debug: subj='%s' obj='%s' target_pid=%d",
 	    subj->vl_raw, obj->vl_raw, p->p_pid);
 
-	/* Evaluate rules */
-	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_DEBUG);
+	/* Evaluate rules - pass target process for object context checks */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_DEBUG, p);
 
 	/*
 	 * In permissive mode, log but don't enforce.
@@ -110,8 +110,8 @@ vlabel_proc_check_sched(struct ucred *cred, struct proc *p)
 	VLABEL_DPRINTF("check_sched: subj='%s' obj='%s' target_pid=%d",
 	    subj->vl_raw, obj->vl_raw, p->p_pid);
 
-	/* Evaluate rules */
-	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_SCHED);
+	/* Evaluate rules - pass target process for object context checks */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_SCHED, p);
 
 	/* Permissive mode handling */
 	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE) {
@@ -152,8 +152,8 @@ vlabel_proc_check_signal(struct ucred *cred, struct proc *p, int signum)
 	VLABEL_DPRINTF("check_signal: subj='%s' obj='%s' target_pid=%d sig=%d",
 	    subj->vl_raw, obj->vl_raw, p->p_pid, signum);
 
-	/* Evaluate rules */
-	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_SIGNAL);
+	/* Evaluate rules - pass target process for object context checks */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_SIGNAL, p);
 
 	/* Permissive mode handling */
 	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE) {

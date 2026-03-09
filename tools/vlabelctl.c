@@ -463,12 +463,20 @@ build_rule_arg(const char *rule_str, char **bufp, size_t *lenp)
 	arg->vr_operations = rule_io.vr_operations;
 	arg->vr_subject_flags = rule_io.vr_subject.vp_flags;
 	arg->vr_object_flags = rule_io.vr_object.vp_flags;
-	arg->vr_context.vc_flags = rule_io.vr_context.vc_flags;
-	arg->vr_context.vc_cap_sandboxed = rule_io.vr_context.vc_cap_sandboxed;
-	arg->vr_context.vc_has_tty = rule_io.vr_context.vc_has_tty;
-	arg->vr_context.vc_jail_check = rule_io.vr_context.vc_jail_check;
-	arg->vr_context.vc_uid = rule_io.vr_context.vc_uid;
-	arg->vr_context.vc_gid = rule_io.vr_context.vc_gid;
+	/* Copy subject context constraints */
+	arg->vr_subj_context.vc_flags = rule_io.vr_subj_context.vc_flags;
+	arg->vr_subj_context.vc_cap_sandboxed = rule_io.vr_subj_context.vc_cap_sandboxed;
+	arg->vr_subj_context.vc_has_tty = rule_io.vr_subj_context.vc_has_tty;
+	arg->vr_subj_context.vc_jail_check = rule_io.vr_subj_context.vc_jail_check;
+	arg->vr_subj_context.vc_uid = rule_io.vr_subj_context.vc_uid;
+	arg->vr_subj_context.vc_gid = rule_io.vr_subj_context.vc_gid;
+	/* Copy object context constraints */
+	arg->vr_obj_context.vc_flags = rule_io.vr_obj_context.vc_flags;
+	arg->vr_obj_context.vc_cap_sandboxed = rule_io.vr_obj_context.vc_cap_sandboxed;
+	arg->vr_obj_context.vc_has_tty = rule_io.vr_obj_context.vc_has_tty;
+	arg->vr_obj_context.vc_jail_check = rule_io.vr_obj_context.vc_jail_check;
+	arg->vr_obj_context.vc_uid = rule_io.vr_obj_context.vc_uid;
+	arg->vr_obj_context.vc_gid = rule_io.vr_obj_context.vc_gid;
 	arg->vr_subject_len = subject_len;
 	arg->vr_object_len = object_len;
 	arg->vr_newlabel_len = newlabel_len;
@@ -809,6 +817,68 @@ cmd_rule(int argc, char *argv[])
 			if (out->vr_action == VLABEL_ACTION_TRANSITION &&
 			    out->vr_newlabel_len > 0)
 				printf(" => %s", newlabel);
+
+			/* Print subject context constraints if any */
+			if (out->vr_subj_context.vc_flags != 0) {
+				printf(" subj_context:");
+				int first = 1;
+				if (out->vr_subj_context.vc_flags & VLABEL_CTX_CAP_SANDBOXED) {
+					printf("%ssandboxed=%s", first ? "" : ",",
+					    out->vr_subj_context.vc_cap_sandboxed ? "true" : "false");
+					first = 0;
+				}
+				if (out->vr_subj_context.vc_flags & VLABEL_CTX_JAIL) {
+					if (out->vr_subj_context.vc_jail_check == 0)
+						printf("%sjail=host", first ? "" : ",");
+					else if (out->vr_subj_context.vc_jail_check == -1)
+						printf("%sjail=any", first ? "" : ",");
+					else
+						printf("%sjail=%d", first ? "" : ",",
+						    out->vr_subj_context.vc_jail_check);
+					first = 0;
+				}
+				if (out->vr_subj_context.vc_flags & VLABEL_CTX_UID) {
+					printf("%suid=%u", first ? "" : ",",
+					    out->vr_subj_context.vc_uid);
+					first = 0;
+				}
+				if (out->vr_subj_context.vc_flags & VLABEL_CTX_GID) {
+					printf("%sgid=%u", first ? "" : ",",
+					    out->vr_subj_context.vc_gid);
+					first = 0;
+				}
+			}
+
+			/* Print object context constraints if any */
+			if (out->vr_obj_context.vc_flags != 0) {
+				printf(" obj_context:");
+				int first = 1;
+				if (out->vr_obj_context.vc_flags & VLABEL_CTX_CAP_SANDBOXED) {
+					printf("%ssandboxed=%s", first ? "" : ",",
+					    out->vr_obj_context.vc_cap_sandboxed ? "true" : "false");
+					first = 0;
+				}
+				if (out->vr_obj_context.vc_flags & VLABEL_CTX_JAIL) {
+					if (out->vr_obj_context.vc_jail_check == 0)
+						printf("%sjail=host", first ? "" : ",");
+					else if (out->vr_obj_context.vc_jail_check == -1)
+						printf("%sjail=any", first ? "" : ",");
+					else
+						printf("%sjail=%d", first ? "" : ",",
+						    out->vr_obj_context.vc_jail_check);
+					first = 0;
+				}
+				if (out->vr_obj_context.vc_flags & VLABEL_CTX_UID) {
+					printf("%suid=%u", first ? "" : ",",
+					    out->vr_obj_context.vc_uid);
+					first = 0;
+				}
+				if (out->vr_obj_context.vc_flags & VLABEL_CTX_GID) {
+					printf("%sgid=%u", first ? "" : ",",
+					    out->vr_obj_context.vc_gid);
+					first = 0;
+				}
+			}
 
 			printf("\n");
 

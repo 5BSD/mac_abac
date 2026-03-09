@@ -149,13 +149,30 @@ This matches any file NOT labeled `type=trusted`.
 
 ## Context Constraints
 
-Context constraints add conditions beyond label matching:
+Context constraints add conditions beyond label matching. There are two types:
+
+- **Subject context** (`subj_context:` or `context` in JSON): constraints on the *caller* (the process performing the action)
+- **Object context** (`obj_context:` or `obj_context` in JSON): constraints on the *target* (for process operations like debug/signal)
+
+### CLI Syntax
+
+```
+# Subject context - constraint on caller
+deny exec * -> * subj_context:jail=any
+
+# Object context - constraint on target (useful for debug/signal/sched)
+deny debug * -> * obj_context:sandboxed=true
+
+# Both can be combined
+deny signal * -> * subj_context:uid=1000 obj_context:uid=0
+```
+
+### JSON Syntax
 
 ```json
-"context": {
-    "jail": "host",
-    "sandboxed": false,
-    "uid": 0
+{
+    "context": { "jail": "host", "uid": 0 },
+    "obj_context": { "sandboxed": true }
 }
 ```
 
@@ -167,6 +184,7 @@ Context constraints add conditions beyond label matching:
 | `sandboxed` | `true`/`false` | Capsicum capability mode |
 | `uid` | number | Effective UID |
 | `gid` | number | Effective GID |
+| `ruid` | number | Real UID |
 | `tty` | `true`/`false` | Has controlling terminal |
 
 ### Jail Constraints
@@ -175,7 +193,27 @@ Context constraints add conditions beyond label matching:
 - `"any"` - Process must be in any jail (not host)
 - `123` - Process must be in jail ID 123
 
-Example: Only allow host processes to exec system binaries:
+### Example: Protect sandboxed processes from debugging
+
+Prevent any process from debugging a process in Capsicum capability mode:
+
+```
+deny debug * -> * obj_context:sandboxed=true
+allow all * -> *
+```
+
+Or in JSON:
+```json
+{
+    "id": 5,
+    "action": "deny",
+    "operations": ["debug"],
+    "obj_context": { "sandboxed": true }
+}
+```
+
+### Example: Only allow host processes to exec system binaries
+
 ```json
 {
     "id": 5,

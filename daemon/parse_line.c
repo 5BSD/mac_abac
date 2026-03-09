@@ -9,12 +9,14 @@
  * Parses vLabel rules in a simple line-based format for CLI use.
  *
  * Format:
- *   action operations subject -> object [context:constraints]
+ *   action operations subject -> object [subj_context:...] [obj_context:...]
  *
  * Examples:
  *   deny exec * -> type=untrusted
  *   allow read,write domain=web -> domain=web
- *   allow exec type=admin -> * context:jail=host
+ *   allow exec type=admin -> * subj_context:jail=host
+ *   deny debug * -> * obj_context:sandboxed=true
+ *   deny signal * -> * subj_context:uid=1000 obj_context:uid=0
  *   transition exec type=user -> type=setuid,name=su => type=admin
  *
  * Pattern format:
@@ -26,12 +28,24 @@
  *   type=a,domain=b    - match multiple fields
  *   !type=value        - negate match
  *
- * Context format:
- *   context:jail=host          - must be on host
- *   context:jail=any           - must be in a jail
- *   context:jail=5             - must be in jail 5
- *   context:sandboxed=true     - must be in capability mode
- *   context:uid=0              - must be root
+ * Context constraints:
+ *   subj_context:...   - constraints on the SUBJECT (caller/actor)
+ *   obj_context:...    - constraints on the OBJECT (target)
+ *   context:...        - DEPRECATED alias for subj_context:
+ *
+ * Context options (usable with subj_context: or obj_context:):
+ *   jail=host          - must be on host (not in jail)
+ *   jail=any           - must be in any jail
+ *   jail=5             - must be in jail with ID 5
+ *   sandboxed=true     - must be in capability mode (Capsicum)
+ *   sandboxed=false    - must NOT be in capability mode
+ *   uid=0              - effective UID must be 0 (root)
+ *   gid=0              - effective GID must be 0 (wheel)
+ *   ruid=1000          - real UID must be 1000
+ *   tty=true           - must have controlling terminal
+ *
+ * Multiple constraints can be combined:
+ *   subj_context:jail=host,uid=0  - root on host only
  */
 
 #include <sys/types.h>
@@ -347,15 +361,42 @@ vlabeld_parse_line(const char *line, struct vlabel_rule_io *rule)
 		return (-1);
 	}
 
-	/* Optional: context or transition arrow */
+	/*
+	 * Optional: context constraints or transition arrow
+	 *
+	 * Syntax:
+	 *   subj_context:key=val   - constraint on subject (caller)
+	 *   obj_context:key=val    - constraint on object (target)
+	 *   context:key=val        - DEPRECATED alias for subj_context:
+	 *
+	 * Both can be specified:
+	 *   deny debug * -> * subj_context:uid=0 obj_context:sandboxed=true
+	 */
 	p = skip_ws(p);
 	while (*p != '\0') {
 		p = parse_word(p, word, sizeof(word));
 		if (word[0] == '\0')
 			break;
 
-		if (strncasecmp(word, "context:", 8) == 0) {
-			if (parse_context(word, &rule->vr_context) < 0) {
+		if (strncasecmp(word, "subj_context:", 13) == 0) {
+			/* Subject context - constraints on the caller */
+			char adjusted[256];
+			snprintf(adjusted, sizeof(adjusted), "context:%s", word + 13);
+			if (parse_context(adjusted, &rule->vr_subj_context) < 0) {
+				fprintf(stderr, "invalid subj_context: %s\n", word);
+				return (-1);
+			}
+		} else if (strncasecmp(word, "obj_context:", 12) == 0) {
+			/* Object context - constraints on the target (for proc ops) */
+			char adjusted[256];
+			snprintf(adjusted, sizeof(adjusted), "context:%s", word + 12);
+			if (parse_context(adjusted, &rule->vr_obj_context) < 0) {
+				fprintf(stderr, "invalid obj_context: %s\n", word);
+				return (-1);
+			}
+		} else if (strncasecmp(word, "context:", 8) == 0) {
+			/* DEPRECATED: alias for subj_context: (backward compat) */
+			if (parse_context(word, &rule->vr_subj_context) < 0) {
 				fprintf(stderr, "invalid context: %s\n", word);
 				return (-1);
 			}

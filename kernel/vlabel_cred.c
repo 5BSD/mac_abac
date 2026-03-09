@@ -242,26 +242,38 @@ vlabel_execve_transition(struct ucred *old, struct ucred *new,
 	transition_label = malloc(sizeof(*transition_label), M_TEMP, M_WAITOK | M_ZERO);
 
 	/*
-	 * Check if a transition rule matches and get the new label.
-	 * If no transition rule matches, the label was already copied
-	 * by cred_copy_label and we keep the inherited label.
+	 * Determine the new process label in order of priority:
+	 *
+	 * 1. Explicit transition rule: if a transition rule matches,
+	 *    use the label specified by the rule.
+	 *
+	 * 2. Vnode label: if the executable has a label, the process
+	 *    inherits it. This is the intuitive behavior - labeling a
+	 *    binary causes processes running it to have that label.
+	 *
+	 * 3. Parent label: if no transition rule and executable is
+	 *    unlabeled, the process inherits its parent's label
+	 *    (already copied by cred_copy_label).
 	 */
 	error = vlabel_rules_get_transition(old, oldvl, objvl, transition_label);
 	if (error == 0) {
-		/* Apply the transition - copy new label to credential */
+		/* Priority 1: Explicit transition rule */
 		vlabel_label_copy(transition_label, newvl);
 		/* DTrace: transition occurred */
 		SDT_PROBE4(vlabel, cred, transition, exec,
 		    oldvl->vl_raw, newvl->vl_raw, objvl->vl_raw,
 		    curproc ? curproc->p_pid : 0);
-		VLABEL_DPRINTF("execve_transition: '%s' -> '%s' via exec of '%s'",
-		    oldvl->vl_raw, newvl->vl_raw,
-		    objvl->vl_raw[0] ? objvl->vl_raw : "(unlabeled)");
+		VLABEL_DPRINTF("execve_transition: '%s' -> '%s' via transition rule",
+		    oldvl->vl_raw, newvl->vl_raw);
+	} else if (objvl->vl_raw[0] != '\0') {
+		/* Priority 2: Inherit vnode label */
+		vlabel_label_copy(objvl, newvl);
+		VLABEL_DPRINTF("execve_transition: '%s' -> '%s' (inherited from vnode)",
+		    oldvl->vl_raw, newvl->vl_raw);
 	} else {
-		VLABEL_DPRINTF("execve_transition: no transition, "
-		    "subject '%s' exec object '%s'",
-		    oldvl->vl_raw,
-		    objvl->vl_raw[0] ? objvl->vl_raw : "(unlabeled)");
+		/* Priority 3: Keep parent label (already copied) */
+		VLABEL_DPRINTF("execve_transition: '%s' unchanged (unlabeled exec)",
+		    oldvl->vl_raw);
 	}
 
 	free(transition_label, M_TEMP);
@@ -278,6 +290,10 @@ vlabel_execve_will_transition(struct ucred *old, struct vnode *vp,
 	 * Return non-zero if exec will cause a label transition.
 	 * The MAC framework uses this to decide whether to allocate
 	 * a new credential for the process.
+	 *
+	 * We transition if:
+	 * 1. A transition rule matches, OR
+	 * 2. The executable has a label (process inherits it)
 	 */
 
 	/* Not ready yet during early boot */
@@ -300,5 +316,13 @@ vlabel_execve_will_transition(struct ucred *old, struct vnode *vp,
 	if (objvl == NULL)
 		objvl = &vlabel_default_object;
 
-	return (vlabel_rules_will_transition(old, subjvl, objvl) ? 1 : 0);
+	/* Transition if rule matches OR vnode has a label */
+	if (vlabel_rules_will_transition(old, subjvl, objvl))
+		return (1);
+
+	/* Also transition if vnode has a non-empty label */
+	if (objvl->vl_raw[0] != '\0')
+		return (1);
+
+	return (0);
 }

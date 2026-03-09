@@ -74,18 +74,38 @@ Setting labels in the `system` namespace requires root privileges. This prevents
 
 Processes have labels too. These are called "subject labels" in MAC terminology.
 
-### Label Inheritance
+### Label Inheritance on Exec
 
-By default, a child process inherits its parent's label:
+When a process executes a binary, the process label is determined by these rules in priority order:
+
+1. **Explicit Transition Rule**: If a `transition` rule matches the exec, the process gets the label specified by `newlabel` in the rule.
+
+2. **Vnode Label**: If no transition rule matches but the executable has a label, the process inherits that label. This is the most common case.
+
+3. **Parent Label**: If no transition rule and the executable is unlabeled, the process keeps its parent's label.
+
+#### Example: Vnode Label Inheritance
+
+```sh
+# Label a binary
+vlabelctl label set /usr/local/bin/myapp "type=app,domain=web"
+
+# When executed, the process gets that label
+/usr/local/bin/myapp &   # Process now has type=app,domain=web
+```
+
+#### Example: Fork Inheritance
+
+Child processes created with `fork()` inherit their parent's label:
 
 ```
 Process A (type=app,domain=web)
     └── fork() → Process B (type=app,domain=web)
 ```
 
-### Label Transitions
+### Explicit Transitions
 
-When a process executes a binary with a transition rule, its label changes:
+When you need more control, use transition rules. These override vnode label inheritance:
 
 ```
 Process A (type=user)
@@ -105,9 +125,38 @@ Transition rules are defined in policy:
 }
 ```
 
+Or in CLI format:
+```
+transition exec type=user -> type=setuid,name=su => type=privileged,domain=system
+```
+
+Use transition rules when:
+- Different subjects should get different labels for the same executable
+- You want to restrict which subjects can transition
+- The new label should differ from the vnode label
+
 ### Default Labels
 
-Files without a `system:vlabel` extended attribute get a default label. Processes started before the module loads get a default label. The default label matches rules with empty/wildcard patterns.
+When no explicit label exists, the default label `type=unlabeled` is assigned to both subjects and objects:
+
+| Type | Default Label | When Used |
+|------|---------------|-----------|
+| **Subject (process)** | `type=unlabeled` | Processes started before module loads, or with unlabeled parent and unlabeled executable |
+| **Object (file/vnode)** | `type=unlabeled` | Files without `system:vlabel` extended attribute |
+
+This consistent default allows you to write rules targeting unclassified entities:
+```
+# Deny unlabeled processes from executing anything
+deny exec type=unlabeled -> *
+
+# Deny executing unlabeled files
+deny exec * -> type=unlabeled
+
+# Only labeled processes can access labeled files
+deny all type=unlabeled -> !type=unlabeled
+```
+
+The wildcard `*` matches any label including defaults.
 
 ## Label Matching
 

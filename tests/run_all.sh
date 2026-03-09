@@ -105,6 +105,9 @@ run_test_script "mac_syscall API" ./09_syscall_api.sh "$VLABELCTL"
 run_test_script "Limits" ./10_limits.sh "$VLABELCTL"
 run_test_script "Process Enforcement" ./12_process_enforcement.sh "$VLABELCTL"
 run_test_script "Label Transitions" ./13_transitions.sh "$VLABELCTL"
+run_test_script "Context Debug" ./14_context_debug.sh "$VLABELCTL"
+run_test_script "Context Constraints" ./15_context_constraints.sh "$VLABELCTL"
+run_test_script "Policy Formats" ./16_formats.sh "$VLABELCTL"
 
 # DTrace test - only run if dtrace is available
 if which dtrace >/dev/null 2>&1; then

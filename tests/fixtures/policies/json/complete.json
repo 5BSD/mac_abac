@@ -1,0 +1,79 @@
+{
+    "mode": "enforcing",
+    "rules": [
+        {
+            "id": 1,
+            "action": "deny",
+            "operations": ["exec"],
+            "subject": "*",
+            "object": { "type": "malware" }
+        },
+        {
+            "id": 2,
+            "action": "allow",
+            "operations": ["read", "write", "mmap", "stat"],
+            "subject": { "domain": "app" },
+            "object": { "domain": "app" }
+        },
+        {
+            "id": 3,
+            "action": "allow",
+            "operations": ["all"],
+            "subject": { "type": "admin" },
+            "object": "*"
+        },
+        {
+            "id": 4,
+            "action": "deny",
+            "operations": ["exec"],
+            "subject": "*",
+            "object": { "type": "hostonly" },
+            "context": { "jail": "any" }
+        },
+        {
+            "id": 5,
+            "action": "allow",
+            "operations": ["exec"],
+            "subject": "*",
+            "object": { "type": "privileged" },
+            "context": { "uid": 0 }
+        },
+        {
+            "id": 6,
+            "action": "deny",
+            "operations": ["debug"],
+            "subject": "*",
+            "object": "*",
+            "obj_context": { "sandboxed": true }
+        },
+        {
+            "id": 10,
+            "action": "transition",
+            "operations": ["exec"],
+            "subject": { "type": "user" },
+            "object": { "type": "setuid", "name": "su" },
+            "newlabel": "type=admin,domain=system"
+        },
+        {
+            "id": 11,
+            "action": "allow",
+            "operations": ["read", "write"],
+            "subject": { "type": "app", "domain": "web", "tier": "frontend" },
+            "object": { "type": "data", "domain": "web" }
+        },
+        {
+            "id": 20,
+            "action": "allow",
+            "operations": ["debug", "signal", "sched"],
+            "subject": { "type": "supervisor" },
+            "object": { "type": "worker" }
+        },
+        {
+            "id": 100,
+            "action": "allow",
+            "operations": ["all"],
+            "subject": "*",
+            "object": "*"
+        }
+    ]
+}

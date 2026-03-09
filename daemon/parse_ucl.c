@@ -391,9 +391,13 @@ parse_rule(const ucl_object_t *obj, struct vlabel_rule_io *rule)
 	val = ucl_object_lookup(obj, "object");
 	parse_pattern(val, &rule->vr_object);
 
-	/* context constraints */
+	/* subject context constraints */
 	val = ucl_object_lookup(obj, "context");
-	parse_context(val, &rule->vr_context);
+	parse_context(val, &rule->vr_subj_context);
+
+	/* object context constraints */
+	val = ucl_object_lookup(obj, "obj_context");
+	parse_context(val, &rule->vr_obj_context);
 
 	/* newlabel (for transition rules) */
 	if (rule->vr_action == VLABEL_ACTION_TRANSITION) {

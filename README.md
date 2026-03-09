@@ -123,10 +123,14 @@ sysctl security.mac.vlabel.mode=2
 | Value length | 256 bytes | Per value |
 | Key-value pairs | 16 | Per label |
 | Rules | 1,024 | System-wide |
+| Rule structure | 68 bytes | Per rule (header only) |
+| Context constraints | 20 bytes | Per context (subj + obj = 40 bytes) |
 
 Note: The mac_syscall interface uses variable-length structures, eliminating the
-previous ioctl size limitations. These limits are designed for practical use while
-maintaining reasonable kernel memory usage.
+previous ioctl size limitations. Each rule has a 68-byte header plus variable-length
+pattern strings. Context constraints (subject and object) add 40 bytes per rule when
+both are used. These limits are designed for practical use while maintaining
+reasonable kernel memory usage.
 
 ## DTrace Probes
 

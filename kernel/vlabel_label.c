@@ -324,21 +324,21 @@ vlabel_label_set_default(struct vlabel_label *vl, bool is_subject)
 
 	memset(vl, 0, sizeof(*vl));
 
-	if (is_subject) {
-		strlcpy(vl->vl_raw, "type=user", sizeof(vl->vl_raw));
-		vl->vl_npairs = 1;
-		strlcpy(vl->vl_pairs[0].vp_key, "type",
-		    sizeof(vl->vl_pairs[0].vp_key));
-		strlcpy(vl->vl_pairs[0].vp_value, "user",
-		    sizeof(vl->vl_pairs[0].vp_value));
-	} else {
-		strlcpy(vl->vl_raw, "type=unlabeled", sizeof(vl->vl_raw));
-		vl->vl_npairs = 1;
-		strlcpy(vl->vl_pairs[0].vp_key, "type",
-		    sizeof(vl->vl_pairs[0].vp_key));
-		strlcpy(vl->vl_pairs[0].vp_value, "unlabeled",
-		    sizeof(vl->vl_pairs[0].vp_value));
-	}
+	/*
+	 * Both subjects (processes) and objects (files) get the same
+	 * default label: type=unlabeled
+	 *
+	 * This is explicit about "not classified yet" and allows rules like:
+	 *   deny exec type=unlabeled -> *   (unlabeled procs can't exec)
+	 *   deny exec * -> type=unlabeled   (can't exec unlabeled files)
+	 */
+	(void)is_subject;  /* Same default for both */
+	strlcpy(vl->vl_raw, "type=unlabeled", sizeof(vl->vl_raw));
+	vl->vl_npairs = 1;
+	strlcpy(vl->vl_pairs[0].vp_key, "type",
+	    sizeof(vl->vl_pairs[0].vp_key));
+	strlcpy(vl->vl_pairs[0].vp_value, "unlabeled",
+	    sizeof(vl->vl_pairs[0].vp_value));
 
 	vl->vl_hash = vlabel_label_hash(vl->vl_raw, strlen(vl->vl_raw));
 }

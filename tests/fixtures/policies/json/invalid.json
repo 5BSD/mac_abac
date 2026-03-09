@@ -1,0 +1,16 @@
+{
+    "mode": "permissive",
+    "rules": [
+        {
+            "action": "allow",
+            "operations": ["exec"],
+            "subject": "*",
+            "object": "*"
+        },
+        {
+            "id": 2,
+            "action": "invalid_action",
+            "operations": ["exec"]
+        }
+    ]
+}

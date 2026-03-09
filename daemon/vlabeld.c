@@ -223,12 +223,20 @@ send_rule_to_kernel(struct vlabel_rule_io *rule_io)
 	arg->vr_operations = rule_io->vr_operations;
 	arg->vr_subject_flags = rule_io->vr_subject.vp_flags;
 	arg->vr_object_flags = rule_io->vr_object.vp_flags;
-	arg->vr_context.vc_flags = rule_io->vr_context.vc_flags;
-	arg->vr_context.vc_cap_sandboxed = rule_io->vr_context.vc_cap_sandboxed;
-	arg->vr_context.vc_has_tty = rule_io->vr_context.vc_has_tty;
-	arg->vr_context.vc_jail_check = rule_io->vr_context.vc_jail_check;
-	arg->vr_context.vc_uid = rule_io->vr_context.vc_uid;
-	arg->vr_context.vc_gid = rule_io->vr_context.vc_gid;
+	/* Subject context constraints */
+	arg->vr_subj_context.vc_flags = rule_io->vr_subj_context.vc_flags;
+	arg->vr_subj_context.vc_cap_sandboxed = rule_io->vr_subj_context.vc_cap_sandboxed;
+	arg->vr_subj_context.vc_has_tty = rule_io->vr_subj_context.vc_has_tty;
+	arg->vr_subj_context.vc_jail_check = rule_io->vr_subj_context.vc_jail_check;
+	arg->vr_subj_context.vc_uid = rule_io->vr_subj_context.vc_uid;
+	arg->vr_subj_context.vc_gid = rule_io->vr_subj_context.vc_gid;
+	/* Object context constraints */
+	arg->vr_obj_context.vc_flags = rule_io->vr_obj_context.vc_flags;
+	arg->vr_obj_context.vc_cap_sandboxed = rule_io->vr_obj_context.vc_cap_sandboxed;
+	arg->vr_obj_context.vc_has_tty = rule_io->vr_obj_context.vc_has_tty;
+	arg->vr_obj_context.vc_jail_check = rule_io->vr_obj_context.vc_jail_check;
+	arg->vr_obj_context.vc_uid = rule_io->vr_obj_context.vc_uid;
+	arg->vr_obj_context.vc_gid = rule_io->vr_obj_context.vc_gid;
 	arg->vr_subject_len = subject_len;
 	arg->vr_object_len = object_len;
 	arg->vr_newlabel_len = newlabel_len;

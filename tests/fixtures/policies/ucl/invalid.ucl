@@ -1,0 +1,27 @@
+# Invalid UCL policy for error handling tests
+# Contains various errors that should be caught
+
+mode = "permissive";
+
+rules = [
+    # Missing required 'id' field
+    {
+        action = "allow";
+        operations = ["exec"];
+        subject = "*";
+        object = "*";
+    },
+
+    # Invalid action value
+    {
+        id = 2;
+        action = "maybe";
+        operations = ["exec"];
+    },
+
+    # Missing action field
+    {
+        id = 3;
+        operations = ["read"];
+    }
+];

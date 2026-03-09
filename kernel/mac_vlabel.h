@@ -179,7 +179,8 @@ struct vlabel_rule_io {
 	uint32_t		vr_operations;
 	struct vlabel_pattern_io vr_subject;
 	struct vlabel_pattern_io vr_object;
-	struct vlabel_context_io vr_context;
+	struct vlabel_context_io vr_subj_context;  /* Subject context (caller) */
+	struct vlabel_context_io vr_obj_context;   /* Object context (target) */
 	char			vr_newlabel[VLABEL_PATTERN_MAX_LEN];
 };
 
@@ -207,6 +208,30 @@ struct vlabel_rule_io {
 
 /*
  * Context constraints for rules (shared between kernel and userland)
+ *
+ * Rules can have two independent context constraints:
+ *
+ * Subject context (vr_subj_context): checked against the CALLER
+ *   - CLI syntax: subj_context:key=value  (or deprecated: context:key=value)
+ *   - Useful for: "only root can do X", "only host processes can do Y"
+ *
+ * Object context (vr_obj_context): checked against the TARGET
+ *   - CLI syntax: obj_context:key=value
+ *   - Useful for: "can't debug sandboxed processes", "can't signal jailed procs"
+ *   - Only meaningful for process operations (debug, signal, sched)
+ *
+ * Both contexts are optional (vc_flags=0 means match anything).
+ * Both can be specified on the same rule.
+ *
+ * Examples:
+ *   deny debug * -> * obj_context:sandboxed=true
+ *     - Protects processes in capability mode from being debugged
+ *
+ *   deny signal * -> * subj_context:jail=any obj_context:jail=host
+ *     - Prevents jailed processes from signaling host processes
+ *
+ *   allow exec type=admin -> * subj_context:jail=host,uid=0
+ *     - Only root on host can run admin binaries
  */
 struct vlabel_context_arg {
 	uint32_t	vc_flags;		/* Which checks are enabled */
@@ -239,7 +264,8 @@ struct vlabel_rule_arg {
 	uint32_t		vr_operations;	/* Operation bitmask */
 	uint32_t		vr_subject_flags; /* VLABEL_MATCH_NEGATE, etc */
 	uint32_t		vr_object_flags;
-	struct vlabel_context_arg vr_context;
+	struct vlabel_context_arg vr_subj_context;  /* Subject context constraints */
+	struct vlabel_context_arg vr_obj_context;   /* Object context constraints */
 	uint16_t		vr_subject_len;	/* Length including null */
 	uint16_t		vr_object_len;
 	uint16_t		vr_newlabel_len; /* 0 if not transition */
@@ -259,7 +285,8 @@ struct vlabel_rule_out {
 	uint32_t		vr_operations;
 	uint32_t		vr_subject_flags;
 	uint32_t		vr_object_flags;
-	struct vlabel_context_arg vr_context;
+	struct vlabel_context_arg vr_subj_context;  /* Subject context constraints */
+	struct vlabel_context_arg vr_obj_context;   /* Object context constraints */
 	uint16_t		vr_subject_len;
 	uint16_t		vr_object_len;
 	uint16_t		vr_newlabel_len;
@@ -392,7 +419,8 @@ struct vlabel_rule {
 	uint32_t		vr_operations;	/* Bitmask of operations */
 	struct vlabel_pattern	vr_subject;	/* Subject (process) pattern */
 	struct vlabel_pattern	vr_object;	/* Object (file) pattern */
-	struct vlabel_context	vr_context;	/* Optional context constraints */
+	struct vlabel_context	vr_subj_context; /* Subject context constraints */
+	struct vlabel_context	vr_obj_context;	/* Object context constraints */
 	struct vlabel_label	vr_newlabel;	/* New label for TRANSITION rules */
 };
 
@@ -465,7 +493,7 @@ int vlabel_pattern_parse(const char *str, size_t len, struct vlabel_pattern *pat
 void vlabel_rules_init(void);
 void vlabel_rules_destroy(void);
 int vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
-    struct vlabel_label *obj, uint32_t op);
+    struct vlabel_label *obj, uint32_t op, struct proc *obj_proc);
 bool vlabel_rules_will_transition(struct ucred *cred, struct vlabel_label *subj,
     struct vlabel_label *obj);
 int vlabel_rules_get_transition(struct ucred *cred, struct vlabel_label *subj,

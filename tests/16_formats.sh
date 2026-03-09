@@ -1,0 +1,443 @@
+#!/bin/sh
+#
+# Test: Policy Format Parsing
+#
+# Tests the different policy file formats supported by vLabel:
+# 1. Line format (.rules) - used by vlabelctl rule load/add
+# 2. UCL format (.ucl) - used by vlabeld daemon
+# 3. JSON format (.json) - also supported by vlabeld (UCL is JSON superset)
+#
+# Prerequisites:
+# - Must be run as root
+# - Module must be loaded
+# - vlabelctl must be built
+# - vlabeld must be built (for UCL/JSON tests)
+#
+
+set -e
+
+SCRIPT_DIR=$(dirname "$0")
+. "$SCRIPT_DIR/lib/test_helpers.sh"
+
+# Configuration
+if [ -n "$1" ]; then
+	VLABELCTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
+	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+else
+	VLABELCTL="./tools/vlabelctl"
+fi
+
+if [ -n "$2" ]; then
+	VLABELD="$2"
+elif [ -x "$SCRIPT_DIR/../daemon/vlabeld" ]; then
+	VLABELD="$SCRIPT_DIR/../daemon/vlabeld"
+else
+	VLABELD="./daemon/vlabeld"
+fi
+
+MODULE_NAME="mac_vlabel"
+FIXTURES="$SCRIPT_DIR/fixtures/policies"
+
+# Check prerequisites
+require_root
+
+if ! kldstat -q -m "$MODULE_NAME" 2>/dev/null; then
+	echo "Module not loaded. Please load the module first."
+	exit 1
+fi
+
+# Cleanup function
+cleanup() {
+	"$VLABELCTL" mode permissive >/dev/null 2>&1 || true
+	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+echo "============================================"
+echo "Policy Format Tests"
+echo "============================================"
+echo ""
+info "Using vlabelctl: $VLABELCTL"
+info "Using vlabeld: $VLABELD"
+info "Using fixtures: $FIXTURES"
+echo ""
+
+# ===========================================
+# Line Format Tests (.rules)
+# ===========================================
+info "=== Line Format (.rules) Tests ==="
+
+run_test
+info "Test: Basic allow/deny rules"
+"$VLABELCTL" rule clear >/dev/null
+OUTPUT=$("$VLABELCTL" rule load "$FIXTURES/minimal.rules" 2>&1)
+if echo "$OUTPUT" | grep -q "loaded"; then
+	pass "minimal.rules loaded"
+else
+	fail "minimal.rules (got: $OUTPUT)"
+fi
+
+run_test
+info "Test: Multi-operation rules"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "allow read,write,mmap type=app -> type=data" >/dev/null 2>&1; then
+	pass "multi-operation rule"
+else
+	fail "multi-operation rule"
+fi
+
+run_test
+info "Test: Wildcard patterns"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "allow exec * -> *" >/dev/null 2>&1; then
+	pass "wildcard patterns"
+else
+	fail "wildcard patterns"
+fi
+
+run_test
+info "Test: Negation pattern (!type=bad)"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "deny exec * -> !type=trusted" >/dev/null 2>&1; then
+	pass "negation pattern"
+else
+	fail "negation pattern"
+fi
+
+run_test
+info "Test: Multi-key patterns (type=a,domain=b)"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "allow read type=app,domain=web -> type=data,domain=web" >/dev/null 2>&1; then
+	pass "multi-key patterns"
+else
+	fail "multi-key patterns"
+fi
+
+run_test
+info "Test: Transition rule with newlabel"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "transition exec * -> type=setuid => type=elevated" >/dev/null 2>&1; then
+	pass "transition with newlabel"
+else
+	fail "transition with newlabel"
+fi
+
+run_test
+info "Test: Subject context constraint"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "allow exec * -> type=admin context:uid=0" >/dev/null 2>&1; then
+	pass "subject context (context:)"
+else
+	fail "subject context (context:)"
+fi
+
+run_test
+info "Test: Subject context with subj_context:"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "allow exec * -> type=admin subj_context:uid=0" >/dev/null 2>&1; then
+	pass "subject context (subj_context:)"
+else
+	fail "subject context (subj_context:)"
+fi
+
+run_test
+info "Test: Object context constraint"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "deny debug * -> * obj_context:sandboxed=true" >/dev/null 2>&1; then
+	pass "object context (obj_context:)"
+else
+	fail "object context (obj_context:)"
+fi
+
+run_test
+info "Test: Both subject and object context"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "deny signal * -> * subj_context:jail=any obj_context:jail=host" >/dev/null 2>&1; then
+	pass "both contexts"
+else
+	fail "both contexts"
+fi
+
+run_test
+info "Test: Context jail=host"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "allow exec * -> * context:jail=host" >/dev/null 2>&1; then
+	pass "context jail=host"
+else
+	fail "context jail=host"
+fi
+
+run_test
+info "Test: Context jail=any"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "deny exec * -> type=hostonly context:jail=any" >/dev/null 2>&1; then
+	pass "context jail=any"
+else
+	fail "context jail=any"
+fi
+
+run_test
+info "Test: Context sandboxed=true"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "deny exec * -> * context:sandboxed=true" >/dev/null 2>&1; then
+	pass "context sandboxed"
+else
+	fail "context sandboxed"
+fi
+
+run_test
+info "Test: Context tty=true"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "allow exec * -> type=interactive context:tty=true" >/dev/null 2>&1; then
+	pass "context tty"
+else
+	fail "context tty"
+fi
+
+run_test
+info "Test: Process operations (debug, signal, sched)"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "allow debug,signal,sched type=admin -> *" >/dev/null 2>&1; then
+	pass "process operations"
+else
+	fail "process operations"
+fi
+
+run_test
+info "Test: Complete rules file"
+"$VLABELCTL" rule clear >/dev/null
+OUTPUT=$("$VLABELCTL" rule load "$FIXTURES/valid_complete.rules" 2>&1)
+if echo "$OUTPUT" | grep -q "loaded"; then
+	COUNT=$(echo "$OUTPUT" | grep -o 'loaded [0-9]*' | grep -o '[0-9]*')
+	if [ "$COUNT" -gt 10 ]; then
+		pass "valid_complete.rules ($COUNT rules)"
+	else
+		fail "valid_complete.rules (only $COUNT rules)"
+	fi
+else
+	fail "valid_complete.rules (got: $OUTPUT)"
+fi
+
+run_test
+info "Test: Invalid syntax rejected"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "invalid syntax here" 2>/dev/null; then
+	fail "invalid syntax should be rejected"
+else
+	pass "invalid syntax rejected"
+fi
+
+run_test
+info "Test: Invalid action rejected"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "maybe exec * -> *" 2>/dev/null; then
+	fail "invalid action should be rejected"
+else
+	pass "invalid action rejected"
+fi
+
+run_test
+info "Test: Missing arrow rejected"
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "allow exec * *" 2>/dev/null; then
+	fail "missing arrow should be rejected"
+else
+	pass "missing arrow rejected"
+fi
+
+# ===========================================
+# UCL Format Tests (.ucl)
+# ===========================================
+echo ""
+info "=== UCL Format (.ucl) Tests ==="
+
+# Check if vlabeld exists
+if [ ! -x "$VLABELD" ]; then
+	warn "vlabeld not found, skipping UCL tests"
+	skip "UCL format tests (vlabeld not available)"
+else
+	run_test
+	info "Test: Basic UCL file parsing"
+	"$VLABELCTL" rule clear >/dev/null
+	OUTPUT=$("$VLABELD" -t -c "$FIXTURES/ucl/basic.ucl" 2>&1)
+	if echo "$OUTPUT" | grep -q "loaded 3 rules\|rules: 3\|3 rules"; then
+		pass "basic.ucl parsed"
+	elif echo "$OUTPUT" | grep -qi "success\|ok\|loaded"; then
+		pass "basic.ucl parsed (different output format)"
+	else
+		# Test mode may just validate without loading
+		if [ $? -eq 0 ]; then
+			pass "basic.ucl validated"
+		else
+			fail "basic.ucl (got: $OUTPUT)"
+		fi
+	fi
+
+	run_test
+	info "Test: Complete UCL with all features"
+	"$VLABELCTL" rule clear >/dev/null
+	OUTPUT=$("$VLABELD" -t -c "$FIXTURES/ucl/complete.ucl" 2>&1)
+	EXIT_CODE=$?
+	if [ $EXIT_CODE -eq 0 ]; then
+		pass "complete.ucl validated"
+	else
+		fail "complete.ucl (exit: $EXIT_CODE, got: $OUTPUT)"
+	fi
+
+	run_test
+	info "Test: Invalid UCL reports errors"
+	"$VLABELCTL" rule clear >/dev/null
+	if "$VLABELD" -t -c "$FIXTURES/ucl/invalid.ucl" >/dev/null 2>&1; then
+		fail "invalid.ucl should report errors"
+	else
+		pass "invalid.ucl reports errors"
+	fi
+fi
+
+# ===========================================
+# JSON Format Tests (.json)
+# ===========================================
+echo ""
+info "=== JSON Format (.json) Tests ==="
+
+if [ ! -x "$VLABELD" ]; then
+	warn "vlabeld not found, skipping JSON tests"
+	skip "JSON format tests (vlabeld not available)"
+else
+	run_test
+	info "Test: Basic JSON file parsing"
+	"$VLABELCTL" rule clear >/dev/null
+	OUTPUT=$("$VLABELD" -t -c "$FIXTURES/json/basic.json" 2>&1)
+	EXIT_CODE=$?
+	if [ $EXIT_CODE -eq 0 ]; then
+		pass "basic.json validated"
+	else
+		fail "basic.json (exit: $EXIT_CODE, got: $OUTPUT)"
+	fi
+
+	run_test
+	info "Test: Complete JSON with all features"
+	"$VLABELCTL" rule clear >/dev/null
+	OUTPUT=$("$VLABELD" -t -c "$FIXTURES/json/complete.json" 2>&1)
+	EXIT_CODE=$?
+	if [ $EXIT_CODE -eq 0 ]; then
+		pass "complete.json validated"
+	else
+		fail "complete.json (exit: $EXIT_CODE, got: $OUTPUT)"
+	fi
+
+	run_test
+	info "Test: Invalid JSON reports errors"
+	"$VLABELCTL" rule clear >/dev/null
+	if "$VLABELD" -t -c "$FIXTURES/json/invalid.json" >/dev/null 2>&1; then
+		fail "invalid.json should report errors"
+	else
+		pass "invalid.json reports errors"
+	fi
+
+	run_test
+	info "Test: Malformed JSON rejected"
+	"$VLABELCTL" rule clear >/dev/null
+	if "$VLABELD" -t -c "$FIXTURES/json/malformed.json" >/dev/null 2>&1; then
+		fail "malformed.json should be rejected"
+	else
+		pass "malformed.json rejected"
+	fi
+fi
+
+# ===========================================
+# Edge Cases
+# ===========================================
+echo ""
+info "=== Edge Cases ==="
+
+run_test
+info "Test: Empty rule file"
+TMPFILE=$(mktemp)
+echo "" > "$TMPFILE"
+"$VLABELCTL" rule clear >/dev/null
+OUTPUT=$("$VLABELCTL" rule load "$TMPFILE" 2>&1)
+if echo "$OUTPUT" | grep -q "loaded 0 rules"; then
+	pass "empty file loads 0 rules"
+else
+	# Some implementations may succeed silently
+	if [ $? -eq 0 ]; then
+		pass "empty file handled"
+	else
+		fail "empty file (got: $OUTPUT)"
+	fi
+fi
+rm -f "$TMPFILE"
+
+run_test
+info "Test: Comments-only file"
+TMPFILE=$(mktemp)
+cat > "$TMPFILE" << 'EOF'
+# This file contains only comments
+# No actual rules here
+# Should load 0 rules
+EOF
+"$VLABELCTL" rule clear >/dev/null
+OUTPUT=$("$VLABELCTL" rule load "$TMPFILE" 2>&1)
+if echo "$OUTPUT" | grep -q "loaded 0 rules"; then
+	pass "comments-only file"
+else
+	if [ $? -eq 0 ]; then
+		pass "comments-only file handled"
+	else
+		fail "comments-only file (got: $OUTPUT)"
+	fi
+fi
+rm -f "$TMPFILE"
+
+run_test
+info "Test: Mixed valid and comment lines"
+TMPFILE=$(mktemp)
+cat > "$TMPFILE" << 'EOF'
+# First comment
+allow exec * -> *
+# Middle comment
+deny exec * -> type=bad
+# Final comment
+EOF
+"$VLABELCTL" rule clear >/dev/null
+OUTPUT=$("$VLABELCTL" rule load "$TMPFILE" 2>&1)
+if echo "$OUTPUT" | grep -q "loaded 2 rules"; then
+	pass "mixed valid and comments"
+else
+	fail "mixed valid and comments (got: $OUTPUT)"
+fi
+rm -f "$TMPFILE"
+
+run_test
+info "Test: Whitespace handling"
+TMPFILE=$(mktemp)
+cat > "$TMPFILE" << 'EOF'
+   allow   exec   *   ->   *
+	deny	exec	*	->	type=bad
+EOF
+"$VLABELCTL" rule clear >/dev/null
+OUTPUT=$("$VLABELCTL" rule load "$TMPFILE" 2>&1)
+if echo "$OUTPUT" | grep -q "loaded 2 rules"; then
+	pass "whitespace handling"
+else
+	fail "whitespace handling (got: $OUTPUT)"
+fi
+rm -f "$TMPFILE"
+
+run_test
+info "Test: Long pattern values"
+LONG_VALUE=$(printf 'x%.0s' $(seq 1 200))
+"$VLABELCTL" rule clear >/dev/null
+if "$VLABELCTL" rule add "allow exec * -> type=$LONG_VALUE" >/dev/null 2>&1; then
+	pass "long pattern value accepted"
+else
+	fail "long pattern value"
+fi
+
+# ===========================================
+# Summary
+# ===========================================
+
+summary

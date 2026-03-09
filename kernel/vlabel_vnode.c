@@ -316,8 +316,8 @@ vlabel_vnode_check_exec(struct ucred *cred, struct vnode *vp,
 	VLABEL_DPRINTF("check_exec: subj='%s' obj='%s'",
 	    subj->vl_raw, obj->vl_raw);
 
-	/* Evaluate rules */
-	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_EXEC);
+	/* Evaluate rules - no target process for vnode ops */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_EXEC, NULL);
 
 	/*
 	 * In permissive mode, log but don't enforce.

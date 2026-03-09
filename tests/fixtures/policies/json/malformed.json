@@ -1,0 +1,10 @@
+{
+    "mode": "permissive",
+    "rules": [
+        {
+            "id": 1,
+            "action": "allow"
+            "operations": ["exec"]
+        }
+    ]
+}

@@ -137,7 +137,7 @@ vlabel_pattern_match(const struct vlabel_label *label,
 }
 
 /*
- * Check if context constraints match the current credential
+ * Check if context constraints match
  *
  * Context constraints allow rules to be conditional on:
  * - Capability mode (sandboxed or not)
@@ -147,39 +147,79 @@ vlabel_pattern_match(const struct vlabel_label *label,
  * - Real UID
  * - Session ID
  * - Whether process has a controlling TTY
+ *
+ * For subject context: pass cred (caller's credential), proc=NULL
+ * For object context: pass cred=NULL, proc (target process)
+ *
+ * At least one of cred or proc must be provided if flags are set.
  */
 static bool
-vlabel_context_matches(const struct vlabel_context *ctx, struct ucred *cred)
+vlabel_context_matches(const struct vlabel_context *ctx,
+    struct ucred *cred, struct proc *proc)
 {
-	struct thread *td;
+	struct ucred *check_cred;
+	struct proc *check_proc;
 
 	/* If no context flags set, match everything */
 	if (ctx->vc_flags == 0)
 		return (true);
 
-	/* Need valid credential for all checks */
-	if (cred == NULL)
+	/*
+	 * Determine which credential/process to check.
+	 * For subject context: use cred (caller)
+	 * For object context: use proc's credential (target)
+	 */
+	if (cred != NULL) {
+		check_cred = cred;
+		check_proc = curproc;
+	} else if (proc != NULL) {
+		check_cred = proc->p_ucred;
+		check_proc = proc;
+	} else {
+		/* No context info available, can't match constraints */
+		VLABEL_DPRINTF("context: no cred or proc provided");
 		return (false);
+	}
+
+	if (check_cred == NULL) {
+		VLABEL_DPRINTF("context: no credential available");
+		return (false);
+	}
 
 	/* Check capability mode (sandboxed) */
 	if (ctx->vc_flags & VLABEL_CTX_CAP_SANDBOXED) {
-		td = curthread;
-		if (td != NULL) {
-			bool is_sandboxed = IN_CAPABILITY_MODE(td);
-			if (is_sandboxed != ctx->vc_cap_sandboxed) {
-				VLABEL_DPRINTF("context: cap_sandboxed mismatch "
-				    "(want %d, got %d)",
-				    ctx->vc_cap_sandboxed, is_sandboxed);
-				return (false);
-			}
+		bool is_sandboxed = false;
+
+		/*
+		 * For subject context, check curthread.
+		 * For object context, check target process flag.
+		 */
+		if (cred != NULL) {
+			/* Subject: check current thread */
+			struct thread *td = curthread;
+			if (td != NULL)
+				is_sandboxed = IN_CAPABILITY_MODE(td);
+		} else if (proc != NULL) {
+			/* Object: check target process's credential for capmode */
+			PROC_LOCK(proc);
+			if (proc->p_ucred != NULL)
+				is_sandboxed = (proc->p_ucred->cr_flags & CRED_FLAG_CAPMODE) != 0;
+			PROC_UNLOCK(proc);
+		}
+
+		if (is_sandboxed != ctx->vc_cap_sandboxed) {
+			VLABEL_DPRINTF("context: cap_sandboxed mismatch "
+			    "(want %d, got %d)",
+			    ctx->vc_cap_sandboxed, is_sandboxed);
+			return (false);
 		}
 	}
 
 	/* Check jail context */
 	if (ctx->vc_flags & VLABEL_CTX_JAIL) {
 		int jailid = 0;
-		if (cred->cr_prison != NULL)
-			jailid = cred->cr_prison->pr_id;
+		if (check_cred->cr_prison != NULL)
+			jailid = check_cred->cr_prison->pr_id;
 
 		switch (ctx->vc_jail_check) {
 		case 0:
@@ -212,38 +252,37 @@ vlabel_context_matches(const struct vlabel_context *ctx, struct ucred *cred)
 
 	/* Check effective UID */
 	if (ctx->vc_flags & VLABEL_CTX_UID) {
-		if (cred->cr_uid != ctx->vc_uid) {
+		if (check_cred->cr_uid != ctx->vc_uid) {
 			VLABEL_DPRINTF("context: uid mismatch "
-			    "(want %u, got %u)", ctx->vc_uid, cred->cr_uid);
+			    "(want %u, got %u)", ctx->vc_uid, check_cred->cr_uid);
 			return (false);
 		}
 	}
 
 	/* Check effective GID */
 	if (ctx->vc_flags & VLABEL_CTX_GID) {
-		if (cred->cr_gid != ctx->vc_gid) {
+		if (check_cred->cr_gid != ctx->vc_gid) {
 			VLABEL_DPRINTF("context: gid mismatch "
-			    "(want %u, got %u)", ctx->vc_gid, cred->cr_gid);
+			    "(want %u, got %u)", ctx->vc_gid, check_cred->cr_gid);
 			return (false);
 		}
 	}
 
 	/* Check real UID */
 	if (ctx->vc_flags & VLABEL_CTX_RUID) {
-		if (cred->cr_ruid != ctx->vc_uid) {
+		if (check_cred->cr_ruid != ctx->vc_uid) {
 			VLABEL_DPRINTF("context: ruid mismatch "
-			    "(want %u, got %u)", ctx->vc_uid, cred->cr_ruid);
+			    "(want %u, got %u)", ctx->vc_uid, check_cred->cr_ruid);
 			return (false);
 		}
 	}
 
 	/* Check session/login context - via process's session */
 	if (ctx->vc_flags & VLABEL_CTX_HAS_TTY) {
-		struct proc *p = curproc;
 		bool has_tty = false;
 
-		if (p != NULL && p->p_session != NULL)
-			has_tty = (p->p_session->s_ttyp != NULL);
+		if (check_proc != NULL && check_proc->p_session != NULL)
+			has_tty = (check_proc->p_session->s_ttyp != NULL);
 
 		if (has_tty != ctx->vc_has_tty) {
 			VLABEL_DPRINTF("context: tty mismatch "
@@ -259,13 +298,17 @@ vlabel_context_matches(const struct vlabel_context *ctx, struct ucred *cred)
 
 /*
  * Check if a rule matches the current access request
+ *
+ * subj_cred: credential of the subject (caller) - used for subject context
+ * obj_proc: target process for proc operations - used for object context (may be NULL)
  */
 static bool
 vlabel_rule_matches(const struct vlabel_rule *rule,
     const struct vlabel_label *subj,
     const struct vlabel_label *obj,
     uint32_t op,
-    struct ucred *cred)
+    struct ucred *subj_cred,
+    struct proc *obj_proc)
 {
 
 	/* Check if operation is covered by this rule */
@@ -280,8 +323,12 @@ vlabel_rule_matches(const struct vlabel_rule *rule,
 	if (!vlabel_pattern_match(obj, &rule->vr_object))
 		return (false);
 
-	/* Check context constraints (jail, capability mode, etc.) */
-	if (!vlabel_context_matches(&rule->vr_context, cred))
+	/* Check subject context constraints (jail, capability mode, etc.) */
+	if (!vlabel_context_matches(&rule->vr_subj_context, subj_cred, NULL))
+		return (false);
+
+	/* Check object context constraints (for proc operations) */
+	if (!vlabel_context_matches(&rule->vr_obj_context, NULL, obj_proc))
 		return (false);
 
 	return (true);
@@ -295,10 +342,13 @@ vlabel_rule_matches(const struct vlabel_rule *rule,
  *   EACCES = denied
  *
  * Uses first-match semantics. If no rule matches, default is DENY.
+ *
+ * obj_proc is optional - only needed for proc operations (debug/signal/sched)
+ * to enable object context checking. Pass NULL for vnode operations.
  */
 int
 vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
-    struct vlabel_label *obj, uint32_t op)
+    struct vlabel_label *obj, uint32_t op, struct proc *obj_proc)
 {
 	const struct vlabel_rule *rule;
 	int i, result;
@@ -325,7 +375,7 @@ vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 		if (rule == NULL)
 			continue;
 
-		if (vlabel_rule_matches(rule, subj, obj, op, cred)) {
+		if (vlabel_rule_matches(rule, subj, obj, op, cred, obj_proc)) {
 			/* DTrace: rule matched */
 			SDT_PROBE3(vlabel, rules, rule, match,
 			    rule->vr_id, rule->vr_action, op);
@@ -420,7 +470,8 @@ vlabel_rules_will_transition(struct ucred *cred, struct vlabel_label *subj,
 		if (rule->vr_action != VLABEL_ACTION_TRANSITION)
 			continue;
 
-		if (vlabel_rule_matches(rule, subj, obj, VLABEL_OP_EXEC, cred)) {
+		/* Transitions don't need object context (no target process) */
+		if (vlabel_rule_matches(rule, subj, obj, VLABEL_OP_EXEC, cred, NULL)) {
 			result = true;
 			VLABEL_DPRINTF("will_transition: rule %u matches "
 			    "subj='%s' obj='%s'",
@@ -463,7 +514,8 @@ vlabel_rules_get_transition(struct ucred *cred, struct vlabel_label *subj,
 		if (rule->vr_action != VLABEL_ACTION_TRANSITION)
 			continue;
 
-		if (vlabel_rule_matches(rule, subj, obj, VLABEL_OP_EXEC, cred)) {
+		/* Transitions don't need object context (no target process) */
+		if (vlabel_rule_matches(rule, subj, obj, VLABEL_OP_EXEC, cred, NULL)) {
 			vlabel_label_copy(&rule->vr_newlabel, newlabel);
 			result = 0;
 			VLABEL_DPRINTF("get_transition: rule %u -> '%s'",
@@ -588,13 +640,21 @@ vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data)
 		}
 	}
 
-	/* Copy context constraints */
-	newrule->vr_context.vc_flags = arg->vr_context.vc_flags;
-	newrule->vr_context.vc_cap_sandboxed = arg->vr_context.vc_cap_sandboxed;
-	newrule->vr_context.vc_has_tty = arg->vr_context.vc_has_tty;
-	newrule->vr_context.vc_jail_check = arg->vr_context.vc_jail_check;
-	newrule->vr_context.vc_uid = arg->vr_context.vc_uid;
-	newrule->vr_context.vc_gid = arg->vr_context.vc_gid;
+	/* Copy subject context constraints */
+	newrule->vr_subj_context.vc_flags = arg->vr_subj_context.vc_flags;
+	newrule->vr_subj_context.vc_cap_sandboxed = arg->vr_subj_context.vc_cap_sandboxed;
+	newrule->vr_subj_context.vc_has_tty = arg->vr_subj_context.vc_has_tty;
+	newrule->vr_subj_context.vc_jail_check = arg->vr_subj_context.vc_jail_check;
+	newrule->vr_subj_context.vc_uid = arg->vr_subj_context.vc_uid;
+	newrule->vr_subj_context.vc_gid = arg->vr_subj_context.vc_gid;
+
+	/* Copy object context constraints */
+	newrule->vr_obj_context.vc_flags = arg->vr_obj_context.vc_flags;
+	newrule->vr_obj_context.vc_cap_sandboxed = arg->vr_obj_context.vc_cap_sandboxed;
+	newrule->vr_obj_context.vc_has_tty = arg->vr_obj_context.vc_has_tty;
+	newrule->vr_obj_context.vc_jail_check = arg->vr_obj_context.vc_jail_check;
+	newrule->vr_obj_context.vc_uid = arg->vr_obj_context.vc_uid;
+	newrule->vr_obj_context.vc_gid = arg->vr_obj_context.vc_gid;
 
 	/* Parse newlabel for TRANSITION rules */
 	if (arg->vr_action == VLABEL_ACTION_TRANSITION &&
@@ -770,13 +830,21 @@ vlabel_rule_add_locked(struct vlabel_rule_arg *arg, const char *data)
 		}
 	}
 
-	/* Copy context constraints */
-	newrule->vr_context.vc_flags = arg->vr_context.vc_flags;
-	newrule->vr_context.vc_cap_sandboxed = arg->vr_context.vc_cap_sandboxed;
-	newrule->vr_context.vc_has_tty = arg->vr_context.vc_has_tty;
-	newrule->vr_context.vc_jail_check = arg->vr_context.vc_jail_check;
-	newrule->vr_context.vc_uid = arg->vr_context.vc_uid;
-	newrule->vr_context.vc_gid = arg->vr_context.vc_gid;
+	/* Copy subject context constraints */
+	newrule->vr_subj_context.vc_flags = arg->vr_subj_context.vc_flags;
+	newrule->vr_subj_context.vc_cap_sandboxed = arg->vr_subj_context.vc_cap_sandboxed;
+	newrule->vr_subj_context.vc_has_tty = arg->vr_subj_context.vc_has_tty;
+	newrule->vr_subj_context.vc_jail_check = arg->vr_subj_context.vc_jail_check;
+	newrule->vr_subj_context.vc_uid = arg->vr_subj_context.vc_uid;
+	newrule->vr_subj_context.vc_gid = arg->vr_subj_context.vc_gid;
+
+	/* Copy object context constraints */
+	newrule->vr_obj_context.vc_flags = arg->vr_obj_context.vc_flags;
+	newrule->vr_obj_context.vc_cap_sandboxed = arg->vr_obj_context.vc_cap_sandboxed;
+	newrule->vr_obj_context.vc_has_tty = arg->vr_obj_context.vc_has_tty;
+	newrule->vr_obj_context.vc_jail_check = arg->vr_obj_context.vc_jail_check;
+	newrule->vr_obj_context.vc_uid = arg->vr_obj_context.vc_uid;
+	newrule->vr_obj_context.vc_gid = arg->vr_obj_context.vc_gid;
 
 	/* Parse newlabel for TRANSITION rules */
 	if (arg->vr_action == VLABEL_ACTION_TRANSITION &&
@@ -1047,12 +1115,18 @@ vlabel_rule_serialize(const struct vlabel_rule *rule, char *buf, size_t buflen)
 	out->vr_operations = rule->vr_operations;
 	out->vr_subject_flags = rule->vr_subject.vp_flags;
 	out->vr_object_flags = rule->vr_object.vp_flags;
-	out->vr_context.vc_flags = rule->vr_context.vc_flags;
-	out->vr_context.vc_cap_sandboxed = rule->vr_context.vc_cap_sandboxed;
-	out->vr_context.vc_has_tty = rule->vr_context.vc_has_tty;
-	out->vr_context.vc_jail_check = rule->vr_context.vc_jail_check;
-	out->vr_context.vc_uid = rule->vr_context.vc_uid;
-	out->vr_context.vc_gid = rule->vr_context.vc_gid;
+	out->vr_subj_context.vc_flags = rule->vr_subj_context.vc_flags;
+	out->vr_subj_context.vc_cap_sandboxed = rule->vr_subj_context.vc_cap_sandboxed;
+	out->vr_subj_context.vc_has_tty = rule->vr_subj_context.vc_has_tty;
+	out->vr_subj_context.vc_jail_check = rule->vr_subj_context.vc_jail_check;
+	out->vr_subj_context.vc_uid = rule->vr_subj_context.vc_uid;
+	out->vr_subj_context.vc_gid = rule->vr_subj_context.vc_gid;
+	out->vr_obj_context.vc_flags = rule->vr_obj_context.vc_flags;
+	out->vr_obj_context.vc_cap_sandboxed = rule->vr_obj_context.vc_cap_sandboxed;
+	out->vr_obj_context.vc_has_tty = rule->vr_obj_context.vc_has_tty;
+	out->vr_obj_context.vc_jail_check = rule->vr_obj_context.vc_jail_check;
+	out->vr_obj_context.vc_uid = rule->vr_obj_context.vc_uid;
+	out->vr_obj_context.vc_gid = rule->vr_obj_context.vc_gid;
 	out->vr_subject_len = subj_len;
 	out->vr_object_len = obj_len;
 	out->vr_newlabel_len = newlabel_len;
