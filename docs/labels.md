@@ -37,9 +37,18 @@ Labels are stored in the `system:vlabel` extended attribute namespace.
 
 ### Setting Labels
 
-Using FreeBSD tools:
+Use `vlabelctl` for live relabeling (recommended):
 ```sh
-# Set a label
+vlabelctl label set /path/to/file "type=trusted,domain=system"
+vlabelctl label get /path/to/file
+vlabelctl label remove /path/to/file
+```
+
+`vlabelctl label set` writes the extattr and immediately refreshes the kernel's cached label, so changes take effect instantly without requiring a reboot.
+
+Using FreeBSD tools directly (not recommended - no live refresh):
+```sh
+# Set a label (won't update cached label until vnode is reclaimed)
 setextattr system vlabel "type=trusted,domain=system" /path/to/file
 
 # Get a label
@@ -49,12 +58,7 @@ getextattr system vlabel /path/to/file
 rmextattr system vlabel /path/to/file
 ```
 
-Using vlabelctl:
-```sh
-vlabelctl label set /path/to/file "type=trusted,domain=system"
-vlabelctl label get /path/to/file
-vlabelctl label remove /path/to/file
-```
+**Note:** Using `setextattr` directly only writes to disk. The kernel's cached vnode label won't update until the file is closed and the vnode is reclaimed. Use `vlabelctl label set` for immediate effect.
 
 ### Filesystem Requirements
 
@@ -153,45 +157,58 @@ done
 
 ```sh
 # System binaries - fully trusted
-setextattr system vlabel "type=trusted,domain=system" /bin/*
-setextattr system vlabel "type=trusted,domain=system" /sbin/*
+for f in /bin/* /sbin/*; do
+    vlabelctl label set "$f" "type=trusted,domain=system"
+done
 
 # User applications - semi-trusted
-setextattr system vlabel "type=app,domain=user" /usr/local/bin/*
+for f in /usr/local/bin/*; do
+    vlabelctl label set "$f" "type=app,domain=user"
+done
 
 # Downloads - untrusted
-setextattr system vlabel "type=untrusted" /home/*/Downloads/*
+for f in /home/*/Downloads/*; do
+    vlabelctl label set "$f" "type=untrusted"
+done
 ```
 
 ### By Application Domain
 
 ```sh
 # Web server files
-setextattr system vlabel "type=app,domain=web" /usr/local/www/*
-setextattr system vlabel "type=data,domain=web" /var/www/*
+vlabelctl label set /usr/local/www/nginx "type=app,domain=web"
+vlabelctl label set /var/www/html "type=data,domain=web"
 
 # Database files
-setextattr system vlabel "type=app,domain=database" /usr/local/bin/postgres
-setextattr system vlabel "type=data,domain=database" /var/db/postgres/*
+vlabelctl label set /usr/local/bin/postgres "type=app,domain=database"
+vlabelctl label set /var/db/postgres "type=data,domain=database"
 ```
 
 ### By Sensitivity
 
 ```sh
 # Public data
-setextattr system vlabel "level=public" /var/www/public/*
+vlabelctl label set /var/www/public "level=public"
 
 # Internal data
-setextattr system vlabel "level=internal" /var/data/internal/*
+vlabelctl label set /var/data/internal "level=internal"
 
 # Confidential data
-setextattr system vlabel "level=confidential" /var/data/secure/*
+vlabelctl label set /var/data/secure "level=confidential"
 ```
 
 ## Label Caching
 
-The kernel caches parsed labels for performance. Labels are read from extended attributes when a file is first accessed and cached in the vnode. The cache is invalidated when:
+The kernel caches parsed labels for performance. Labels are read from extended attributes when a file is first accessed and cached in the vnode.
 
-- The extended attribute is modified
+### Live Relabeling
+
+When using `vlabelctl label set`, the cached label is refreshed immediately via the `VLABEL_SYS_REFRESH` syscall. This enables live relabeling on all filesystems, including ZFS.
+
+### Cache Invalidation
+
+The cache is also invalidated when:
 - The vnode is reclaimed (file closed by all processes)
 - The filesystem is unmounted
+
+**Note:** Using `setextattr` directly does NOT refresh the cached label. The new label won't take effect until the vnode is reclaimed. Always use `vlabelctl label set` for immediate effect.

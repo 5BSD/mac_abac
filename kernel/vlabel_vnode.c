@@ -164,6 +164,17 @@ vlabel_vnode_read_extattr(struct vnode *vp, struct label *vplabel)
 }
 
 /*
+ * Refresh vnode label by re-reading from extended attribute.
+ * Called via VLABEL_SYS_REFRESH syscall for live relabeling.
+ */
+void
+vlabel_vnode_refresh_label(struct vnode *vp, struct label *vplabel)
+{
+
+	vlabel_vnode_read_extattr(vp, vplabel);
+}
+
+/*
  * Associate vnode label from extended attribute (UFS with multilabel).
  */
 int
@@ -204,65 +215,6 @@ vlabel_vnode_create_extattr(struct ucred *cred, struct mount *mp,
 	return (0);
 }
 
-int
-vlabel_vnode_setlabel_extattr(struct ucred *cred, struct vnode *vp,
-    struct label *vplabel, struct label *intlabel)
-{
-	struct vlabel_label *vl, *newvl;
-
-	/*
-	 * Update the in-memory vnode label from intlabel.
-	 * The extattr has already been written by the caller.
-	 */
-	if (vplabel == NULL || intlabel == NULL)
-		return (0);
-
-	vl = SLOT(vplabel);
-	newvl = SLOT(intlabel);
-
-	if (vl != NULL && newvl != NULL) {
-		vlabel_label_copy(newvl, vl);
-		VLABEL_DPRINTF("setlabel_extattr: updated label to '%s'",
-		    vl->vl_raw);
-	}
-
-	return (0);
-}
-
-void
-vlabel_vnode_relabel(struct ucred *cred, struct vnode *vp,
-    struct label *vplabel, struct label *newlabel)
-{
-
-	/*
-	 * Stub: Label updates are handled via extattr and setlabel_extattr.
-	 * This callback is currently a no-op.
-	 */
-}
-
-int
-vlabel_vnode_externalize_label(struct label *label, char *element_name,
-    struct sbuf *sb, int *claimed)
-{
-
-	/*
-	 * Stub: Label externalization (for mac_get_file) not implemented.
-	 * Use vlabelctl label get or getextattr to read labels.
-	 */
-	return (0);
-}
-
-int
-vlabel_vnode_internalize_label(struct label *label, char *element_name,
-    char *element_data, int *claimed)
-{
-
-	/*
-	 * Stub: Label internalization (for mac_set_file) not implemented.
-	 * Use vlabelctl label set or setextattr to write labels.
-	 */
-	return (0);
-}
 
 /*
  * Vnode access checks

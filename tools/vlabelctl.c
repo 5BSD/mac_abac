@@ -848,6 +848,7 @@ cmd_label(int argc, char *argv[])
 
 	} else if (strcmp(argv[0], "set") == 0) {
 		char *converted;
+		int fd;
 
 		if (argc < 3)
 			errx(EX_USAGE, "label set requires path and label");
@@ -866,6 +867,23 @@ cmd_label(int argc, char *argv[])
 		free(converted);
 		if (ret < 0)
 			err(EX_OSERR, "extattr_set_file");
+
+		/*
+		 * Refresh the kernel's cached vnode label by re-reading
+		 * from extattr. This enables live relabeling on ZFS and
+		 * other filesystems that don't support MNT_MULTILABEL.
+		 */
+		fd = open(argv[1], O_RDONLY);
+		if (fd < 0) {
+			warn("warning: could not open file for refresh");
+		} else {
+			ret = mac_syscall(VLABEL_POLICY_NAME, VLABEL_SYS_REFRESH, &fd);
+			if (ret < 0)
+				warn("warning: refresh syscall failed (errno=%d)", errno);
+			else
+				printf("label refreshed\n");
+			close(fd);
+		}
 
 		printf("label set on %s\n", argv[1]);
 

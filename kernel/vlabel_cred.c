@@ -89,13 +89,27 @@ vlabel_cred_externalize_label(struct label *label, char *element_name,
 	if (strcmp(element_name, "vlabel") != 0)
 		return (0);
 
+	(*claimed)++;
+
 	vl = SLOT(label);
-	if (vl == NULL)
+	if (vl == NULL || vl->vl_raw[0] == '\0')
 		return (0);
 
-	*claimed = 1;
-	if (vl->vl_raw[0] != '\0')
-		sbuf_cat(sb, vl->vl_raw);
+	/*
+	 * Output the label in comma-separated format for user display.
+	 * Convert newlines to commas.
+	 */
+	{
+		const char *p;
+		for (p = vl->vl_raw; *p != '\0'; p++) {
+			if (*p == '\n') {
+				if (*(p + 1) != '\0')
+					sbuf_putc(sb, ',');
+			} else {
+				sbuf_putc(sb, *p);
+			}
+		}
+	}
 
 	return (0);
 }
@@ -105,17 +119,41 @@ vlabel_cred_internalize_label(struct label *label, char *element_name,
     char *element_data, int *claimed)
 {
 	struct vlabel_label *vl;
+	char *converted, *p;
+	size_t len;
 	int error;
 
 	if (strcmp(element_name, "vlabel") != 0)
 		return (0);
 
+	(*claimed)++;
+
 	vl = SLOT(label);
 	if (vl == NULL)
-		return (0);
+		return (ENOMEM);
 
-	*claimed = 1;
-	error = vlabel_label_parse(element_data, strlen(element_data), vl);
+	/*
+	 * Convert from comma-separated format (user input) to
+	 * newline-separated format (internal storage).
+	 */
+	len = strlen(element_data);
+	if (len >= VLABEL_MAX_LABEL_LEN)
+		return (EINVAL);
+
+	converted = malloc(len + 2, M_TEMP, M_WAITOK);
+
+	for (p = converted; *element_data != '\0'; element_data++) {
+		if (*element_data == ',')
+			*p++ = '\n';
+		else
+			*p++ = *element_data;
+	}
+	if (p > converted && *(p - 1) != '\n')
+		*p++ = '\n';
+	*p = '\0';
+
+	error = vlabel_label_parse(converted, strlen(converted), vl);
+	free(converted, M_TEMP);
 
 	return (error);
 }

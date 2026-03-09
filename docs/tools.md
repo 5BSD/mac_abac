@@ -143,12 +143,14 @@ Manage file labels via extended attributes.
 # Get a file's label
 vlabelctl label get /path/to/file
 
-# Set a file's label
+# Set a file's label (live relabeling - takes effect immediately)
 vlabelctl label set /path/to/file "type=trusted,domain=system"
 
 # Remove a file's label
 vlabelctl label remove /path/to/file
 ```
+
+**Live Relabeling:** `vlabelctl label set` writes the extended attribute and immediately refreshes the kernel's cached label. Changes take effect instantly without needing a reboot or waiting for the vnode to be reclaimed. This works on all filesystems including ZFS.
 
 Examples:
 ```sh
@@ -156,6 +158,7 @@ $ vlabelctl label get /usr/local/bin/myapp
 type=app,domain=web
 
 $ vlabelctl label set /tmp/download.sh "type=untrusted"
+label refreshed
 label set on /tmp/download.sh
 
 $ vlabelctl label get /bin/ls

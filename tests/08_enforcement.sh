@@ -33,6 +33,7 @@ MODULE_NAME="mac_vlabel"
 # Use /root instead of /tmp - tmpfs may not support system extended attributes
 # and the kernel needs to read extattrs for label association
 TEST_BIN="/root/vlabel_test_$$"
+USE_PRELABELED=0
 
 # Check prerequisites
 require_root
@@ -48,8 +49,10 @@ cleanup() {
 	"$VLABELCTL" mode permissive >/dev/null 2>&1 || true
 	# Clear test rules
 	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
-	# Remove test binary
-	rm -f "$TEST_BIN" 2>/dev/null || true
+	# Remove test binary ONLY if we created it (not the pre-labeled one)
+	if [ "$USE_PRELABELED" -eq 0 ]; then
+		rm -f "$TEST_BIN" 2>/dev/null || true
+	fi
 }
 trap cleanup EXIT
 
@@ -79,8 +82,6 @@ info "=== Setup ==="
 # This test uses method 2 if available, falling back to method 1 with a
 # warning if the label isn't being read from extattr.
 
-USE_PRELABELED=0
-
 # Check if pre-labeled test binary exists from deploy-test.sh
 # If /root/test_untrusted exists, use that instead
 if [ -f "/root/test_untrusted" ]; then
@@ -92,10 +93,10 @@ if [ -f "/root/test_untrusted" ]; then
 	fi
 fi
 
-# If no pre-labeled binary, create one (may not work due to vnode caching)
+# If no pre-labeled binary, create one using vlabelctl label set
+# (which now supports live relabeling via VLABEL_SYS_REFRESH)
 if [ "$USE_PRELABELED" -eq 0 ]; then
-	warn "Creating test binary on-the-fly (may not work due to vnode label caching)"
-	warn "For reliable tests, run scripts/deploy-test.sh first"
+	info "Creating test binary on-the-fly with live relabeling"
 
 	# Remove any existing test binary
 	rm -f "$TEST_BIN"
@@ -104,9 +105,8 @@ if [ "$USE_PRELABELED" -eq 0 ]; then
 	dd if=/bin/echo of="$TEST_BIN" bs=64k 2>/dev/null
 	chmod +x "$TEST_BIN"
 
-	# Set the label using setextattr with newline format
-	setextattr system vlabel "type=untrusted
-" "$TEST_BIN"
+	# Set the label using vlabelctl (writes extattr + refreshes cached label)
+	"$VLABELCTL" label set "$TEST_BIN" "type=untrusted"
 fi
 
 # Verify the extattr is set
@@ -123,38 +123,12 @@ if [ -z "$LABEL" ]; then
 	warn "Try running test on UFS or ZFS (not tmpfs)"
 fi
 
-# Check if labels are being read from extattr
-# Get current stats before running test binary
-STATS_BEFORE=$("$VLABELCTL" stats 2>&1)
-LABELS_READ_BEFORE=$(echo "$STATS_BEFORE" | grep "Labels read:" | awk '{print $3}')
-LABELS_READ_BEFORE=${LABELS_READ_BEFORE:-0}
-
-# Touch the test binary to trigger label association (if not cached)
-"$TEST_BIN" >/dev/null 2>&1 || true
-
-STATS_AFTER=$("$VLABELCTL" stats 2>&1)
-LABELS_READ_AFTER=$(echo "$STATS_AFTER" | grep "Labels read:" | awk '{print $3}')
-LABELS_READ_AFTER=${LABELS_READ_AFTER:-0}
-
-if [ "$USE_PRELABELED" -eq 0 ] && [ "$LABELS_READ_AFTER" -eq "$LABELS_READ_BEFORE" ]; then
-	warn ""
-	warn "VNODE LABEL CACHING DETECTED"
-	warn "The kernel is not reading labels from extattr for on-the-fly binaries."
-	warn "This happens when binaries are created after the module is loaded."
-	warn ""
-	warn "To fix: Run scripts/deploy-test.sh to:"
-	warn "  1. Create labeled test binaries"
-	warn "  2. Load the module"
-	warn "  3. Then run tests"
-	warn ""
-	warn "Skipping enforcement tests (they would give false results)"
-	echo ""
-	echo "TESTS SKIPPED: 4"
-	echo "Passed: 0"
-	echo "Failed: 0"
-	echo "Skipped: 4 (vnode label caching - run deploy-test.sh first)"
-	exit 0
-fi
+# Verify the label is set by checking stats
+# vlabelctl label set uses VLABEL_SYS_REFRESH to update the cached label,
+# so live relabeling should work without needing pre-labeled binaries.
+STATS=$("$VLABELCTL" stats 2>&1)
+LABELS_READ=$(echo "$STATS" | grep "Labels read:" | awk '{print $3}')
+info "Labels read from extattr: $LABELS_READ"
 
 # Clear any existing rules
 "$VLABELCTL" rule clear >/dev/null

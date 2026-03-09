@@ -21,6 +21,9 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/capsicum.h>
+#include <sys/file.h>
+#include <sys/filedesc.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
 #include <sys/malloc.h>
@@ -223,10 +226,6 @@ static struct mac_policy_ops vlabel_ops = {
 	.mpo_vnode_associate_extattr = vlabel_vnode_associate_extattr,
 	.mpo_vnode_associate_singlelabel = vlabel_vnode_associate_singlelabel,
 	.mpo_vnode_create_extattr = vlabel_vnode_create_extattr,
-	.mpo_vnode_setlabel_extattr = vlabel_vnode_setlabel_extattr,
-	.mpo_vnode_relabel = vlabel_vnode_relabel,
-	.mpo_vnode_externalize_label = vlabel_vnode_externalize_label,
-	.mpo_vnode_internalize_label = vlabel_vnode_internalize_label,
 
 	/* Vnode access checks */
 	.mpo_vnode_check_access = vlabel_vnode_check_access,
@@ -460,6 +459,50 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 			error = copyout(&test_arg, arg, sizeof(test_arg));
 		VLABEL_DPRINTF("syscall TEST: result=%u rule=%u err=%d",
 		    test_arg.vt_result, test_arg.vt_rule_id, error);
+		break;
+
+	case VLABEL_SYS_REFRESH:
+		/*
+		 * Refresh a file's cached vnode label by re-reading from extattr.
+		 * arg is a pointer to a file descriptor.
+		 *
+		 * This enables live relabeling on filesystems that don't support
+		 * MNT_MULTILABEL (like ZFS). After setextattr writes the new
+		 * label to disk, this syscall updates the in-memory cached label.
+		 */
+		error = copyin(arg, &val, sizeof(int));
+		if (error)
+			break;
+		{
+			struct file *fp;
+			struct vnode *vp;
+
+			error = fget(td, val, &cap_no_rights, &fp);
+			if (error) {
+				VLABEL_DPRINTF("syscall REFRESH: fget failed %d",
+				    error);
+				break;
+			}
+
+			if (fp->f_type != DTYPE_VNODE) {
+				fdrop(fp, td);
+				error = EINVAL;
+				VLABEL_DPRINTF("syscall REFRESH: not a vnode");
+				break;
+			}
+
+			vp = fp->f_vnode;
+			if (vp->v_label != NULL) {
+				vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
+				vlabel_vnode_refresh_label(vp, vp->v_label);
+				VOP_UNLOCK(vp);
+				VLABEL_DPRINTF("syscall REFRESH: refreshed fd %d",
+				    val);
+			}
+
+			fdrop(fp, td);
+			error = 0;
+		}
 		break;
 
 	default:

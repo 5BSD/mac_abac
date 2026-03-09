@@ -202,6 +202,7 @@ struct vlabel_rule_io {
 #define VLABEL_SYS_RULE_LIST	13	/* arg: struct vlabel_rule_list_arg* (in/out) */
 
 #define VLABEL_SYS_TEST		20	/* arg: struct vlabel_test_arg* (in/out) */
+#define VLABEL_SYS_REFRESH	21	/* arg: int* (in: file descriptor) */
 
 /*
  * Context constraints for rules (shared between kernel and userland)
@@ -487,6 +488,7 @@ int vlabel_execve_will_transition(struct ucred *old, struct vnode *vp,
 void vlabel_vnode_init_label(struct label *label);
 void vlabel_vnode_destroy_label(struct label *label);
 void vlabel_vnode_copy_label(struct label *src, struct label *dest);
+void vlabel_vnode_refresh_label(struct vnode *vp, struct label *vplabel);
 int vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
     struct vnode *vp, struct label *vplabel);
 void vlabel_vnode_associate_singlelabel(struct mount *mp, struct label *mplabel,
@@ -494,14 +496,6 @@ void vlabel_vnode_associate_singlelabel(struct mount *mp, struct label *mplabel,
 int vlabel_vnode_create_extattr(struct ucred *cred, struct mount *mp,
     struct label *mplabel, struct vnode *dvp, struct label *dvplabel,
     struct vnode *vp, struct label *vplabel, struct componentname *cnp);
-int vlabel_vnode_setlabel_extattr(struct ucred *cred, struct vnode *vp,
-    struct label *vplabel, struct label *intlabel);
-void vlabel_vnode_relabel(struct ucred *cred, struct vnode *vp,
-    struct label *vplabel, struct label *newlabel);
-int vlabel_vnode_externalize_label(struct label *label, char *element_name,
-    struct sbuf *sb, int *claimed);
-int vlabel_vnode_internalize_label(struct label *label, char *element_name,
-    char *element_data, int *claimed);
 int vlabel_vnode_check_access(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, accmode_t accmode);
 int vlabel_vnode_check_chdir(struct ucred *cred, struct vnode *dvp,
