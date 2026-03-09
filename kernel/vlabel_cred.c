@@ -22,6 +22,7 @@
 #include <security/mac/mac_policy.h>
 
 #include "mac_vlabel.h"
+#include "vlabel_dtrace.h"
 
 /*
  * Credential label lifecycle
@@ -33,8 +34,11 @@ vlabel_cred_init_label(struct label *label)
 	struct vlabel_label *vl;
 
 	vl = vlabel_label_alloc(M_WAITOK);
-	if (vl != NULL)
+	if (vl != NULL) {
 		vlabel_label_set_default(vl, true);  /* true = subject label */
+		/* DTrace: default subject label assigned */
+		SDT_PROBE1(vlabel, label, extattr, default, 1);
+	}
 	SLOT_SET(label, vl);
 }
 
@@ -167,7 +171,7 @@ vlabel_execve_transition(struct ucred *old, struct ucred *new,
     struct image_params *imgp __unused, struct label *execlabel __unused)
 {
 	struct vlabel_label *oldvl, *newvl, *objvl;
-	struct vlabel_label transition_label;
+	struct vlabel_label *transition_label;
 	int error;
 
 	/* Don't do anything if not initialized yet */
@@ -194,14 +198,24 @@ vlabel_execve_transition(struct ucred *old, struct ucred *new,
 		objvl = &vlabel_default_object;
 
 	/*
+	 * Allocate transition label dynamically - struct vlabel_label is ~9KB,
+	 * too large for the kernel stack (typically 8-16KB).
+	 */
+	transition_label = malloc(sizeof(*transition_label), M_TEMP, M_WAITOK | M_ZERO);
+
+	/*
 	 * Check if a transition rule matches and get the new label.
 	 * If no transition rule matches, the label was already copied
 	 * by cred_copy_label and we keep the inherited label.
 	 */
-	error = vlabel_rules_get_transition(old, oldvl, objvl, &transition_label);
+	error = vlabel_rules_get_transition(old, oldvl, objvl, transition_label);
 	if (error == 0) {
 		/* Apply the transition - copy new label to credential */
-		vlabel_label_copy(&transition_label, newvl);
+		vlabel_label_copy(transition_label, newvl);
+		/* DTrace: transition occurred */
+		SDT_PROBE4(vlabel, cred, transition, exec,
+		    oldvl->vl_raw, newvl->vl_raw, objvl->vl_raw,
+		    curproc ? curproc->p_pid : 0);
 		VLABEL_DPRINTF("execve_transition: '%s' -> '%s' via exec of '%s'",
 		    oldvl->vl_raw, newvl->vl_raw,
 		    objvl->vl_raw[0] ? objvl->vl_raw : "(unlabeled)");
@@ -211,6 +225,8 @@ vlabel_execve_transition(struct ucred *old, struct ucred *new,
 		    oldvl->vl_raw,
 		    objvl->vl_raw[0] ? objvl->vl_raw : "(unlabeled)");
 	}
+
+	free(transition_label, M_TEMP);
 }
 
 int

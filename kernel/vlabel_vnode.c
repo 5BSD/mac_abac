@@ -27,6 +27,7 @@
 #include <security/mac/mac_policy.h>
 
 #include "mac_vlabel.h"
+#include "vlabel_dtrace.h"
 
 /*
  * Statistics - defined in mac_vlabel.c, updated here
@@ -120,6 +121,8 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 		 */
 		free(buf, M_TEMP);
 		vlabel_label_set_default(vl, false);
+		/* DTrace: default label assigned */
+		SDT_PROBE1(vlabel, label, extattr, default, 0);
 		atomic_add_64(&vlabel_labels_default, 1);
 		VLABEL_DPRINTF("associate_extattr: no label (err=%d), using default",
 		    error);
@@ -149,6 +152,8 @@ vlabel_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 	}
 
 	free(buf, M_TEMP);
+	/* DTrace: label read from extattr */
+	SDT_PROBE2(vlabel, label, extattr, read, vl->vl_raw, vp);
 	atomic_add_64(&vlabel_labels_read, 1);
 
 	VLABEL_DPRINTF("associate_extattr: loaded label '%s'", vl->vl_raw);
@@ -318,9 +323,6 @@ vlabel_vnode_check_exec(struct ucred *cred, struct vnode *vp,
 
 	/* Evaluate rules */
 	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_EXEC);
-
-	/* Log audit event */
-	vlabel_audit_log(VLABEL_OP_EXEC, cred, vp, VLABEL_OP_EXEC, error);
 
 	/*
 	 * In permissive mode, log but don't enforce.

@@ -65,9 +65,6 @@ vlabel_proc_check_debug(struct ucred *cred, struct proc *p)
 	/* Evaluate rules */
 	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_DEBUG);
 
-	/* Log audit event */
-	vlabel_audit_log(VLABEL_OP_DEBUG, cred, NULL, VLABEL_OP_DEBUG, error);
-
 	/*
 	 * In permissive mode, log but don't enforce.
 	 */
@@ -157,9 +154,6 @@ vlabel_proc_check_signal(struct ucred *cred, struct proc *p, int signum)
 
 	/* Evaluate rules */
 	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_SIGNAL);
-
-	/* Log audit event for signals (useful for security monitoring) */
-	vlabel_audit_log(VLABEL_OP_SIGNAL, cred, NULL, VLABEL_OP_SIGNAL, error);
 
 	/* Permissive mode handling */
 	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE) {

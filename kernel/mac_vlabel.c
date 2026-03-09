@@ -10,14 +10,13 @@
  * security labels in extended attributes and enforces access control
  * based on configurable rules.
  *
- * This file contains module registration, initialization, and the
- * mac_policy_ops structure. Implementation is split across:
+ * This file contains module registration, initialization, syscall handler,
+ * and the mac_policy_ops structure. Implementation is split across:
  *   - vlabel_cred.c   - Credential label lifecycle and checks
  *   - vlabel_vnode.c  - Vnode label lifecycle and access checks
  *   - vlabel_proc.c   - Process checks and privilege grant
  *   - vlabel_label.c  - Label parsing and matching
  *   - vlabel_rules.c  - Rule engine
- *   - vlabel_dev.c    - /dev/vlabel device interface
  */
 
 #include <sys/param.h>
@@ -42,6 +41,79 @@
 #include <security/mac/mac_policy.h>
 
 #include "mac_vlabel.h"
+#include "vlabel_dtrace.h"
+
+/*
+ * DTrace provider and probe definitions
+ *
+ * Provider: vlabel
+ * Usage: dtrace -n 'vlabel:::check-deny { printf("%s", stringof(arg0)); }'
+ */
+SDT_PROVIDER_DEFINE(vlabel);
+
+/* Access check probes */
+SDT_PROBE_DEFINE3(vlabel, rules, check, entry,
+    "char *",		/* subject label string */
+    "char *",		/* object label string */
+    "uint32_t");	/* operation bitmask */
+
+SDT_PROBE_DEFINE2(vlabel, rules, check, return,
+    "int",		/* result (0=allow, EACCES=deny) */
+    "uint32_t");	/* operation bitmask */
+
+SDT_PROBE_DEFINE4(vlabel, rules, check, allow,
+    "char *",		/* subject label string */
+    "char *",		/* object label string */
+    "uint32_t",		/* operation bitmask */
+    "uint32_t");	/* matching rule ID (0=default policy) */
+
+SDT_PROBE_DEFINE4(vlabel, rules, check, deny,
+    "char *",		/* subject label string */
+    "char *",		/* object label string */
+    "uint32_t",		/* operation bitmask */
+    "uint32_t");	/* matching rule ID (0=default policy) */
+
+/* Rule matching probes */
+SDT_PROBE_DEFINE3(vlabel, rules, rule, match,
+    "uint32_t",		/* rule ID */
+    "uint8_t",		/* action (0=allow, 1=deny, 2=transition) */
+    "uint32_t");	/* operation bitmask */
+
+SDT_PROBE_DEFINE2(vlabel, rules, rule, nomatch,
+    "int",		/* default policy (0=allow, 1=deny) */
+    "uint32_t");	/* operation bitmask */
+
+/* Label transition probes */
+SDT_PROBE_DEFINE4(vlabel, cred, transition, exec,
+    "char *",		/* old label string */
+    "char *",		/* new label string */
+    "char *",		/* executable label string */
+    "pid_t");		/* pid */
+
+/* Label read probes */
+SDT_PROBE_DEFINE2(vlabel, label, extattr, read,
+    "char *",		/* label string */
+    "struct vnode *");	/* vnode pointer */
+
+SDT_PROBE_DEFINE1(vlabel, label, extattr, default,
+    "int");		/* is_subject (1=process, 0=file) */
+
+/* Rule management probes */
+SDT_PROBE_DEFINE3(vlabel, rules, rule, add,
+    "uint32_t",		/* rule ID */
+    "uint8_t",		/* action */
+    "uint32_t");	/* operations bitmask */
+
+SDT_PROBE_DEFINE1(vlabel, rules, rule, remove,
+    "uint32_t");	/* rule ID */
+
+SDT_PROBE_DEFINE1(vlabel, rules, rule, clear,
+    "uint32_t");	/* count of rules cleared */
+
+/* Mode change probes */
+SDT_PROBE_DEFINE2(vlabel, policy, mode, change,
+    "int",		/* old mode */
+    "int");		/* new mode */
 
 /*
  * Global slot for storing our labels in MAC label structures
@@ -57,7 +129,6 @@ int vlabel_slot;
  */
 int vlabel_enabled = 1;
 int vlabel_mode = VLABEL_MODE_PERMISSIVE;	/* Start permissive for safety */
-int vlabel_audit_level = VLABEL_AUDIT_DENIALS;
 
 /*
  * Configurable extended attribute name.
@@ -100,9 +171,6 @@ SYSCTL_INT(_security_mac_vlabel, OID_AUTO, enabled, CTLFLAG_RW,
 
 SYSCTL_INT(_security_mac_vlabel, OID_AUTO, mode, CTLFLAG_RW,
     &vlabel_mode, 0, "Enforcement mode (0=disabled, 1=permissive, 2=enforcing)");
-
-SYSCTL_INT(_security_mac_vlabel, OID_AUTO, audit_level, CTLFLAG_RW,
-    &vlabel_audit_level, 0, "Audit level (0=none, 1=denials, 2=all, 3=verbose)");
 
 SYSCTL_UQUAD(_security_mac_vlabel, OID_AUTO, labels_read, CTLFLAG_RD,
     &vlabel_labels_read, 0, "Labels read from extended attributes");
@@ -221,12 +289,6 @@ vlabel_init(struct mac_policy_conf *mpc)
 	/* Initialize rule engine */
 	vlabel_rules_init();
 
-	/* Initialize audit subsystem */
-	vlabel_audit_init();
-
-	/* Initialize device interface */
-	vlabel_dev_init();
-
 	/* Initialize default labels */
 	vlabel_label_set_default(&vlabel_default_object, false);
 	vlabel_label_set_default(&vlabel_default_subject, true);
@@ -243,17 +305,6 @@ vlabel_destroy(struct mac_policy_conf *mpc)
 
 	VLABEL_DPRINTF("destroying vLabel MAC policy");
 
-	/* Warn if device is still in use */
-	if (vlabel_dev_in_use()) {
-		printf("vlabel: WARNING: device still in use during unload\n");
-	}
-
-	/* Destroy device interface */
-	vlabel_dev_destroy();
-
-	/* Destroy audit subsystem */
-	vlabel_audit_destroy();
-
 	/* Destroy rule engine */
 	vlabel_rules_destroy();
 
@@ -263,12 +314,160 @@ vlabel_destroy(struct mac_policy_conf *mpc)
 	VLABEL_DPRINTF("vLabel MAC policy destroyed");
 }
 
+/*
+ * mac_syscall handler - main control interface
+ *
+ * Called via: mac_syscall("vlabel", cmd, arg)
+ * All commands require root.
+ */
 static int
 vlabel_syscall(struct thread *td, int call, void *arg)
 {
+	int error, val;
+	uint32_t rule_id;
+	struct vlabel_stats stats;
+	struct vlabel_rule_arg rule_arg;
+	struct vlabel_rule_list_arg list_arg;
+	struct vlabel_test_arg test_arg;
+	char *data;
+	size_t data_len;
 
-	/* Reserved for future use */
-	return (ENOSYS);
+	/* All commands require root */
+	error = priv_check(td, PRIV_MAC_PARTITION);
+	if (error)
+		return (error);
+
+	switch (call) {
+	case VLABEL_SYS_GETMODE:
+		error = copyout(&vlabel_mode, arg, sizeof(int));
+		VLABEL_DPRINTF("syscall GETMODE: %d", vlabel_mode);
+		break;
+
+	case VLABEL_SYS_SETMODE:
+		error = copyin(arg, &val, sizeof(int));
+		if (error)
+			break;
+		if (val < VLABEL_MODE_DISABLED || val > VLABEL_MODE_ENFORCING) {
+			error = EINVAL;
+			break;
+		}
+		VLABEL_DPRINTF("syscall SETMODE: %d -> %d", vlabel_mode, val);
+		SDT_PROBE2(vlabel, policy, mode, change, vlabel_mode, val);
+		vlabel_mode = val;
+		break;
+
+	case VLABEL_SYS_GETSTATS:
+		vlabel_rules_get_stats(&stats);
+		error = copyout(&stats, arg, sizeof(stats));
+		VLABEL_DPRINTF("syscall GETSTATS");
+		break;
+
+	case VLABEL_SYS_GETDEFPOL:
+		error = copyout(&vlabel_default_policy, arg, sizeof(int));
+		VLABEL_DPRINTF("syscall GETDEFPOL: %d", vlabel_default_policy);
+		break;
+
+	case VLABEL_SYS_SETDEFPOL:
+		error = copyin(arg, &val, sizeof(int));
+		if (error)
+			break;
+		VLABEL_DPRINTF("syscall SETDEFPOL: %d -> %d",
+		    vlabel_default_policy, val);
+		vlabel_default_policy = val;
+		break;
+
+	case VLABEL_SYS_RULE_ADD:
+		/* Copyin the header */
+		error = copyin(arg, &rule_arg, sizeof(rule_arg));
+		if (error)
+			break;
+
+		/* Calculate and copyin variable data */
+		data_len = rule_arg.vr_subject_len + rule_arg.vr_object_len +
+		    rule_arg.vr_newlabel_len;
+		if (data_len > VLABEL_MAX_LABEL_LEN * 3) {
+			error = EINVAL;
+			break;
+		}
+
+		data = malloc(data_len, M_TEMP, M_WAITOK);
+		error = copyin((char *)arg + sizeof(rule_arg), data, data_len);
+		if (error) {
+			free(data, M_TEMP);
+			break;
+		}
+
+		error = vlabel_rule_add_from_arg(&rule_arg, data);
+		free(data, M_TEMP);
+		VLABEL_DPRINTF("syscall RULE_ADD: action=%d ops=0x%x err=%d",
+		    rule_arg.vr_action, rule_arg.vr_operations, error);
+		break;
+
+	case VLABEL_SYS_RULE_REMOVE:
+		error = copyin(arg, &rule_id, sizeof(uint32_t));
+		if (error)
+			break;
+		error = vlabel_rule_remove(rule_id);
+		VLABEL_DPRINTF("syscall RULE_REMOVE: id=%u err=%d",
+		    rule_id, error);
+		break;
+
+	case VLABEL_SYS_RULE_CLEAR:
+		vlabel_rules_clear();
+		error = 0;
+		VLABEL_DPRINTF("syscall RULE_CLEAR");
+		break;
+
+	case VLABEL_SYS_RULE_LIST:
+		error = copyin(arg, &list_arg, sizeof(list_arg));
+		if (error)
+			break;
+		error = vlabel_rules_list(&list_arg);
+		if (error == 0)
+			error = copyout(&list_arg, arg, sizeof(list_arg));
+		VLABEL_DPRINTF("syscall RULE_LIST: total=%u count=%u err=%d",
+		    list_arg.vrl_total, list_arg.vrl_count, error);
+		break;
+
+	case VLABEL_SYS_TEST:
+		error = copyin(arg, &test_arg, sizeof(test_arg));
+		if (error)
+			break;
+
+		/* Copyin variable data */
+		data_len = test_arg.vt_subject_len + test_arg.vt_object_len;
+		if (data_len > VLABEL_MAX_LABEL_LEN * 2) {
+			error = EINVAL;
+			break;
+		}
+
+		data = malloc(data_len, M_TEMP, M_WAITOK);
+		error = copyin((char *)arg + sizeof(test_arg), data, data_len);
+		if (error) {
+			free(data, M_TEMP);
+			break;
+		}
+
+		error = vlabel_rules_test_access(
+		    data, test_arg.vt_subject_len,
+		    data + test_arg.vt_subject_len, test_arg.vt_object_len,
+		    test_arg.vt_operation,
+		    &test_arg.vt_result, &test_arg.vt_rule_id);
+		free(data, M_TEMP);
+
+		if (error == 0)
+			error = copyout(&test_arg, arg, sizeof(test_arg));
+		VLABEL_DPRINTF("syscall TEST: result=%u rule=%u err=%d",
+		    test_arg.vt_result, test_arg.vt_rule_id, error);
+		break;
+
+	default:
+		VLABEL_DPRINTF("syscall: unknown cmd %d", call);
+		error = EINVAL;
+		break;
+	}
+
+	return (error);
 }
 
 /*

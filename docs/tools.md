@@ -71,6 +71,37 @@ vLabel Statistics:
   Active rules:     12
 ```
 
+#### limits
+
+Display kernel limits and supported operations.
+
+```sh
+vlabelctl limits
+```
+
+Output:
+```
+vLabel Kernel Limits:
+  Max label length:     4096 bytes
+  Max key length:       64 bytes
+  Max value length:     256 bytes
+  Max key-value pairs:  16
+  Max rules:            1024
+
+Supported Operations:
+  exec, read, write, mmap, link, rename, unlink,
+  chdir, stat, readdir, create, setextattr, getextattr,
+  lookup, open, access, debug, signal, sched, all
+
+Rule Syntax:
+  action operations subject -> object [=> newlabel]
+
+  Actions: allow, deny, transition
+  Operations: comma-separated list or 'all'
+  Subject/Object: label pattern or '*' for any
+  Newlabel: required for transition rules
+```
+
 #### rule
 
 Manage access control rules.
@@ -163,8 +194,8 @@ Fields:
 |------|---------|
 | 0 | Success |
 | 64 | Usage error |
-| 69 | Module not loaded |
-| 71 | System error (ioctl failed) |
+| 69 | Module not loaded (mac_syscall failed) |
+| 71 | System error |
 | 77 | Permission denied |
 
 ---

@@ -8,7 +8,7 @@ vLabel is a label-based mandatory access control (MAC) policy module for FreeBSD
 - **Flexible Policy Language**: JSON/UCL configuration with pattern matching and wildcards
 - **Context-Aware Rules**: Match on jail ID, Capsicum sandbox mode, UID/GID
 - **Label Transitions**: Automatically change process labels on exec (like setuid for labels)
-- **Audit System**: Ring buffer audit log accessible via `/dev/vlabel`
+- **DTrace Probes**: Built-in probes for real-time tracing and debugging
 - **Multiple Modes**: Disabled, permissive (log only), or enforcing
 
 ## Quick Start
@@ -112,21 +112,51 @@ sysctl security.mac.vlabel.mode=2
 |--------|--------|-------------|
 | `security.mac.vlabel.enabled` | 0/1 | Enable/disable module |
 | `security.mac.vlabel.mode` | 0/1/2 | Disabled/Permissive/Enforcing |
-| `security.mac.vlabel.audit_level` | 0-3 | None/Denials/Decisions/Verbose |
 | `security.mac.vlabel.default_policy` | 0/1 | Allow/Deny when no rule matches |
 
 ## Limits
 
 | Limit | Value | Scope |
 |-------|-------|-------|
-| Label size | 1 KB | Per label |
-| Key length | 31 bytes | Per key |
-| Value length | 95 bytes | Per value |
-| Key-value pairs | 8 | Per label |
+| Label size | 4 KB | Per label |
+| Key length | 64 bytes | Per key |
+| Value length | 256 bytes | Per value |
+| Key-value pairs | 16 | Per label |
 | Rules | 1,024 | System-wide |
 
-Note: These limits are conservative to fit within FreeBSD's ioctl size limits (8KB)
-and kernel stack constraints. See PLAN.md for future improvements.
+Note: The mac_syscall interface uses variable-length structures, eliminating the
+previous ioctl size limitations. These limits are designed for practical use while
+maintaining reasonable kernel memory usage.
+
+## DTrace Probes
+
+vLabel provides DTrace probes for debugging and monitoring:
+
+```sh
+# Watch all denied accesses
+dtrace -n 'vlabel:::check-deny { printf("%s -> %s op=0x%x rule=%u",
+    stringof(arg0), stringof(arg1), arg2, arg3); }'
+
+# Count denials by operation
+dtrace -n 'vlabel:::check-deny { @[arg2] = count(); }'
+
+# Measure access check latency
+dtrace -n 'vlabel:::check-entry { self->ts = timestamp; }
+           vlabel:::check-return /self->ts/ {
+               @["ns"] = quantize(timestamp - self->ts);
+               self->ts = 0;
+           }'
+
+# Watch label transitions
+dtrace -n 'vlabel:::transition-exec {
+    printf("pid %d: %s -> %s", arg3, stringof(arg0), stringof(arg1)); }'
+```
+
+Available probes: `check-entry`, `check-return`, `check-allow`, `check-deny`,
+`rule-match`, `rule-nomatch`, `transition-exec`, `extattr-read`, `extattr-default`,
+`rule-add`, `rule-remove`, `rule-clear`, `mode-change`.
+
+See [Architecture](docs/architecture.md#dtrace-integration) for full probe documentation.
 
 ## Known Limitations
 

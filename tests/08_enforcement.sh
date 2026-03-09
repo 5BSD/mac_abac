@@ -140,7 +140,6 @@ echo ""
 info "=== Permissive Mode Tests ==="
 
 "$VLABELCTL" mode permissive
-"$VLABELCTL" audit decisions
 
 run_test
 info "Test: Untrusted binary runs in permissive mode"

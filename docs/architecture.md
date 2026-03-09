@@ -12,14 +12,14 @@ vLabel is a FreeBSD Mandatory Access Control Framework (MACF) policy module. Thi
 │   vlabeld                    vlabelctl                          │
 │   ┌──────────────┐           ┌──────────────┐                   │
 │   │ Policy Parser│           │ CLI Commands │                   │
-│   │ Audit Logger │           │ Label Mgmt   │                   │
-│   │ SIGHUP Reload│           │ Stats/Monitor│                   │
+│   │ SIGHUP Reload│           │ Label Mgmt   │                   │
+│   │              │           │ Stats/Monitor│                   │
 │   └──────┬───────┘           └──────┬───────┘                   │
 │          │                          │                            │
 │          └──────────┬───────────────┘                            │
-│                     │ ioctl / read                               │
+│                     │ mac_syscall("vlabel", cmd, arg)            │
 │                     ▼                                            │
-│              /dev/vlabel                                         │
+│              MAC Framework Syscall Interface                     │
 │                                                                  │
 ├─────────────────────────────────────────────────────────────────┤
 │                        Kernel Space                              │
@@ -29,11 +29,16 @@ vLabel is a FreeBSD Mandatory Access Control Framework (MACF) policy module. Thi
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │                                                          │   │
 │   │  ┌──────────┐  ┌──────────┐  ┌──────────┐              │   │
-│   │  │ Rules    │  │ Labels   │  │ Audit    │              │   │
-│   │  │ Engine   │  │ Cache    │  │ Buffer   │              │   │
+│   │  │ Rules    │  │ Labels   │  │ DTrace   │              │   │
+│   │  │ Engine   │  │ Cache    │  │ Probes   │              │   │
 │   │  └────┬─────┘  └────┬─────┘  └────┬─────┘              │   │
 │   │       │             │             │                     │   │
 │   │       └─────────────┼─────────────┘                     │   │
+│   │                     │                                    │   │
+│   │  ┌──────────────────┴──────────────────┐               │   │
+│   │  │           vlabel_syscall()           │               │   │
+│   │  │  (handles mac_syscall for "vlabel")  │               │   │
+│   │  └──────────────────┬──────────────────┘               │   │
 │   │                     │                                    │   │
 │   │              ┌──────┴──────┐                            │   │
 │   │              │ MACF Hooks  │                            │   │
@@ -105,34 +110,13 @@ struct vlabel_rule {
 };
 ```
 
-### vlabel_dev.c - Device Interface
+### vlabel_syscall() - Syscall Interface
 
-- Character device `/dev/vlabel`
-- ioctl handlers for mode/audit/rules/stats
-- Read interface for audit events
-- Poll support for non-blocking audit reads
-
-### vlabel_audit.c - Audit System
-
-- Ring buffer for audit entries
-- Selectable notification for readers
-- Overflow handling with drop counter
-- Entry format with timestamp, labels, path
-
-```c
-struct vlabel_audit_entry {
-    uint64_t vae_timestamp;
-    uint32_t vae_type;
-    uint32_t vae_operation;
-    int32_t  vae_result;
-    int32_t  vae_pid;
-    uint32_t vae_uid;
-    int32_t  vae_jailid;
-    char     vae_subject_label[64];
-    char     vae_object_label[64];
-    char     vae_path[256];
-};
-```
+- Handles `mac_syscall("vlabel", cmd, arg)` from userland
+- Provides all management operations (mode, audit, rules, stats)
+- Variable-length data structures eliminate ioctl size limits
+- Uses copyin/copyout for safe kernel-userland data transfer
+- All commands require root privilege (PRIV_MAC_PARTITION)
 
 ### vlabel_vnode.c - Vnode Hooks
 
@@ -276,32 +260,81 @@ vLabel: vlabel_vnode_setlabel_extattr()
 Done
 ```
 
-## Device Interface
+## mac_syscall Interface
 
-### ioctls
+vLabel uses the FreeBSD MAC Framework's syscall interface (`mac_syscall()`) instead of
+a character device. This provides several benefits:
 
-| ioctl | Direction | Purpose |
-|-------|-----------|---------|
-| `VLABEL_IOC_GETMODE` | Read | Get current mode |
-| `VLABEL_IOC_SETMODE` | Write | Set mode (0/1/2) |
-| `VLABEL_IOC_GETSTATS` | Read | Get statistics struct |
-| `VLABEL_IOC_SETAUDIT` | Write | Set audit level |
-| `VLABEL_IOC_RULE_ADD` | Write | Add a rule |
-| `VLABEL_IOC_RULE_REMOVE` | Write | Remove rule by ID |
-| `VLABEL_IOC_RULES_CLEAR` | None | Clear all rules |
+- **No filesystem dependency**: Works before filesystems are mounted
+- **No ioctl size limits**: Variable-length data eliminates the 8KB IOCPARM_MAX restriction
+- **Simpler architecture**: No device node management
 
-### Audit Read
+### Syscall Commands
+
+All commands use: `mac_syscall("vlabel", VLABEL_SYS_*, arg)`
+
+| Command | Direction | Argument | Purpose |
+|---------|-----------|----------|---------|
+| `VLABEL_SYS_GETMODE` | Read | `int*` | Get current mode |
+| `VLABEL_SYS_SETMODE` | Write | `int*` | Set mode (0/1/2) |
+| `VLABEL_SYS_GETSTATS` | Read | `struct vlabel_stats*` | Get statistics |
+| `VLABEL_SYS_GETDEFPOL` | Read | `int*` | Get default policy |
+| `VLABEL_SYS_SETDEFPOL` | Write | `int*` | Set default policy |
+| `VLABEL_SYS_RULE_ADD` | Write | `struct vlabel_rule_arg*` | Add a rule |
+| `VLABEL_SYS_RULE_REMOVE` | Write | `uint32_t*` | Remove rule by ID |
+| `VLABEL_SYS_RULE_CLEAR` | None | `NULL` | Clear all rules |
+| `VLABEL_SYS_RULE_LIST` | Read | `struct vlabel_rule_list_arg*` | List rules |
+| `VLABEL_SYS_TEST` | Read/Write | `struct vlabel_test_arg*` | Test access |
+
+### Variable-Length Structures
+
+The syscall API uses variable-length structures to support large labels:
 
 ```c
-// Blocking read for audit events
-struct vlabel_audit_entry entry;
-read(fd, &entry, sizeof(entry));
+struct vlabel_rule_arg {
+    uint8_t   vr_action;       // ALLOW/DENY/TRANSITION
+    uint8_t   vr_reserved[3];
+    uint32_t  vr_operations;   // Operation bitmask
+    uint32_t  vr_subject_flags;
+    uint32_t  vr_object_flags;
+    struct vlabel_context_arg vr_context;
+    uint16_t  vr_subject_len;  // Length including null
+    uint16_t  vr_object_len;
+    uint16_t  vr_newlabel_len; // 0 if not transition
+    uint16_t  vr_reserved2;
+    // Variable data follows: subject, object, newlabel
+};
+```
 
-// Non-blocking with poll
-struct pollfd pfd = { .fd = fd, .events = POLLIN };
-poll(&pfd, 1, timeout);
-if (pfd.revents & POLLIN)
-    read(fd, &entry, sizeof(entry));
+### Example Usage (C)
+
+```c
+#include <sys/mac.h>
+#include "mac_vlabel.h"
+
+// Get current mode
+int mode;
+if (mac_syscall("vlabel", VLABEL_SYS_GETMODE, &mode) == 0)
+    printf("Mode: %d\n", mode);
+
+// Set enforcing mode
+int newmode = VLABEL_MODE_ENFORCING;
+mac_syscall("vlabel", VLABEL_SYS_SETMODE, &newmode);
+
+// Add a rule
+size_t subject_len = strlen("*") + 1;
+size_t object_len = strlen("type=untrusted") + 1;
+size_t total = sizeof(struct vlabel_rule_arg) + subject_len + object_len;
+
+char *buf = malloc(total);
+struct vlabel_rule_arg *arg = (struct vlabel_rule_arg *)buf;
+arg->vr_action = VLABEL_ACTION_DENY;
+arg->vr_operations = VLABEL_OP_EXEC;
+arg->vr_subject_len = subject_len;
+arg->vr_object_len = object_len;
+arg->vr_newlabel_len = 0;
+// ... copy strings after header
+mac_syscall("vlabel", VLABEL_SYS_RULE_ADD, arg);
 ```
 
 ## Statistics
@@ -319,8 +352,6 @@ Available via sysctl or ioctl:
 | `labels_freed` | Label structs freed |
 | `rule_count` | Currently loaded rules |
 | `parse_errors` | Label parse failures |
-| `audit_events` | Pending audit entries |
-| `audit_dropped` | Dropped due to full buffer |
 
 ## Memory Management
 
@@ -354,7 +385,7 @@ Rule modification takes a write lock (exclusive).
 
 - Loading module: root
 - Setting labels (system namespace): root
-- Adding/removing rules: root (via /dev/vlabel)
+- Adding/removing rules: root (via mac_syscall)
 - Reading audit events: root
 
 ### Self-Protection
@@ -369,3 +400,74 @@ The module protects its own extended attribute:
 - Module unload: All operations allowed
 - Parse errors: Logged, operation continues
 - Missing labels: Default label used (matches wildcards)
+
+## DTrace Integration
+
+vLabel provides DTrace probes for detailed instrumentation and debugging. These probes fire
+on key events in the policy module, allowing real-time observation without recompilation.
+
+### Available Probes
+
+| Probe | Arguments | Description |
+|-------|-----------|-------------|
+| `vlabel:::check-entry` | subj, obj, op | Start of access check |
+| `vlabel:::check-return` | result, op | End of access check |
+| `vlabel:::check-allow` | subj, obj, op, rule_id | Access allowed |
+| `vlabel:::check-deny` | subj, obj, op, rule_id | Access denied |
+| `vlabel:::rule-match` | rule_id, action, op | Rule matched |
+| `vlabel:::rule-nomatch` | default_policy, op | No rule matched |
+| `vlabel:::transition-exec` | old_label, new_label, exec_label, pid | Label transition on exec |
+| `vlabel:::extattr-read` | label, vnode | Label read from extattr |
+| `vlabel:::extattr-default` | is_subject | Default label assigned |
+| `vlabel:::rule-add` | rule_id, action, ops | Rule added |
+| `vlabel:::rule-remove` | rule_id | Rule removed |
+| `vlabel:::rule-clear` | count | All rules cleared |
+| `vlabel:::mode-change` | old_mode, new_mode | Enforcement mode changed |
+
+### Example DTrace Commands
+
+```sh
+# Watch all denied accesses
+dtrace -n 'vlabel:::check-deny { printf("%s -> %s op=0x%x rule=%u",
+    stringof(arg0), stringof(arg1), arg2, arg3); }'
+
+# Count denials by operation
+dtrace -n 'vlabel:::check-deny { @[arg2] = count(); }'
+
+# Measure access check latency
+dtrace -n 'vlabel:::check-entry { self->ts = timestamp; }
+           vlabel:::check-return /self->ts/ {
+               @["ns"] = quantize(timestamp - self->ts);
+               self->ts = 0;
+           }'
+
+# Watch label transitions
+dtrace -n 'vlabel:::transition-exec {
+    printf("pid %d: %s -> %s (via %s)",
+        arg3, stringof(arg0), stringof(arg1), stringof(arg2)); }'
+
+# Count rule matches by rule ID
+dtrace -n 'vlabel:::rule-match { @[arg0] = count(); }'
+
+# Watch mode changes
+dtrace -n 'vlabel:::mode-change {
+    printf("mode: %d -> %d", arg0, arg1); }'
+```
+
+### Probe Categories
+
+**Access Check Probes**: `check-entry`, `check-return`, `check-allow`, `check-deny`
+- Fired during every access check
+- Use for latency measurement, denial debugging, policy validation
+
+**Rule Probes**: `rule-match`, `rule-nomatch`, `rule-add`, `rule-remove`, `rule-clear`
+- Fired during rule evaluation and management
+- Use for rule debugging, policy testing, coverage analysis
+
+**Transition Probes**: `transition-exec`
+- Fired when a process label changes during exec
+- Use for tracking privilege escalation, sandboxing
+
+**Label Probes**: `extattr-read`, `extattr-default`
+- Fired when labels are read from filesystem or defaults assigned
+- Use for understanding label propagation

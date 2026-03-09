@@ -21,7 +21,11 @@
  */
 #define VLABELD_DEFAULT_CONFIG	"/usr/local/etc/vlabel/policy.conf"
 #define VLABELD_DEFAULT_PIDFILE	"/var/run/vlabeld.pid"
-#define VLABELD_DEVICE		"/dev/vlabel"
+
+/*
+ * Policy name for mac_syscall
+ */
+#define VLABEL_POLICY_NAME	"mac_vlabel"
 
 /*
  * Daemon configuration
@@ -40,9 +44,11 @@ struct vlabeld_config {
 void vlabeld_log(int priority, const char *fmt, ...);
 
 /*
- * Add a rule to the kernel (vlabeld.c)
+ * Kernel communication functions (vlabeld.c)
  */
 int vlabeld_add_rule(struct vlabel_rule_io *rule);
+int vlabeld_clear_rules(void);
+int vlabeld_set_mode(int mode);
 
 /*
  * Policy parsing functions (parse_ucl.c)

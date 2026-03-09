@@ -67,10 +67,10 @@ These limits apply to each individual label (on files or in rule patterns):
 
 | Constraint | Value | Notes |
 |------------|-------|-------|
-| Maximum label length | 12,288 bytes (12KB) | Total string length |
-| Maximum key length | 63 bytes | Per key name |
-| Maximum value length | 255 bytes | Per value |
-| Maximum key-value pairs | 32 | Per label |
+| Maximum label length | 4,096 bytes (4KB) | Total string length |
+| Maximum key length | 64 bytes | Per key name |
+| Maximum value length | 256 bytes | Per value |
+| Maximum key-value pairs | 16 | Per label |
 
 #### System-Wide Limits
 
@@ -82,10 +82,10 @@ These limits apply to the kernel rule engine:
 
 #### What This Means
 
-- **A single file** can have a label with up to 32 key=value pairs
-- **A single rule** has subject and object patterns, each can have up to 32 pairs
+- **A single file** can have a label with up to 16 key=value pairs
+- **A single rule** has subject and object patterns, each can have up to 16 pairs
 - **The kernel** can hold up to 1,024 rules total
-- **Each process** has a credential label (also up to 32 pairs)
+- **Each process** has a credential label (also up to 16 pairs)
 
 #### Validation
 
@@ -1846,9 +1846,9 @@ tty = true         # Must have controlling terminal
 
 ### Size Limits
 ```
-Label string:     12,288 bytes (12KB)
-Key name:         63 bytes
-Value:            255 bytes
-Key-value pairs:  32 maximum
+Label string:     4,096 bytes (4KB)
+Key name:         64 bytes
+Value:            256 bytes
+Key-value pairs:  16 maximum
 Rules:            1024 maximum
 ```

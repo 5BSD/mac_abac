@@ -70,7 +70,6 @@ echo ""
 
 # Save original settings to restore later
 ORIG_MODE=$("$VLABELCTL" mode)
-ORIG_AUDIT=$("$VLABELCTL" audit)
 ORIG_DEFAULT=$("$VLABELCTL" default)
 
 # ===========================================
@@ -136,43 +135,6 @@ if "$VLABELCTL" mode invalid 2>/dev/null; then
     fail "invalid mode accepted"
 else
     pass "invalid mode rejected"
-fi
-
-# ===========================================
-# Audit tests
-# ===========================================
-info ""
-info "=== Audit Tests ==="
-
-run_test
-info "Test: Get current audit level"
-if "$VLABELCTL" audit >/dev/null 2>&1; then
-    pass "audit get"
-else
-    fail "audit get"
-fi
-
-for level in none denials decisions verbose; do
-    run_test
-    info "Test: Set audit to $level"
-    if "$VLABELCTL" audit $level >/dev/null 2>&1; then
-        AUDIT=$("$VLABELCTL" audit)
-        if [ "$AUDIT" = "$level" ]; then
-            pass "audit set $level"
-        else
-            fail "audit set $level (got: $AUDIT)"
-        fi
-    else
-        fail "audit set $level"
-    fi
-done
-
-run_test
-info "Test: Invalid audit level rejected"
-if "$VLABELCTL" audit invalid 2>/dev/null; then
-    fail "invalid audit level accepted"
-else
-    pass "invalid audit level rejected"
 fi
 
 # ===========================================
@@ -247,14 +209,10 @@ run_test
 info "Test: Get combined status"
 OUTPUT=$("$VLABELCTL" status 2>&1)
 if echo "$OUTPUT" | grep -q "Mode:"; then
-    if echo "$OUTPUT" | grep -q "Audit:"; then
-        if echo "$OUTPUT" | grep -q "Default policy:"; then
-            pass "status output complete"
-        else
-            fail "status missing default policy"
-        fi
+    if echo "$OUTPUT" | grep -q "Default policy:"; then
+        pass "status output complete"
     else
-        fail "status missing audit"
+        fail "status missing default policy"
     fi
 else
     fail "status missing mode"
@@ -389,7 +347,6 @@ fi
 info ""
 info "Restoring original settings..."
 "$VLABELCTL" mode "$ORIG_MODE" >/dev/null 2>&1
-"$VLABELCTL" audit "$ORIG_AUDIT" >/dev/null 2>&1
 "$VLABELCTL" default "$ORIG_DEFAULT" >/dev/null 2>&1
 
 # ===========================================

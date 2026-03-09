@@ -14,9 +14,6 @@
  * # Set enforcement mode: disabled, permissive, enforcing
  * mode = "enforcing";
  *
- * # Set audit level: none, denials, decisions, verbose
- * audit = "denials";
- *
  * # Rules are evaluated in order (first match wins)
  * rules = [
  *     {
@@ -51,7 +48,6 @@
  */
 
 #include <sys/types.h>
-#include <sys/ioctl.h>
 
 #include <errno.h>
 #include <stdbool.h>
@@ -477,42 +473,7 @@ parse_mode(const ucl_object_t *obj)
 
 	log_verbose("setting mode to %s (%d)", str, mode);
 
-	/* TODO: Set mode via ioctl */
-
-	return (0);
-}
-
-/*
- * Parse audit level setting
- */
-static int
-parse_audit(const ucl_object_t *obj)
-{
-	const char *str;
-	int level;
-
-	if (obj == NULL || ucl_object_type(obj) != UCL_STRING)
-		return (0);
-
-	str = ucl_object_tostring(obj);
-	if (strcasecmp(str, "none") == 0)
-		level = VLABEL_AUDIT_NONE;
-	else if (strcasecmp(str, "denials") == 0)
-		level = VLABEL_AUDIT_DENIALS;
-	else if (strcasecmp(str, "decisions") == 0)
-		level = VLABEL_AUDIT_DECISIONS;
-	else if (strcasecmp(str, "verbose") == 0)
-		level = VLABEL_AUDIT_VERBOSE;
-	else {
-		vlabeld_log(LOG_ERR, "invalid audit level: %s", str);
-		return (-1);
-	}
-
-	log_verbose("setting audit level to %s (%d)", str, level);
-
-	/* TODO: Set audit level via ioctl */
-
-	return (0);
+	return vlabeld_set_mode(mode);
 }
 
 /*
@@ -560,10 +521,7 @@ vlabeld_parse_ucl(const char *path, bool verbose)
 	if (parse_mode(obj) < 0)
 		error = -1;
 
-	/* Parse audit level */
-	obj = ucl_object_lookup(root, "audit");
-	if (parse_audit(obj) < 0)
-		error = -1;
+	/* Note: audit is now handled by FreeBSD's standard audit subsystem */
 
 	/* Parse rules */
 	obj = ucl_object_lookup(root, "rules");

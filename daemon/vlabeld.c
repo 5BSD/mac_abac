@@ -6,14 +6,13 @@
  *
  * vlabeld - vLabel Policy Daemon
  *
- * Loads security policy from configuration files and monitors audit events.
+ * Loads security policy from configuration files.
+ * Uses mac_syscall() to communicate with the kernel module.
  * Supports UCL, JSON, and simple line-based policy formats.
  */
 
 #include <sys/types.h>
-#include <sys/event.h>
-#include <sys/ioctl.h>
-#include <sys/stat.h>
+#include <sys/mac.h>
 #include <sys/time.h>
 
 #include <err.h>
@@ -36,8 +35,6 @@
 
 /* Global state */
 static struct vlabeld_config config;
-static int dev_fd = -1;
-static int kq_fd = -1;
 static volatile sig_atomic_t reload_pending = 0;
 static volatile sig_atomic_t shutdown_pending = 0;
 static struct pidfh *pfh = NULL;
@@ -46,13 +43,26 @@ static struct pidfh *pfh = NULL;
 static void usage(void);
 static void signal_handler(int sig);
 static int setup_signals(void);
-static int open_device(void);
-static int setup_kqueue(void);
 static int load_policy(const char *path);
-static int process_audit_events(void);
 static void main_loop(void);
 static void cleanup(void);
 static void daemonize(void);
+
+/*
+ * Wrapper for mac_syscall with error checking
+ */
+static int
+vlabel_syscall(int cmd, void *arg)
+{
+	int error;
+
+	error = mac_syscall(VLABEL_POLICY_NAME, cmd, arg);
+	if (error < 0 && errno == ENOSYS) {
+		vlabeld_log(LOG_ERR, "vLabel module not loaded");
+		return (-1);
+	}
+	return (error);
+}
 
 /*
  * Logging wrapper - logs to syslog when daemonized, stderr otherwise
@@ -138,68 +148,108 @@ setup_signals(void)
 	return (0);
 }
 
-static int
-open_device(void)
-{
-	dev_fd = open(VLABELD_DEVICE, O_RDWR);
-	if (dev_fd < 0) {
-		vlabeld_log(LOG_ERR, "open(%s): %s", VLABELD_DEVICE,
-		    strerror(errno));
-		return (-1);
-	}
-
-	if (config.verbose)
-		vlabeld_log(LOG_DEBUG, "opened %s", VLABELD_DEVICE);
-
-	return (0);
-}
-
-static int
-setup_kqueue(void)
-{
-	struct kevent kev[2];
-	int n = 0;
-
-	kq_fd = kqueue();
-	if (kq_fd < 0) {
-		vlabeld_log(LOG_ERR, "kqueue: %s", strerror(errno));
-		return (-1);
-	}
-
-	/* Watch for readable events on /dev/vlabel (audit events) */
-	EV_SET(&kev[n++], dev_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, NULL);
-
-	/* Watch for signals */
-	EV_SET(&kev[n++], SIGHUP, EVFILT_SIGNAL, EV_ADD | EV_ENABLE, 0, 0, NULL);
-
-	if (kevent(kq_fd, kev, n, NULL, 0, NULL) < 0) {
-		vlabeld_log(LOG_ERR, "kevent: %s", strerror(errno));
-		close(kq_fd);
-		kq_fd = -1;
-		return (-1);
-	}
-
-	return (0);
-}
-
 /*
  * Clear all rules in the kernel
  */
-static int
-clear_rules(void)
+int
+vlabeld_clear_rules(void)
 {
 	/* In test mode, nothing to clear */
 	if (config.test_mode)
 		return (0);
 
-	if (ioctl(dev_fd, VLABEL_IOC_RULES_CLEAR) < 0) {
-		vlabeld_log(LOG_ERR, "ioctl(RULES_CLEAR): %s", strerror(errno));
+	if (vlabel_syscall(VLABEL_SYS_RULE_CLEAR, NULL) < 0) {
+		vlabeld_log(LOG_ERR, "RULE_CLEAR: %s", strerror(errno));
 		return (-1);
 	}
 
 	if (config.verbose)
 		vlabeld_log(LOG_DEBUG, "cleared all rules");
 
+	return (0);
+}
+
+/*
+ * Set enforcement mode
+ */
+int
+vlabeld_set_mode(int mode)
+{
+	/* In test mode, just validate */
+	if (config.test_mode) {
+		if (config.verbose)
+			vlabeld_log(LOG_DEBUG, "would set mode to %d", mode);
+		return (0);
+	}
+
+	if (vlabel_syscall(VLABEL_SYS_SETMODE, &mode) < 0) {
+		vlabeld_log(LOG_ERR, "SETMODE: %s", strerror(errno));
+		return (-1);
+	}
+
+	if (config.verbose)
+		vlabeld_log(LOG_DEBUG, "set mode to %d", mode);
+
+	return (0);
+}
+
+/*
+ * Build a rule_arg buffer from vlabel_rule_io (legacy format)
+ * and send it to the kernel via mac_syscall.
+ */
+static int
+send_rule_to_kernel(struct vlabel_rule_io *rule_io)
+{
+	struct vlabel_rule_arg *arg;
+	char *buf, *data;
+	size_t subject_len, object_len, newlabel_len, total_len;
+
+	/* Calculate lengths (include null terminators) */
+	subject_len = strlen(rule_io->vr_subject.vp_pattern) + 1;
+	object_len = strlen(rule_io->vr_object.vp_pattern) + 1;
+	newlabel_len = (rule_io->vr_action == VLABEL_ACTION_TRANSITION) ?
+	    strlen(rule_io->vr_newlabel) + 1 : 0;
+
+	total_len = sizeof(struct vlabel_rule_arg) + subject_len + object_len + newlabel_len;
+
+	buf = calloc(1, total_len);
+	if (buf == NULL) {
+		vlabeld_log(LOG_ERR, "malloc: %s", strerror(errno));
+		return (-1);
+	}
+
+	arg = (struct vlabel_rule_arg *)buf;
+	arg->vr_action = rule_io->vr_action;
+	arg->vr_operations = rule_io->vr_operations;
+	arg->vr_subject_flags = rule_io->vr_subject.vp_flags;
+	arg->vr_object_flags = rule_io->vr_object.vp_flags;
+	arg->vr_context.vc_flags = rule_io->vr_context.vc_flags;
+	arg->vr_context.vc_cap_sandboxed = rule_io->vr_context.vc_cap_sandboxed;
+	arg->vr_context.vc_has_tty = rule_io->vr_context.vc_has_tty;
+	arg->vr_context.vc_jail_check = rule_io->vr_context.vc_jail_check;
+	arg->vr_context.vc_uid = rule_io->vr_context.vc_uid;
+	arg->vr_context.vc_gid = rule_io->vr_context.vc_gid;
+	arg->vr_subject_len = subject_len;
+	arg->vr_object_len = object_len;
+	arg->vr_newlabel_len = newlabel_len;
+
+	/* Copy strings after the header */
+	data = buf + sizeof(struct vlabel_rule_arg);
+	memcpy(data, rule_io->vr_subject.vp_pattern, subject_len);
+	data += subject_len;
+	memcpy(data, rule_io->vr_object.vp_pattern, object_len);
+	data += object_len;
+	if (newlabel_len > 0)
+		memcpy(data, rule_io->vr_newlabel, newlabel_len);
+
+	/* Send to kernel */
+	if (vlabel_syscall(VLABEL_SYS_RULE_ADD, buf) < 0) {
+		vlabeld_log(LOG_ERR, "RULE_ADD: %s", strerror(errno));
+		free(buf);
+		return (-1);
+	}
+
+	free(buf);
 	return (0);
 }
 
@@ -217,10 +267,8 @@ vlabeld_add_rule(struct vlabel_rule_io *rule)
 		return (0);
 	}
 
-	if (ioctl(dev_fd, VLABEL_IOC_RULE_ADD, rule) < 0) {
-		vlabeld_log(LOG_ERR, "ioctl(RULE_ADD): %s", strerror(errno));
+	if (send_rule_to_kernel(rule) < 0)
 		return (-1);
-	}
 
 	if (config.verbose)
 		vlabeld_log(LOG_DEBUG, "added rule %u: action=%d ops=0x%x",
@@ -241,7 +289,7 @@ load_policy(const char *path)
 
 	/* Clear existing rules first */
 	if (!config.test_mode) {
-		if (clear_rules() < 0)
+		if (vlabeld_clear_rules() < 0)
 			return (-1);
 	}
 
@@ -256,60 +304,10 @@ load_policy(const char *path)
 	return (0);
 }
 
-/*
- * Process audit events from /dev/vlabel
- */
-static int
-process_audit_events(void)
-{
-	struct vlabel_audit_entry entry;
-	ssize_t n;
-	char timebuf[32];
-	struct tm *tm;
-	time_t ts;
-
-	while ((n = read(dev_fd, &entry, sizeof(entry))) > 0) {
-		if (n != sizeof(entry)) {
-			vlabeld_log(LOG_WARNING, "short read: %zd bytes", n);
-			continue;
-		}
-
-		ts = (time_t)entry.vae_timestamp;
-		tm = localtime(&ts);
-		if (tm != NULL)
-			strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", tm);
-		else
-			strlcpy(timebuf, "(invalid time)", sizeof(timebuf));
-
-		vlabeld_log(LOG_INFO,
-		    "[%s] %s pid=%d uid=%u jail=%d subj=%s obj=%s",
-		    timebuf,
-		    entry.vae_result == 0 ? "ALLOW" : "DENY",
-		    entry.vae_pid,
-		    entry.vae_uid,
-		    entry.vae_jailid,
-		    entry.vae_subject_label[0] ? entry.vae_subject_label : "-",
-		    entry.vae_object_label[0] ? entry.vae_object_label : "-");
-
-		if (entry.vae_path[0])
-			vlabeld_log(LOG_INFO, "  path=%s", entry.vae_path);
-	}
-
-	if (n < 0 && errno != EAGAIN && errno != EINTR) {
-		vlabeld_log(LOG_ERR, "read: %s", strerror(errno));
-		return (-1);
-	}
-
-	return (0);
-}
-
 static void
 main_loop(void)
 {
-	struct kevent kev;
-	int n;
-
-	vlabeld_log(LOG_INFO, "entering main loop");
+	vlabeld_log(LOG_INFO, "daemon started");
 
 	while (!shutdown_pending) {
 		/* Check for pending reload */
@@ -319,25 +317,8 @@ main_loop(void)
 			load_policy(config.config_file);
 		}
 
-		/* Wait for events with 1 second timeout */
-		struct timespec timeout = { .tv_sec = 1, .tv_nsec = 0 };
-		n = kevent(kq_fd, NULL, 0, &kev, 1, &timeout);
-
-		if (n < 0) {
-			if (errno == EINTR)
-				continue;
-			vlabeld_log(LOG_ERR, "kevent: %s", strerror(errno));
-			break;
-		}
-
-		if (n == 0)
-			continue;	/* Timeout */
-
-		if (kev.filter == EVFILT_READ && (int)kev.ident == dev_fd) {
-			process_audit_events();
-		} else if (kev.filter == EVFILT_SIGNAL) {
-			/* Signal already handled by signal_handler */
-		}
+		/* Sleep - audit events are handled by FreeBSD's audit subsystem */
+		sleep(1);
 	}
 
 	vlabeld_log(LOG_INFO, "shutting down");
@@ -346,14 +327,6 @@ main_loop(void)
 static void
 cleanup(void)
 {
-	if (kq_fd >= 0) {
-		close(kq_fd);
-		kq_fd = -1;
-	}
-	if (dev_fd >= 0) {
-		close(dev_fd);
-		dev_fd = -1;
-	}
 	if (pfh != NULL) {
 		pidfile_remove(pfh);
 		pfh = NULL;
@@ -442,10 +415,12 @@ main(int argc, char *argv[])
 	if (setup_signals() < 0)
 		exit(1);
 
-	/* Open /dev/vlabel (not needed for test mode) */
+	/* Verify module is loaded (not needed for test mode) */
 	if (!config.test_mode) {
-		if (open_device() < 0)
-			exit(1);
+		int mode;
+		if (vlabel_syscall(VLABEL_SYS_GETMODE, &mode) < 0) {
+			errx(1, "cannot communicate with vLabel module");
+		}
 	}
 
 	/* Load policy */
@@ -463,12 +438,6 @@ main(int argc, char *argv[])
 	/* Daemonize if requested */
 	if (config.daemonize)
 		daemonize();
-
-	/* Setup kqueue for event loop */
-	if (setup_kqueue() < 0) {
-		cleanup();
-		exit(1);
-	}
 
 	/* Main event loop */
 	main_loop();

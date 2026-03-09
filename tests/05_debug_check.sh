@@ -223,11 +223,6 @@ info "ACTION: test_enforcing_mode"
 
 # Save current settings
 ORIG_MODE=$(sysctl -n security.mac.vlabel.mode)
-ORIG_AUDIT=$(sysctl -n security.mac.vlabel.audit_level)
-
-# Enable verbose audit
-sysctl security.mac.vlabel.audit_level=3 >/dev/null
-$VLABELCTL audit clear 2>/dev/null || true
 
 # Add deny rule: deny debug * -> type=protected
 RULE="deny debug * -> type=protected"
@@ -245,12 +240,10 @@ sysctl security.mac.vlabel.mode=1 >/dev/null
 
 # Note: Actually triggering debug check requires labeled processes.
 # This verifies the rule infrastructure is in place.
-AUDIT_OUTPUT=$($VLABELCTL audit read 2>/dev/null || echo "")
-info "  Audit log checked"
+# Audit events are now logged via FreeBSD's standard audit subsystem.
 
 # Restore original settings
 sysctl security.mac.vlabel.mode=$ORIG_MODE >/dev/null
-sysctl security.mac.vlabel.audit_level=$ORIG_AUDIT >/dev/null
 $VLABELCTL rule clear 2>/dev/null || true
 
 pass "Debug check infrastructure verified"

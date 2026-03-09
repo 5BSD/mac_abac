@@ -28,6 +28,7 @@
 #include <security/mac/mac_policy.h>
 
 #include "mac_vlabel.h"
+#include "vlabel_dtrace.h"
 
 /*
  * Rule table storage
@@ -301,6 +302,7 @@ vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 {
 	const struct vlabel_rule *rule;
 	int i, result;
+	uint32_t matched_rule_id __unused = 0;
 
 	atomic_add_64(&vlabel_checks, 1);
 
@@ -310,6 +312,9 @@ vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 		atomic_add_64(&vlabel_allowed, 1);
 		return (0);
 	}
+
+	/* DTrace: check entry */
+	SDT_PROBE3(vlabel, rules, check, entry, subj->vl_raw, obj->vl_raw, op);
 
 	rw_rlock(&vlabel_rules_lock);
 
@@ -321,6 +326,11 @@ vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 			continue;
 
 		if (vlabel_rule_matches(rule, subj, obj, op, cred)) {
+			/* DTrace: rule matched */
+			SDT_PROBE3(vlabel, rules, rule, match,
+			    rule->vr_id, rule->vr_action, op);
+			matched_rule_id = rule->vr_id;
+
 			if (rule->vr_action == VLABEL_ACTION_ALLOW ||
 			    rule->vr_action == VLABEL_ACTION_TRANSITION) {
 				result = 0;
@@ -344,6 +354,8 @@ vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 	 * No rule matched - use default policy.
 	 * Controlled by sysctl security.mac.vlabel.default_policy
 	 */
+	SDT_PROBE2(vlabel, rules, rule, nomatch, vlabel_default_policy, op);
+
 	if (vlabel_default_policy == 0) {
 		result = 0;
 		VLABEL_DPRINTF("rules_check: no rule matched, default ALLOW "
@@ -359,10 +371,19 @@ vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 out:
 	rw_runlock(&vlabel_rules_lock);
 
-	if (result == 0)
+	/* DTrace: check-allow or check-deny */
+	if (result == 0) {
+		SDT_PROBE4(vlabel, rules, check, allow,
+		    subj->vl_raw, obj->vl_raw, op, matched_rule_id);
 		atomic_add_64(&vlabel_allowed, 1);
-	else
+	} else {
+		SDT_PROBE4(vlabel, rules, check, deny,
+		    subj->vl_raw, obj->vl_raw, op, matched_rule_id);
 		atomic_add_64(&vlabel_denied, 1);
+	}
+
+	/* DTrace: check return */
+	SDT_PROBE2(vlabel, rules, check, return, result, op);
 
 	return (result);
 }
@@ -454,27 +475,147 @@ vlabel_rules_get_transition(struct ucred *cred, struct vlabel_label *subj,
 }
 
 /*
- * Add a rule to the table
+ * Convert comma-separated label string to newline-separated format
+ *
+ * CLI users provide labels like "type=user,domain=web" but vlabel_label_parse
+ * expects newline-separated format like "type=user\ndomain=web\n".
+ */
+static void
+convert_label_format(const char *src, char *dst, size_t dstlen)
+{
+	size_t i, j;
+
+	for (i = 0, j = 0; src[i] != '\0' && j < dstlen - 1; i++) {
+		if (src[i] == ',')
+			dst[j++] = '\n';
+		else
+			dst[j++] = src[i];
+	}
+	/* Ensure trailing newline for proper parsing */
+	if (j > 0 && j < dstlen - 1 && dst[j - 1] != '\n')
+		dst[j++] = '\n';
+	dst[j] = '\0';
+}
+
+/*
+ * Next rule ID counter
+ */
+static uint32_t vlabel_next_rule_id = 1;
+
+/*
+ * Add a rule from syscall argument
+ *
+ * The data buffer contains variable-length strings:
+ *   subject[vr_subject_len], object[vr_object_len], newlabel[vr_newlabel_len]
  *
  * Returns:
  *   0 = success
  *   ENOSPC = table full
  *   ENOMEM = allocation failed
+ *   EINVAL = invalid arguments
  */
 int
-vlabel_rule_add(struct vlabel_rule *rule)
+vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data)
 {
 	struct vlabel_rule *newrule;
-	int i;
+	const char *subject_str, *object_str, *newlabel_str;
+	char *converted;
+	int i, error;
 
-	/* Allocate a copy */
-	newrule = malloc(sizeof(*newrule), M_TEMP, M_NOWAIT);
-	if (newrule == NULL)
+	if (arg == NULL || data == NULL)
+		return (EINVAL);
+
+	/* Validate action */
+	if (arg->vr_action > VLABEL_ACTION_TRANSITION)
+		return (EINVAL);
+
+	/* Extract string pointers from data buffer */
+	subject_str = data;
+	object_str = data + arg->vr_subject_len;
+	newlabel_str = data + arg->vr_subject_len + arg->vr_object_len;
+
+	/*
+	 * Allocate conversion buffer dynamically - 4KB is too large
+	 * for the kernel stack.
+	 */
+	converted = malloc(VLABEL_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
+
+	/* Allocate the rule */
+	newrule = malloc(sizeof(*newrule), M_TEMP, M_NOWAIT | M_ZERO);
+	if (newrule == NULL) {
+		free(converted, M_TEMP);
 		return (ENOMEM);
+	}
 
-	memcpy(newrule, rule, sizeof(*newrule));
+	/* Fill in basic fields */
+	newrule->vr_action = arg->vr_action;
+	newrule->vr_operations = arg->vr_operations;
+
+	/* Parse subject pattern */
+	newrule->vr_subject.vp_flags = arg->vr_subject_flags;
+	if (arg->vr_subject_len > 0 && subject_str[0] != '\0' &&
+	    subject_str[0] != '*') {
+		/* Note: vlabel_pattern_parse expects comma-separated format,
+		 * which is what the CLI sends - no conversion needed */
+		error = vlabel_pattern_parse(subject_str, strlen(subject_str),
+		    &newrule->vr_subject);
+		if (error) {
+			VLABEL_DPRINTF("rule_add: failed to parse subject '%s'",
+			    subject_str);
+			free(newrule, M_TEMP);
+			free(converted, M_TEMP);
+			return (error);
+		}
+	}
+	/* else: empty pattern = wildcard (npairs=0) */
+
+	/* Parse object pattern */
+	newrule->vr_object.vp_flags = arg->vr_object_flags;
+	if (arg->vr_object_len > 0 && object_str[0] != '\0' &&
+	    object_str[0] != '*') {
+		/* Note: vlabel_pattern_parse expects comma-separated format,
+		 * which is what the CLI sends - no conversion needed */
+		error = vlabel_pattern_parse(object_str, strlen(object_str),
+		    &newrule->vr_object);
+		if (error) {
+			VLABEL_DPRINTF("rule_add: failed to parse object '%s'",
+			    object_str);
+			free(newrule, M_TEMP);
+			free(converted, M_TEMP);
+			return (error);
+		}
+	}
+
+	/* Copy context constraints */
+	newrule->vr_context.vc_flags = arg->vr_context.vc_flags;
+	newrule->vr_context.vc_cap_sandboxed = arg->vr_context.vc_cap_sandboxed;
+	newrule->vr_context.vc_has_tty = arg->vr_context.vc_has_tty;
+	newrule->vr_context.vc_jail_check = arg->vr_context.vc_jail_check;
+	newrule->vr_context.vc_uid = arg->vr_context.vc_uid;
+	newrule->vr_context.vc_gid = arg->vr_context.vc_gid;
+
+	/* Parse newlabel for TRANSITION rules */
+	if (arg->vr_action == VLABEL_ACTION_TRANSITION &&
+	    arg->vr_newlabel_len > 0 && newlabel_str[0] != '\0') {
+		convert_label_format(newlabel_str, converted, VLABEL_MAX_LABEL_LEN);
+		error = vlabel_label_parse(converted, strlen(converted),
+		    &newrule->vr_newlabel);
+		if (error) {
+			VLABEL_DPRINTF("rule_add: failed to parse newlabel '%s'",
+			    newlabel_str);
+			free(newrule, M_TEMP);
+			free(converted, M_TEMP);
+			return (error);
+		}
+	}
+
+	/* Done with conversion buffer */
+	free(converted, M_TEMP);
 
 	rw_wlock(&vlabel_rules_lock);
+
+	/* Assign rule ID */
+	newrule->vr_id = vlabel_next_rule_id++;
 
 	/* Find empty slot */
 	for (i = 0; i < VLABEL_MAX_RULES; i++) {
@@ -482,8 +623,14 @@ vlabel_rule_add(struct vlabel_rule *rule)
 			vlabel_rules[i] = newrule;
 			vlabel_rule_count++;
 			rw_wunlock(&vlabel_rules_lock);
-			VLABEL_DPRINTF("rule_add: added rule %u at slot %d",
-			    newrule->vr_id, i);
+			/* DTrace: rule added */
+			SDT_PROBE3(vlabel, rules, rule, add,
+			    newrule->vr_id, newrule->vr_action,
+			    newrule->vr_operations);
+			VLABEL_DPRINTF("rule_add: added rule %u at slot %d "
+			    "action=%u ops=0x%x",
+			    newrule->vr_id, i, newrule->vr_action,
+			    newrule->vr_operations);
 			return (0);
 		}
 	}
@@ -514,6 +661,8 @@ vlabel_rule_remove(uint32_t id)
 			vlabel_rules[i] = NULL;
 			vlabel_rule_count--;
 			rw_wunlock(&vlabel_rules_lock);
+			/* DTrace: rule removed */
+			SDT_PROBE1(vlabel, rules, rule, remove, id);
 			free(rule, M_TEMP);
 			VLABEL_DPRINTF("rule_remove: removed rule %u", id);
 			return (0);
@@ -532,6 +681,7 @@ vlabel_rules_clear(void)
 {
 	struct vlabel_rule *rule;
 	int i;
+	uint32_t cleared __unused = 0;
 
 	rw_wlock(&vlabel_rules_lock);
 
@@ -540,12 +690,16 @@ vlabel_rules_clear(void)
 		if (rule != NULL) {
 			vlabel_rules[i] = NULL;
 			free(rule, M_TEMP);
+			cleared++;
 		}
 	}
 
 	vlabel_rule_count = 0;
 
 	rw_wunlock(&vlabel_rules_lock);
+
+	/* DTrace: rules cleared */
+	SDT_PROBE1(vlabel, rules, rule, clear, cleared);
 
 	VLABEL_DPRINTF("rules_clear: all rules cleared");
 }
@@ -618,161 +772,208 @@ vlabel_pattern_to_string(const struct vlabel_pattern *pattern, char *buf,
 }
 
 /*
- * Convert kernel rule to IO structure for userland
+ * Calculate the size needed to serialize a rule
  */
-static void
-vlabel_rule_to_io(const struct vlabel_rule *rule, struct vlabel_rule_io *io)
+static size_t
+vlabel_rule_out_size(const struct vlabel_rule *rule)
 {
+	char subj_buf[VLABEL_MAX_LABEL_LEN];
+	char obj_buf[VLABEL_MAX_LABEL_LEN];
+	size_t subj_len, obj_len, newlabel_len;
 
-	memset(io, 0, sizeof(*io));
+	subj_len = vlabel_pattern_to_string(&rule->vr_subject, subj_buf,
+	    sizeof(subj_buf)) + 1;
+	obj_len = vlabel_pattern_to_string(&rule->vr_object, obj_buf,
+	    sizeof(obj_buf)) + 1;
+	newlabel_len = (rule->vr_action == VLABEL_ACTION_TRANSITION) ?
+	    strlen(rule->vr_newlabel.vl_raw) + 1 : 0;
 
-	io->vr_id = rule->vr_id;
-	io->vr_action = rule->vr_action;
-	io->vr_operations = rule->vr_operations;
+	return sizeof(struct vlabel_rule_out) + subj_len + obj_len + newlabel_len;
+}
 
-	/* Serialize subject pattern to string */
-	io->vr_subject.vp_flags = rule->vr_subject.vp_flags;
-	vlabel_pattern_to_string(&rule->vr_subject, io->vr_subject.vp_pattern,
-	    sizeof(io->vr_subject.vp_pattern));
+/*
+ * Serialize a rule to userland buffer
+ *
+ * Returns the number of bytes written.
+ */
+static size_t
+vlabel_rule_serialize(const struct vlabel_rule *rule, char *buf, size_t buflen)
+{
+	struct vlabel_rule_out *out = (struct vlabel_rule_out *)buf;
+	char *data;
+	size_t subj_len, obj_len, newlabel_len, total;
 
-	/* Serialize object pattern to string */
-	io->vr_object.vp_flags = rule->vr_object.vp_flags;
-	vlabel_pattern_to_string(&rule->vr_object, io->vr_object.vp_pattern,
-	    sizeof(io->vr_object.vp_pattern));
+	/* Calculate string lengths */
+	char subj_buf[VLABEL_MAX_LABEL_LEN];
+	char obj_buf[VLABEL_MAX_LABEL_LEN];
 
-	/* Copy context constraints */
-	io->vr_context.vc_flags = rule->vr_context.vc_flags;
-	io->vr_context.vc_cap_sandboxed = rule->vr_context.vc_cap_sandboxed;
-	io->vr_context.vc_has_tty = rule->vr_context.vc_has_tty;
-	io->vr_context.vc_jail_check = rule->vr_context.vc_jail_check;
-	io->vr_context.vc_uid = rule->vr_context.vc_uid;
-	io->vr_context.vc_gid = rule->vr_context.vc_gid;
+	subj_len = vlabel_pattern_to_string(&rule->vr_subject, subj_buf,
+	    sizeof(subj_buf)) + 1;
+	obj_len = vlabel_pattern_to_string(&rule->vr_object, obj_buf,
+	    sizeof(obj_buf)) + 1;
+	newlabel_len = (rule->vr_action == VLABEL_ACTION_TRANSITION) ?
+	    strlen(rule->vr_newlabel.vl_raw) + 1 : 0;
 
-	/* Copy newlabel for TRANSITION rules */
-	if (rule->vr_action == VLABEL_ACTION_TRANSITION) {
-		strlcpy(io->vr_newlabel, rule->vr_newlabel.vl_raw,
-		    sizeof(io->vr_newlabel));
-	}
+	total = sizeof(struct vlabel_rule_out) + subj_len + obj_len + newlabel_len;
+	if (total > buflen)
+		return (0);
+
+	/* Fill header */
+	memset(out, 0, sizeof(*out));
+	out->vr_id = rule->vr_id;
+	out->vr_action = rule->vr_action;
+	out->vr_operations = rule->vr_operations;
+	out->vr_subject_flags = rule->vr_subject.vp_flags;
+	out->vr_object_flags = rule->vr_object.vp_flags;
+	out->vr_context.vc_flags = rule->vr_context.vc_flags;
+	out->vr_context.vc_cap_sandboxed = rule->vr_context.vc_cap_sandboxed;
+	out->vr_context.vc_has_tty = rule->vr_context.vc_has_tty;
+	out->vr_context.vc_jail_check = rule->vr_context.vc_jail_check;
+	out->vr_context.vc_uid = rule->vr_context.vc_uid;
+	out->vr_context.vc_gid = rule->vr_context.vc_gid;
+	out->vr_subject_len = subj_len;
+	out->vr_object_len = obj_len;
+	out->vr_newlabel_len = newlabel_len;
+
+	/* Copy strings */
+	data = buf + sizeof(struct vlabel_rule_out);
+	memcpy(data, subj_buf, subj_len);
+	data += subj_len;
+	memcpy(data, obj_buf, obj_len);
+	data += obj_len;
+	if (newlabel_len > 0)
+		memcpy(data, rule->vr_newlabel.vl_raw, newlabel_len);
+
+	return (total);
 }
 
 /*
  * List rules to userland buffer
  *
- * The caller provides a vlabel_rule_list_io header followed by space
- * for vrl_count vlabel_rule_io structures.
+ * If vrl_buf is NULL, just returns the total count and required buffer size.
+ * Otherwise, serializes rules into the buffer.
  *
  * On return:
  *   vrl_count = number of rules actually copied
  *   vrl_total = total rules in kernel
  */
 int
-vlabel_rules_list(struct vlabel_rule_list_io *list_io,
-    struct vlabel_rule_io *rules_out, uint32_t max_rules)
+vlabel_rules_list(struct vlabel_rule_list_arg *list_arg)
 {
 	const struct vlabel_rule *rule;
 	uint32_t copied = 0;
 	uint32_t offset;
-	int i, slot;
+	size_t buf_used = 0;
+	char *kbuf = NULL;
+	int i, slot, error = 0;
 
-	if (list_io == NULL)
+	if (list_arg == NULL)
 		return (EINVAL);
 
-	offset = list_io->vrl_offset;
+	offset = list_arg->vrl_offset;
+
+	/* Allocate kernel buffer if userland buffer provided */
+	if (list_arg->vrl_buf != NULL && list_arg->vrl_buflen > 0) {
+		kbuf = malloc(list_arg->vrl_buflen, M_TEMP, M_WAITOK);
+	}
 
 	rw_rlock(&vlabel_rules_lock);
 
-	list_io->vrl_total = vlabel_rule_count;
+	list_arg->vrl_total = vlabel_rule_count;
 
 	/* Skip to offset */
 	slot = 0;
-	for (i = 0; i < VLABEL_MAX_RULES && slot < offset; i++) {
+	for (i = 0; i < VLABEL_MAX_RULES && slot < (int)offset; i++) {
 		if (vlabel_rules[i] != NULL)
 			slot++;
 	}
 
-	/* Copy rules starting from offset */
-	for (; i < VLABEL_MAX_RULES && copied < max_rules; i++) {
+	/* Serialize rules starting from offset */
+	for (; i < VLABEL_MAX_RULES; i++) {
 		rule = vlabel_rules[i];
 		if (rule == NULL)
 			continue;
 
-		if (rules_out != NULL)
-			vlabel_rule_to_io(rule, &rules_out[copied]);
+		if (kbuf != NULL) {
+			size_t needed = vlabel_rule_out_size(rule);
+			if (buf_used + needed > list_arg->vrl_buflen)
+				break;
 
+			size_t written = vlabel_rule_serialize(rule,
+			    kbuf + buf_used, list_arg->vrl_buflen - buf_used);
+			if (written == 0)
+				break;
+			buf_used += written;
+		}
 		copied++;
 	}
 
-	list_io->vrl_count = copied;
+	list_arg->vrl_count = copied;
 
 	rw_runlock(&vlabel_rules_lock);
 
-	VLABEL_DPRINTF("rules_list: returned %u/%u rules (offset=%u)",
-	    copied, list_io->vrl_total, offset);
+	/* Copy buffer to userland */
+	if (kbuf != NULL && buf_used > 0) {
+		error = copyout(kbuf, list_arg->vrl_buf, buf_used);
+	}
 
-	return (0);
+	if (kbuf != NULL)
+		free(kbuf, M_TEMP);
+
+	VLABEL_DPRINTF("rules_list: returned %u/%u rules (offset=%u bufused=%zu)",
+	    copied, list_arg->vrl_total, offset, buf_used);
+
+	return (error);
 }
 
 /*
  * Test if an access would be allowed without actually performing it
  *
  * This is useful for policy debugging and "what-if" analysis.
+ * Subject and object are null-terminated strings.
  */
-/*
- * Convert comma-separated label string to newline-separated format
- *
- * CLI users provide labels like "type=user,domain=web" but vlabel_label_parse
- * expects newline-separated format like "type=user\ndomain=web\n".
- */
-static void
-convert_label_format(const char *src, char *dst, size_t dstlen)
-{
-	size_t i, j;
-
-	for (i = 0, j = 0; src[i] != '\0' && j < dstlen - 1; i++) {
-		if (src[i] == ',')
-			dst[j++] = '\n';
-		else
-			dst[j++] = src[i];
-	}
-	/* Ensure trailing newline for proper parsing */
-	if (j > 0 && j < dstlen - 1 && dst[j - 1] != '\n')
-		dst[j++] = '\n';
-	dst[j] = '\0';
-}
-
 int
-vlabel_rules_test_access(struct vlabel_test_io *test_io)
+vlabel_rules_test_access(const char *subject, size_t subject_len,
+    const char *object, size_t object_len, uint32_t operation,
+    uint32_t *result, uint32_t *rule_id)
 {
-	struct vlabel_label subj_label, obj_label;
-	char converted[VLABEL_MAX_LABEL_LEN];
+	struct vlabel_label *subj_label, *obj_label;
+	char *converted;
 	const struct vlabel_rule *rule;
-	int i;
+	int i, error;
 
-	if (test_io == NULL)
+	if (result == NULL)
 		return (EINVAL);
 
+	/*
+	 * Allocate labels dynamically - struct vlabel_label is ~9KB each,
+	 * which is too large for the kernel stack (typically 8-16KB).
+	 */
+	subj_label = malloc(sizeof(*subj_label), M_TEMP, M_WAITOK | M_ZERO);
+	obj_label = malloc(sizeof(*obj_label), M_TEMP, M_WAITOK | M_ZERO);
+	converted = malloc(VLABEL_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
+
+	error = 0;
+
 	/* Parse the subject label (convert from comma-separated to newline) */
-	memset(&subj_label, 0, sizeof(subj_label));
-	if (test_io->vt_subject_label[0] != '\0') {
-		convert_label_format(test_io->vt_subject_label,
-		    converted, sizeof(converted));
-		vlabel_label_parse(converted, strlen(converted), &subj_label);
+	if (subject != NULL && subject_len > 0 && subject[0] != '\0') {
+		convert_label_format(subject, converted, VLABEL_MAX_LABEL_LEN);
+		vlabel_label_parse(converted, strlen(converted), subj_label);
 		VLABEL_DPRINTF("test_access: parsed subj '%s' -> npairs=%u",
-		    test_io->vt_subject_label, subj_label.vl_npairs);
+		    subject, subj_label->vl_npairs);
 	}
 
 	/* Parse the object label (convert from comma-separated to newline) */
-	memset(&obj_label, 0, sizeof(obj_label));
-	if (test_io->vt_object_label[0] != '\0') {
-		convert_label_format(test_io->vt_object_label,
-		    converted, sizeof(converted));
-		vlabel_label_parse(converted, strlen(converted), &obj_label);
+	if (object != NULL && object_len > 0 && object[0] != '\0') {
+		convert_label_format(object, converted, VLABEL_MAX_LABEL_LEN);
+		vlabel_label_parse(converted, strlen(converted), obj_label);
 		VLABEL_DPRINTF("test_access: parsed obj '%s' -> npairs=%u",
-		    test_io->vt_object_label, obj_label.vl_npairs);
+		    object, obj_label->vl_npairs);
 	}
 
-	test_io->vt_result = EACCES;	/* Default deny */
-	test_io->vt_rule_id = 0;	/* No matching rule */
+	*result = EACCES;		/* Default deny */
+	if (rule_id != NULL)
+		*rule_id = 0;		/* No matching rule */
 
 	rw_rlock(&vlabel_rules_lock);
 
@@ -789,19 +990,19 @@ vlabel_rules_test_access(struct vlabel_test_io *test_io)
 		    rule->vr_subject.vp_npairs, rule->vr_object.vp_npairs);
 
 		/* Check if operation is covered by this rule */
-		if ((rule->vr_operations & test_io->vt_operation) == 0) {
+		if ((rule->vr_operations & operation) == 0) {
 			VLABEL_DPRINTF("test_access: rule %u op mismatch", rule->vr_id);
 			continue;
 		}
 
 		/* Check subject pattern */
-		if (!vlabel_pattern_match(&subj_label, &rule->vr_subject)) {
+		if (!vlabel_pattern_match(subj_label, &rule->vr_subject)) {
 			VLABEL_DPRINTF("test_access: rule %u subj mismatch", rule->vr_id);
 			continue;
 		}
 
 		/* Check object pattern */
-		if (!vlabel_pattern_match(&obj_label, &rule->vr_object)) {
+		if (!vlabel_pattern_match(obj_label, &rule->vr_object)) {
 			VLABEL_DPRINTF("test_access: rule %u obj mismatch", rule->vr_id);
 			continue;
 		}
@@ -812,28 +1013,34 @@ vlabel_rules_test_access(struct vlabel_test_io *test_io)
 		/* Rule matches */
 		VLABEL_DPRINTF("test_access: rule %u MATCHED action=%u",
 		    rule->vr_id, rule->vr_action);
-		test_io->vt_rule_id = rule->vr_id;
+		if (rule_id != NULL)
+			*rule_id = rule->vr_id;
 		if (rule->vr_action == VLABEL_ACTION_ALLOW ||
 		    rule->vr_action == VLABEL_ACTION_TRANSITION) {
-			test_io->vt_result = 0;
+			*result = 0;
 		} else {
-			test_io->vt_result = EACCES;
+			*result = EACCES;
 		}
 		goto out;
 	}
 
 	/* No rule matched - use default policy */
-	test_io->vt_result = vlabel_default_policy ? EACCES : 0;
-	test_io->vt_rule_id = 0;
+	*result = vlabel_default_policy ? EACCES : 0;
+	if (rule_id != NULL)
+		*rule_id = 0;
 
 out:
 	rw_runlock(&vlabel_rules_lock);
 
 	VLABEL_DPRINTF("test_access: subj='%s' obj='%s' op=0x%x -> %s (rule %u)",
-	    test_io->vt_subject_label, test_io->vt_object_label,
-	    test_io->vt_operation,
-	    test_io->vt_result == 0 ? "ALLOW" : "DENY",
-	    test_io->vt_rule_id);
+	    subject ? subject : "(null)", object ? object : "(null)",
+	    operation,
+	    *result == 0 ? "ALLOW" : "DENY",
+	    rule_id ? *rule_id : 0);
 
-	return (0);
+	free(converted, M_TEMP);
+	free(obj_label, M_TEMP);
+	free(subj_label, M_TEMP);
+
+	return (error);
 }

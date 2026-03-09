@@ -363,6 +363,14 @@ vlabeld_parse_line(const char *line, struct vlabel_rule_io *rule)
 			/* Transition label */
 			p = parse_word(p, word, sizeof(word));
 			strlcpy(rule->vr_newlabel, word, sizeof(rule->vr_newlabel));
+		} else if (strcmp(word, "->") == 0) {
+			/* Second arrow is invalid */
+			fprintf(stderr, "unexpected second '->'\n");
+			return (-1);
+		} else {
+			/* Unknown token */
+			fprintf(stderr, "unexpected token: %s\n", word);
+			return (-1);
 		}
 
 		p = skip_ws(p);

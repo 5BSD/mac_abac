@@ -90,7 +90,6 @@ pass "sysctl tree created"
 info "Test 4: Verifying sysctl values..."
 ENABLED=$(sysctl -n security.mac.vlabel.enabled 2>/dev/null)
 MODE=$(sysctl -n security.mac.vlabel.mode 2>/dev/null)
-AUDIT=$(sysctl -n security.mac.vlabel.audit_level 2>/dev/null)
 
 if [ -z "$ENABLED" ]; then
     kldunload "$MODULE_NAME"
@@ -100,12 +99,8 @@ if [ -z "$MODE" ]; then
     kldunload "$MODULE_NAME"
     fail "Could not read security.mac.vlabel.mode"
 fi
-if [ -z "$AUDIT" ]; then
-    kldunload "$MODULE_NAME"
-    fail "Could not read security.mac.vlabel.audit_level"
-fi
 
-info "  enabled=$ENABLED mode=$MODE audit_level=$AUDIT"
+info "  enabled=$ENABLED mode=$MODE"
 pass "sysctl values readable"
 
 # Test 5: Try modifying sysctl

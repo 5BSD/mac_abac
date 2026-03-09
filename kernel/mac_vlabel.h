@@ -44,7 +44,7 @@
 #define VLABEL_EXTATTR_NAME		"vlabel"
 
 /*
- * Label constraints (per-label limits)
+ * Label constraints
  *
  * Labels are stored as newline-separated key=value pairs in extended attributes:
  *   "key1=val1\nkey2=val2\n"
@@ -52,31 +52,19 @@
  * Patterns (in rules) use comma-separated format for command-line convenience:
  *   "key1=val1,key2=val2"
  *
- * Both kernel and userland must agree on the maximum sizes.
- *
- * VLABEL_MAX_LABEL_LEN: Maximum total length of a label string (per label).
- *   - Stored in extended attributes on files
- *   - Used in ioctl structures for rule patterns
- *   - Limited by FreeBSD ioctl max size (8KB for entire structure)
- *   - struct vlabel_rule_io uses ~3x this value, so max is ~2.5KB
- *   - Set to 1KB (struct becomes ~3KB, well under 8KB limit)
- *
- * VLABEL_MAX_KEY_LEN: Maximum length of a single key name (per key).
- *   - 32 bytes total (31 usable + null terminator)
- *   - Typical keys: type, domain, level, tenant, env
- *
- * VLABEL_MAX_VALUE_LEN: Maximum length of a single value (per value).
- *   - 96 bytes total (95 usable + null terminator)
- *   - Typical values: untrusted, web, production
+ * VLABEL_MAX_LABEL_LEN: Soft limit for labels stored in extattrs.
+ *   - Extended attributes have filesystem-specific limits
+ *   - UFS/ZFS typically support 64KB+ but we use a reasonable default
+ *   - This is NOT a hard limit for syscall structures (those use variable length)
  *
  * VLABEL_MAX_PAIRS: Maximum number of key=value pairs per label.
- *   - Applies to both file labels and rule patterns
- *   - This is a kernel parsing limit, independent of ioctl size
+ *   - Kernel parsing limit for in-memory label structures
+ *   - Keep reasonable to avoid excessive memory per label
  */
-#define VLABEL_MAX_LABEL_LEN		1024	/* Max label string length (1KB) */
-#define VLABEL_MAX_KEY_LEN		32	/* Max key length (32 bytes including null) */
-#define VLABEL_MAX_VALUE_LEN		96	/* Max value length (96 bytes including null) */
-#define VLABEL_MAX_PAIRS		8	/* Max key=value pairs per label */
+#define VLABEL_MAX_LABEL_LEN		4096	/* Soft limit for extattr labels */
+#define VLABEL_MAX_KEY_LEN		64	/* Max key length */
+#define VLABEL_MAX_VALUE_LEN		256	/* Max value length */
+#define VLABEL_MAX_PAIRS		16	/* Max key=value pairs per label */
 
 /*
  * Rule constraints (system-wide limits)
@@ -127,14 +115,6 @@
 #define VLABEL_MODE_ENFORCING		2
 
 /*
- * Audit levels
- */
-#define VLABEL_AUDIT_NONE		0
-#define VLABEL_AUDIT_DENIALS		1	/* Log denials only */
-#define VLABEL_AUDIT_DECISIONS		2	/* Log all decisions */
-#define VLABEL_AUDIT_VERBOSE		3	/* Log everything */
-
-/*
  * Context assertion flags
  */
 #define VLABEL_CTX_CAP_SANDBOXED	0x00000001
@@ -168,63 +148,27 @@ struct vlabel_stats {
 };
 
 /*
- * Audit event structure (shared with userland)
+ * Legacy structures for daemon rule parser
  *
- * This is returned via read() on /dev/vlabel.
- * Each read returns one or more complete entries.
+ * These structures use fixed-size arrays for compatibility with the
+ * existing parser code. The syscall API uses variable-length data,
+ * so vlabelctl converts between formats.
  */
-#define VLABEL_AUDIT_LABEL_LEN	64
-#define VLABEL_AUDIT_PATH_LEN	256
+#define VLABEL_PATTERN_MAX_LEN	256	/* Max pattern string for parsing */
 
-struct vlabel_audit_entry {
-	uint64_t	vae_timestamp;		/* Unix timestamp */
-	uint32_t	vae_type;		/* Event type */
-	uint32_t	vae_operation;		/* Operation bitmask */
-	int32_t		vae_result;		/* 0=allowed, errno=denied */
-	int32_t		vae_pid;		/* Process ID */
-	uint32_t	vae_uid;		/* User ID */
-	int32_t		vae_jailid;		/* Jail ID (0 = host) */
-	char		vae_subject_label[VLABEL_AUDIT_LABEL_LEN];
-	char		vae_object_label[VLABEL_AUDIT_LABEL_LEN];
-	char		vae_path[VLABEL_AUDIT_PATH_LEN];
-};
-
-/*
- * Pattern I/O structure for ioctl (userland-kernel interface)
- *
- * Patterns are now simple strings that match against label strings.
- * Pattern format: "key1=value1,key2=value2,..."
- *
- * Matching rules:
- *   - "*" matches any label (wildcard)
- *   - "key=value" requires label to have that exact key=value
- *   - "key=*" requires key to exist with any value
- *   - Multiple pairs: ALL must match (AND logic)
- *   - Prefix "!" negates the entire pattern
- *
- * Examples:
- *   "*"                          - matches anything
- *   "type=app"                   - label must have type=app
- *   "type=app,domain=web"        - must have both
- *   "sensitivity=*"              - must have sensitivity key (any value)
- *   "!type=untrusted"            - must NOT have type=untrusted
- */
 struct vlabel_pattern_io {
-	uint32_t	vp_flags;			/* VLABEL_MATCH_NEGATE, etc */
-	char		vp_pattern[VLABEL_MAX_LABEL_LEN]; /* Pattern string */
+	uint32_t	vp_flags;
+	char		vp_pattern[VLABEL_PATTERN_MAX_LEN];
 };
 
-/*
- * Context I/O structure for userland-kernel interface
- */
 struct vlabel_context_io {
-	uint32_t	vc_flags;		/* Which checks are enabled */
-	uint8_t		vc_cap_sandboxed;	/* true=must be sandboxed */
-	uint8_t		vc_has_tty;		/* true=must have tty */
+	uint32_t	vc_flags;
+	uint8_t		vc_cap_sandboxed;
+	uint8_t		vc_has_tty;
 	uint8_t		vc_padding[2];
-	int32_t		vc_jail_check;		/* 0=host, >0=jail id, -1=any jail */
-	uint32_t	vc_uid;			/* Required UID */
-	uint32_t	vc_gid;			/* Required GID */
+	int32_t		vc_jail_check;
+	uint32_t	vc_uid;
+	uint32_t	vc_gid;
 };
 
 struct vlabel_rule_io {
@@ -234,58 +178,124 @@ struct vlabel_rule_io {
 	uint32_t		vr_operations;
 	struct vlabel_pattern_io vr_subject;
 	struct vlabel_pattern_io vr_object;
-	struct vlabel_context_io vr_context;	/* Context constraints */
-	char			vr_newlabel[VLABEL_MAX_LABEL_LEN];  /* For TRANSITION */
+	struct vlabel_context_io vr_context;
+	char			vr_newlabel[VLABEL_PATTERN_MAX_LEN];
 };
 
 /*
- * ioctl commands for /dev/vlabel (shared with userland)
- */
-#define VLABEL_IOC_GETMODE	_IOR('V', 1, int)
-#define VLABEL_IOC_SETMODE	_IOW('V', 2, int)
-#define VLABEL_IOC_GETSTATS	_IOR('V', 5, struct vlabel_stats)
-#define VLABEL_IOC_SETAUDIT	_IOW('V', 6, int)
-
-/* Rule management */
-#define VLABEL_IOC_RULE_ADD	_IOW('V', 10, struct vlabel_rule_io)
-#define VLABEL_IOC_RULE_REMOVE	_IOW('V', 11, uint32_t)
-#define VLABEL_IOC_RULES_CLEAR	_IO('V', 12)
-#define VLABEL_IOC_RULE_LIST	_IOWR('V', 13, struct vlabel_rule_list_io)
-#define VLABEL_IOC_GETAUDIT	_IOR('V', 14, int)
-#define VLABEL_IOC_TEST_ACCESS	_IOWR('V', 15, struct vlabel_test_io)
-#define VLABEL_IOC_GETDEFPOL	_IOR('V', 16, int)
-#define VLABEL_IOC_SETDEFPOL	_IOW('V', 17, int)
-
-/*
- * Rule list I/O structure - for listing all rules
+ * mac_syscall() command numbers
  *
- * Usage:
- *   1. Allocate buffer for vrl_count rules
- *   2. Set vrl_rules to point to buffer
- *   3. Set vrl_count to buffer capacity
- *   4. Set vrl_offset for pagination (usually 0)
- *   5. Call ioctl - kernel copies rules via copyout()
- *   6. vrl_count updated to actual rules copied
- *   7. vrl_total contains total rules in kernel
+ * Usage: mac_syscall("vlabel", VLABEL_SYS_*, arg)
+ *
+ * All commands require root (uid 0).
  */
-struct vlabel_rule_list_io {
-	uint32_t		vrl_count;	/* In: max rules, Out: actual count */
-	uint32_t		vrl_total;	/* Out: total rules in kernel */
-	uint32_t		vrl_offset;	/* In: starting offset for pagination */
-	uint32_t		vrl_reserved;
-	struct vlabel_rule_io	*vrl_rules;	/* In: userland buffer for rules */
+#define VLABEL_SYS_GETMODE	1	/* arg: int* (out) */
+#define VLABEL_SYS_SETMODE	2	/* arg: int* (in) */
+#define VLABEL_SYS_GETSTATS	5	/* arg: struct vlabel_stats* (out) */
+#define VLABEL_SYS_GETDEFPOL	6	/* arg: int* (out) */
+#define VLABEL_SYS_SETDEFPOL	7	/* arg: int* (in) */
+
+#define VLABEL_SYS_RULE_ADD	10	/* arg: struct vlabel_rule_arg* (in) */
+#define VLABEL_SYS_RULE_REMOVE	11	/* arg: uint32_t* (in: rule_id) */
+#define VLABEL_SYS_RULE_CLEAR	12	/* arg: NULL */
+#define VLABEL_SYS_RULE_LIST	13	/* arg: struct vlabel_rule_list_arg* (in/out) */
+
+#define VLABEL_SYS_TEST		20	/* arg: struct vlabel_test_arg* (in/out) */
+
+/*
+ * Context constraints for rules (shared between kernel and userland)
+ */
+struct vlabel_context_arg {
+	uint32_t	vc_flags;		/* Which checks are enabled */
+	uint8_t		vc_cap_sandboxed;	/* true=must be sandboxed */
+	uint8_t		vc_has_tty;		/* true=must have tty */
+	uint8_t		vc_padding[2];
+	int32_t		vc_jail_check;		/* 0=host, >0=jail id, -1=any jail */
+	uint32_t	vc_uid;			/* Required UID */
+	uint32_t	vc_gid;			/* Required GID */
 };
 
 /*
- * Test access I/O structure - for testing policy without enforcement
+ * Rule add argument - variable length strings
+ *
+ * Pattern format: "key1=value1,key2=value2,..."
+ *   "*"           - matches anything
+ *   "type=app"    - must have type=app
+ *   "!type=bad"   - must NOT have type=bad
+ *
+ * Layout in memory:
+ *   struct vlabel_rule_arg header
+ *   char subject[vr_subject_len]   (null-terminated)
+ *   char object[vr_object_len]     (null-terminated)
+ *   char newlabel[vr_newlabel_len] (null-terminated, only for TRANSITION)
  */
-struct vlabel_test_io {
-	char		vt_subject_label[VLABEL_MAX_LABEL_LEN];	/* Subject label */
-	char		vt_object_label[VLABEL_MAX_LABEL_LEN];	/* Object label */
-	uint32_t	vt_operation;				/* Operation to test */
-	uint32_t	vt_result;				/* Out: 0=allow, EACCES=deny */
-	uint32_t	vt_rule_id;				/* Out: matching rule ID (0=default) */
-	uint32_t	vt_reserved;
+struct vlabel_rule_arg {
+	uint8_t			vr_action;	/* ALLOW/DENY/TRANSITION */
+	uint8_t			vr_reserved[3];
+	uint32_t		vr_operations;	/* Operation bitmask */
+	uint32_t		vr_subject_flags; /* VLABEL_MATCH_NEGATE, etc */
+	uint32_t		vr_object_flags;
+	struct vlabel_context_arg vr_context;
+	uint16_t		vr_subject_len;	/* Length including null */
+	uint16_t		vr_object_len;
+	uint16_t		vr_newlabel_len; /* 0 if not transition */
+	uint16_t		vr_reserved2;
+	/* Variable data follows: subject, object, newlabel */
+};
+
+/*
+ * Rule output for listing - also variable length
+ *
+ * Same layout as vlabel_rule_arg but with rule ID
+ */
+struct vlabel_rule_out {
+	uint32_t		vr_id;		/* Rule ID */
+	uint8_t			vr_action;
+	uint8_t			vr_reserved[3];
+	uint32_t		vr_operations;
+	uint32_t		vr_subject_flags;
+	uint32_t		vr_object_flags;
+	struct vlabel_context_arg vr_context;
+	uint16_t		vr_subject_len;
+	uint16_t		vr_object_len;
+	uint16_t		vr_newlabel_len;
+	uint16_t		vr_reserved2;
+	/* Variable data follows */
+};
+
+/*
+ * Rule list argument
+ *
+ * To list rules:
+ *   1. Call with vrl_buf=NULL, vrl_buflen=0 to get vrl_total
+ *   2. Allocate buffer of appropriate size
+ *   3. Call again with buffer to get rules
+ *
+ * Rules are packed as vlabel_rule_out structures with variable data.
+ */
+struct vlabel_rule_list_arg {
+	uint32_t	vrl_total;	/* Out: total rules in kernel */
+	uint32_t	vrl_count;	/* Out: rules copied to buffer */
+	uint32_t	vrl_offset;	/* In: starting offset */
+	uint32_t	vrl_buflen;	/* In: buffer size */
+	void		*vrl_buf;	/* In: buffer for rules (userland pointer) */
+};
+
+/*
+ * Test access argument - variable length strings
+ *
+ * Layout:
+ *   struct vlabel_test_arg header
+ *   char subject[vt_subject_len]
+ *   char object[vt_object_len]
+ */
+struct vlabel_test_arg {
+	uint32_t	vt_operation;		/* Operation to test */
+	uint32_t	vt_result;		/* Out: 0=allow, EACCES=deny */
+	uint32_t	vt_rule_id;		/* Out: matching rule ID (0=default) */
+	uint16_t	vt_subject_len;		/* Length including null */
+	uint16_t	vt_object_len;
+	/* Variable data follows: subject, object */
 };
 
 #ifdef _KERNEL
@@ -389,7 +399,6 @@ extern struct vlabel_label vlabel_default_subject;
  */
 extern int vlabel_enabled;
 extern int vlabel_mode;
-extern int vlabel_audit_level;
 extern int vlabel_initialized;
 extern int vlabel_default_policy;	/* 0=allow, 1=deny when no rule matches */
 
@@ -440,20 +449,14 @@ bool vlabel_rules_will_transition(struct ucred *cred, struct vlabel_label *subj,
     struct vlabel_label *obj);
 int vlabel_rules_get_transition(struct ucred *cred, struct vlabel_label *subj,
     struct vlabel_label *obj, struct vlabel_label *newlabel);
-int vlabel_rule_add(struct vlabel_rule *rule);
+int vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data);
 int vlabel_rule_remove(uint32_t id);
 void vlabel_rules_clear(void);
 void vlabel_rules_get_stats(struct vlabel_stats *stats);
-int vlabel_rules_list(struct vlabel_rule_list_io *list_io,
-    struct vlabel_rule_io *rules_out, uint32_t max_rules);
-int vlabel_rules_test_access(struct vlabel_test_io *test_io);
-
-/*
- * Function prototypes - vlabel_dev.c
- */
-void vlabel_dev_init(void);
-void vlabel_dev_destroy(void);
-bool vlabel_dev_in_use(void);
+int vlabel_rules_list(struct vlabel_rule_list_arg *list_arg);
+int vlabel_rules_test_access(const char *subject, size_t subject_len,
+    const char *object, size_t object_len, uint32_t operation,
+    uint32_t *result, uint32_t *rule_id);
 
 /*
  * Function prototypes - vlabel_cred.c
@@ -572,17 +575,6 @@ int vlabel_proc_check_debug(struct ucred *cred, struct proc *p);
 int vlabel_proc_check_sched(struct ucred *cred, struct proc *p);
 int vlabel_proc_check_signal(struct ucred *cred, struct proc *p, int signum);
 int vlabel_priv_grant(struct ucred *cred, int priv);
-
-/*
- * Function prototypes - vlabel_audit.c
- */
-void vlabel_audit_init(void);
-void vlabel_audit_destroy(void);
-void vlabel_audit_log(uint32_t event_type, struct ucred *cred,
-    struct vnode *vp, uint32_t operation, int result);
-int vlabel_audit_read(struct uio *uio, int ioflag);
-int vlabel_audit_poll(int events, struct thread *td);
-u_int vlabel_audit_count(void);
 
 #endif /* _KERNEL */
 

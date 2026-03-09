@@ -101,6 +101,18 @@ run_test_script "Default Policy" ./04_default_policy.sh "$VLABELCTL"
 run_test_script "Debug/Signal/Sched" ./05_debug_check.sh "$VLABELCTL"
 run_test_script "Rule Validation" ./06_rule_validate.sh "$VLABELCTL"
 run_test_script "Rule Load" ./07_rule_load.sh "$VLABELCTL"
+run_test_script "mac_syscall API" ./09_syscall_api.sh "$VLABELCTL"
+run_test_script "Limits" ./10_limits.sh "$VLABELCTL"
+run_test_script "Process Enforcement" ./12_process_enforcement.sh "$VLABELCTL"
+run_test_script "Label Transitions" ./13_transitions.sh "$VLABELCTL"
+
+# DTrace test - only run if dtrace is available
+if which dtrace >/dev/null 2>&1; then
+    run_test_script "DTrace Probes" ./11_dtrace.sh "$VLABELCTL"
+else
+    echo ""
+    printf "${YELLOW}>>> Skipping: DTrace Probes (dtrace not available)${NC}\n"
+fi
 
 # NOTE: Enforcement test (08_enforcement.sh) is SKIPPED in the automated suite.
 # It requires special conditions:
