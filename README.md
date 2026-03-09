@@ -33,11 +33,11 @@ kldload ./kernel/mac_vlabel.ko
 ### 3. Label Files
 
 ```sh
-# Set a label on a file
-setextattr system vlabel "type=trusted,domain=system" /usr/local/bin/myapp
-
-# Or use vlabelctl
+# Set a label on a file (live relabeling - takes effect immediately)
 vlabelctl label set /usr/local/bin/myapp "type=trusted,domain=system"
+
+# Get a file's label
+vlabelctl label get /usr/local/bin/myapp
 ```
 
 ### 4. Load Policy
@@ -160,6 +160,12 @@ See [Architecture](docs/architecture.md#dtrace-integration) for full probe docum
 
 ## Known Limitations
 
+### ZFS Only
+
+This module is designed for ZFS filesystems. UFS with `MNT_MULTILABEL` is not
+supported - the `setfmac`/`getfmac` hooks have been removed. Use `vlabelctl`
+for all label operations.
+
 ### Module Unloading Not Supported
 
 The module can be loaded after boot via `kldload`, but does not support
@@ -172,24 +178,20 @@ For development/testing, **reboot** between module updates instead of trying
 to unload/reload. The module omits `MPC_LOADTIME_FLAG_UNLOADOK` to enforce
 this at the kernel level.
 
-### Vnode Label Caching
+### Live Relabeling
 
-File labels are read from extended attributes when the kernel first accesses
-a file's vnode. If you set a label on a file that has already been accessed,
-the new label won't take effect until:
+Use `vlabelctl label set` to change labels on files. This writes the extended
+attribute and immediately refreshes the kernel's cached label via the
+`VLABEL_SYS_REFRESH` syscall. Changes take effect instantly without rebooting.
 
-1. The vnode is reclaimed (system decides to free it), OR
-2. The system is rebooted, OR
-3. The module is loaded fresh (after a reboot)
-
-For reliable label enforcement, set labels on files BEFORE loading the module,
-or reboot after making label changes.
+**Note:** Using `setextattr` directly only writes to disk - the cached label
+won't update until the vnode is reclaimed. Always use `vlabelctl label set`.
 
 ## Requirements
 
 - FreeBSD 15.0 or later
 - Kernel compiled with `options MAC`
-- UFS or ZFS filesystem (for extended attributes)
+- ZFS filesystem
 
 ## License
 
