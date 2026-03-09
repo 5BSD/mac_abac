@@ -136,12 +136,12 @@ else
 fi
 
 run_test
-info "Test: Some valid rules still loaded from invalid file"
+info "Test: Atomic load aborts on parse error (no partial load)"
 OUTPUT=$("$VLABELCTL" rule list 2>&1)
-if echo "$OUTPUT" | grep -q "allow\|deny"; then
-	pass "valid rules from invalid file loaded"
+if echo "$OUTPUT" | grep -qi "no rules"; then
+	pass "atomic load aborts on error (no rules loaded)"
 else
-	fail "valid rules from invalid file loaded (got: $OUTPUT)"
+	fail "atomic load should abort on error (got: $OUTPUT)"
 fi
 
 run_test
@@ -159,16 +159,31 @@ echo ""
 info "=== Append Behavior Tests ==="
 
 run_test
-info "Test: Load appends to existing rules"
+info "Test: Load replaces existing rules (atomic)"
 "$VLABELCTL" rule clear >/dev/null 2>&1
 "$VLABELCTL" rule add "deny exec * -> type=first" >/dev/null 2>&1
+"$VLABELCTL" rule add "deny exec * -> type=second" >/dev/null 2>&1
 BEFORE=$("$VLABELCTL" rule list 2>&1 | grep "Loaded rules" | grep -o '[0-9]*')
 "$VLABELCTL" rule load "$FIXTURES/minimal.rules" >/dev/null 2>&1
 AFTER=$("$VLABELCTL" rule list 2>&1 | grep "Loaded rules" | grep -o '[0-9]*')
-if [ "$AFTER" -gt "$BEFORE" ]; then
-	pass "load appends to existing rules"
+# Load should replace, so AFTER should be 1 (minimal.rules has 1 rule)
+if [ "$AFTER" -eq 1 ]; then
+	pass "load replaces existing rules (atomic)"
 else
-	fail "load appends to existing rules (before: $BEFORE, after: $AFTER)"
+	fail "load replaces existing rules (before: $BEFORE, after: $AFTER, expected: 1)"
+fi
+
+run_test
+info "Test: Append adds to existing rules"
+"$VLABELCTL" rule clear >/dev/null 2>&1
+"$VLABELCTL" rule add "deny exec * -> type=first" >/dev/null 2>&1
+BEFORE=$("$VLABELCTL" rule list 2>&1 | grep "Loaded rules" | grep -o '[0-9]*')
+"$VLABELCTL" rule append "$FIXTURES/minimal.rules" >/dev/null 2>&1
+AFTER=$("$VLABELCTL" rule list 2>&1 | grep "Loaded rules" | grep -o '[0-9]*')
+if [ "$AFTER" -gt "$BEFORE" ]; then
+	pass "append adds to existing rules"
+else
+	fail "append adds to existing rules (before: $BEFORE, after: $AFTER)"
 fi
 
 # ===========================================
