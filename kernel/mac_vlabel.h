@@ -200,6 +200,7 @@ struct vlabel_rule_io {
 #define VLABEL_SYS_RULE_REMOVE	11	/* arg: uint32_t* (in: rule_id) */
 #define VLABEL_SYS_RULE_CLEAR	12	/* arg: NULL */
 #define VLABEL_SYS_RULE_LIST	13	/* arg: struct vlabel_rule_list_arg* (in/out) */
+#define VLABEL_SYS_RULE_LOAD	14	/* arg: struct vlabel_rule_load_arg* (in) - atomic replace */
 
 #define VLABEL_SYS_TEST		20	/* arg: struct vlabel_test_arg* (in/out) */
 #define VLABEL_SYS_REFRESH	21	/* arg: int* (in: file descriptor) */
@@ -232,6 +233,7 @@ struct vlabel_context_arg {
  *   char newlabel[vr_newlabel_len] (null-terminated, only for TRANSITION)
  */
 struct vlabel_rule_arg {
+	uint32_t		vr_id;		/* Out: assigned rule ID */
 	uint8_t			vr_action;	/* ALLOW/DENY/TRANSITION */
 	uint8_t			vr_reserved[3];
 	uint32_t		vr_operations;	/* Operation bitmask */
@@ -281,6 +283,23 @@ struct vlabel_rule_list_arg {
 	uint32_t	vrl_offset;	/* In: starting offset */
 	uint32_t	vrl_buflen;	/* In: buffer size */
 	void		*vrl_buf;	/* In: buffer for rules (userland pointer) */
+};
+
+/*
+ * Rule load argument - atomic rule replacement (like PF's pfctl -f)
+ *
+ * Buffer contains packed vlabel_rule_arg structures with their variable data.
+ * Each rule is: struct vlabel_rule_arg + subject + object + newlabel
+ *
+ * On success, all existing rules are cleared and replaced with the new set.
+ * On failure, existing rules remain unchanged.
+ */
+struct vlabel_rule_load_arg {
+	uint32_t	vrl_count;	/* In: number of rules in buffer */
+	uint32_t	vrl_buflen;	/* In: total buffer size */
+	uint32_t	vrl_loaded;	/* Out: rules successfully loaded */
+	uint32_t	vrl_reserved;
+	void		*vrl_buf;	/* In: buffer with packed rules */
 };
 
 /*
@@ -454,6 +473,7 @@ int vlabel_rules_get_transition(struct ucred *cred, struct vlabel_label *subj,
 int vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data);
 int vlabel_rule_remove(uint32_t id);
 void vlabel_rules_clear(void);
+int vlabel_rules_load(struct vlabel_rule_load_arg *load_arg);
 void vlabel_rules_get_stats(struct vlabel_stats *stats);
 int vlabel_rules_list(struct vlabel_rule_list_arg *list_arg);
 int vlabel_rules_test_access(const char *subject, size_t subject_len,

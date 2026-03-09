@@ -624,6 +624,8 @@ vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data)
 		if (vlabel_rules[i] == NULL) {
 			vlabel_rules[i] = newrule;
 			vlabel_rule_count++;
+			/* Return assigned ID to caller */
+			arg->vr_id = newrule->vr_id;
 			rw_wunlock(&vlabel_rules_lock);
 			/* DTrace: rule added */
 			SDT_PROBE3(vlabel, rules, rule, add,
@@ -706,6 +708,222 @@ vlabel_rules_clear(void)
 	(void)cleared;	/* Silence warning when DTrace compiled out */
 
 	VLABEL_DPRINTF("rules_clear: all rules cleared");
+}
+
+/*
+ * Internal: add a rule without locking (caller holds write lock)
+ */
+static int
+vlabel_rule_add_locked(struct vlabel_rule_arg *arg, const char *data)
+{
+	struct vlabel_rule *newrule;
+	const char *subject_str, *object_str, *newlabel_str;
+	char *converted;
+	int i, error;
+
+	if (arg == NULL || data == NULL)
+		return (EINVAL);
+
+	/* Validate action */
+	if (arg->vr_action > VLABEL_ACTION_TRANSITION)
+		return (EINVAL);
+
+	/* Extract string pointers from data buffer */
+	subject_str = data;
+	object_str = data + arg->vr_subject_len;
+	newlabel_str = data + arg->vr_subject_len + arg->vr_object_len;
+
+	converted = malloc(VLABEL_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
+
+	newrule = malloc(sizeof(*newrule), M_TEMP, M_NOWAIT | M_ZERO);
+	if (newrule == NULL) {
+		free(converted, M_TEMP);
+		return (ENOMEM);
+	}
+
+	newrule->vr_action = arg->vr_action;
+	newrule->vr_operations = arg->vr_operations;
+
+	/* Parse subject pattern */
+	newrule->vr_subject.vp_flags = arg->vr_subject_flags;
+	if (arg->vr_subject_len > 0 && subject_str[0] != '\0' &&
+	    subject_str[0] != '*') {
+		error = vlabel_pattern_parse(subject_str, strlen(subject_str),
+		    &newrule->vr_subject);
+		if (error) {
+			free(newrule, M_TEMP);
+			free(converted, M_TEMP);
+			return (error);
+		}
+	}
+
+	/* Parse object pattern */
+	newrule->vr_object.vp_flags = arg->vr_object_flags;
+	if (arg->vr_object_len > 0 && object_str[0] != '\0' &&
+	    object_str[0] != '*') {
+		error = vlabel_pattern_parse(object_str, strlen(object_str),
+		    &newrule->vr_object);
+		if (error) {
+			free(newrule, M_TEMP);
+			free(converted, M_TEMP);
+			return (error);
+		}
+	}
+
+	/* Copy context constraints */
+	newrule->vr_context.vc_flags = arg->vr_context.vc_flags;
+	newrule->vr_context.vc_cap_sandboxed = arg->vr_context.vc_cap_sandboxed;
+	newrule->vr_context.vc_has_tty = arg->vr_context.vc_has_tty;
+	newrule->vr_context.vc_jail_check = arg->vr_context.vc_jail_check;
+	newrule->vr_context.vc_uid = arg->vr_context.vc_uid;
+	newrule->vr_context.vc_gid = arg->vr_context.vc_gid;
+
+	/* Parse newlabel for TRANSITION rules */
+	if (arg->vr_action == VLABEL_ACTION_TRANSITION &&
+	    arg->vr_newlabel_len > 0 && newlabel_str[0] != '\0') {
+		convert_label_format(newlabel_str, converted, VLABEL_MAX_LABEL_LEN);
+		error = vlabel_label_parse(converted, strlen(converted),
+		    &newrule->vr_newlabel);
+		if (error) {
+			free(newrule, M_TEMP);
+			free(converted, M_TEMP);
+			return (error);
+		}
+	}
+
+	free(converted, M_TEMP);
+
+	/* Assign rule ID */
+	newrule->vr_id = vlabel_next_rule_id++;
+
+	/* Find empty slot */
+	for (i = 0; i < VLABEL_MAX_RULES; i++) {
+		if (vlabel_rules[i] == NULL) {
+			vlabel_rules[i] = newrule;
+			vlabel_rule_count++;
+			SDT_PROBE3(vlabel, rules, rule, add,
+			    newrule->vr_id, newrule->vr_action,
+			    newrule->vr_operations);
+			return (0);
+		}
+	}
+
+	free(newrule, M_TEMP);
+	return (ENOSPC);
+}
+
+/*
+ * Atomic rule load - replace all rules at once (like PF reload)
+ *
+ * Buffer format: packed vlabel_rule_arg structures with variable data.
+ * Each entry is: struct vlabel_rule_arg + subject + object + newlabel
+ *
+ * On success: old rules cleared, new rules loaded atomically.
+ * On failure: old rules unchanged.
+ */
+int
+vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
+{
+	struct vlabel_rule *old_rules[VLABEL_MAX_RULES];
+	int old_count;
+	char *kbuf;
+	size_t offset;
+	uint32_t i, loaded;
+	int error;
+
+	if (load_arg == NULL)
+		return (EINVAL);
+
+	if (load_arg->vrl_count > VLABEL_MAX_RULES)
+		return (E2BIG);
+
+	if (load_arg->vrl_buf == NULL || load_arg->vrl_buflen == 0) {
+		/* Empty load = clear all rules */
+		vlabel_rules_clear();
+		load_arg->vrl_loaded = 0;
+		return (0);
+	}
+
+	/* Copy buffer from userland */
+	kbuf = malloc(load_arg->vrl_buflen, M_TEMP, M_WAITOK);
+	error = copyin(load_arg->vrl_buf, kbuf, load_arg->vrl_buflen);
+	if (error) {
+		free(kbuf, M_TEMP);
+		return (error);
+	}
+
+	rw_wlock(&vlabel_rules_lock);
+
+	/* Save old rules in case we need to rollback */
+	old_count = vlabel_rule_count;
+	for (i = 0; i < VLABEL_MAX_RULES; i++) {
+		old_rules[i] = vlabel_rules[i];
+		vlabel_rules[i] = NULL;
+	}
+	vlabel_rule_count = 0;
+
+	/* Parse and add new rules */
+	offset = 0;
+	loaded = 0;
+	error = 0;
+
+	for (i = 0; i < load_arg->vrl_count && offset < load_arg->vrl_buflen; i++) {
+		struct vlabel_rule_arg *arg;
+		const char *data;
+		size_t rule_size;
+
+		if (offset + sizeof(struct vlabel_rule_arg) > load_arg->vrl_buflen) {
+			error = EINVAL;
+			break;
+		}
+
+		arg = (struct vlabel_rule_arg *)(kbuf + offset);
+		data = kbuf + offset + sizeof(struct vlabel_rule_arg);
+
+		/* Calculate total size of this rule entry */
+		rule_size = sizeof(struct vlabel_rule_arg) +
+		    arg->vr_subject_len + arg->vr_object_len + arg->vr_newlabel_len;
+
+		if (offset + rule_size > load_arg->vrl_buflen) {
+			error = EINVAL;
+			break;
+		}
+
+		error = vlabel_rule_add_locked(arg, data);
+		if (error) {
+			VLABEL_DPRINTF("rules_load: failed to add rule %u: %d",
+			    i, error);
+			break;
+		}
+
+		loaded++;
+		offset += rule_size;
+	}
+
+	if (error) {
+		/* Rollback: restore old rules */
+		for (i = 0; i < VLABEL_MAX_RULES; i++) {
+			if (vlabel_rules[i] != NULL)
+				free(vlabel_rules[i], M_TEMP);
+			vlabel_rules[i] = old_rules[i];
+		}
+		vlabel_rule_count = old_count;
+		VLABEL_DPRINTF("rules_load: rollback, restored %d rules", old_count);
+	} else {
+		/* Success: free old rules */
+		for (i = 0; i < VLABEL_MAX_RULES; i++) {
+			if (old_rules[i] != NULL)
+				free(old_rules[i], M_TEMP);
+		}
+		VLABEL_DPRINTF("rules_load: loaded %u rules atomically", loaded);
+	}
+
+	rw_wunlock(&vlabel_rules_lock);
+
+	free(kbuf, M_TEMP);
+
+	load_arg->vrl_loaded = loaded;
+	return (error);
 }
 
 /*

@@ -1,0 +1,26 @@
+# vLabel rules file - line format
+# Usage: vlabelctl rule load /path/to/rules.conf
+#
+# Syntax: action operations subject -> object [=> newlabel]
+#   action: allow, deny, transition
+#   operations: exec, read, write, debug, signal, sched, all (comma-separated)
+#   subject/object: * (any) or key=value,key=value pattern
+#   newlabel: required for transition rules
+
+# Block untrusted executables
+deny exec * -> type=untrusted
+
+# Web domain isolation
+allow read,write domain=web -> domain=web
+
+# Database domain isolation
+allow read,write domain=database -> domain=database
+
+# Trusted processes can do anything
+allow all type=trusted -> *
+
+# System domain can do anything
+allow all domain=system -> *
+
+# Catch-all: deny everything else (optional - depends on default_policy)
+# deny all * -> *

@@ -128,18 +128,21 @@ usage(void)
 	    "      Show kernel limits, supported operations, and syntax\n"
 	    "\n"
 	    "  rule add \"<rule>\"\n"
-	    "      Add a rule (line format)\n"
+	    "      Add a rule, prints assigned ID\n"
 	    "      Example: vlabelctl rule add \"deny exec * -> type=untrusted\"\n"
 	    "\n"
 	    "  rule remove <id>\n"
 	    "      Remove a rule by ID\n"
 	    "\n"
 	    "  rule load <file>\n"
-	    "      Load rules from a file (one rule per line)\n"
-	    "      Lines starting with # are comments\n"
+	    "      Atomic load: clear all rules, load from file\n"
+	    "      On parse error, existing rules remain unchanged\n"
+	    "\n"
+	    "  rule append <file>\n"
+	    "      Append rules from file (keeps existing rules)\n"
 	    "\n"
 	    "  rule list\n"
-	    "      List all loaded rules\n"
+	    "      List all loaded rules with IDs\n"
 	    "\n"
 	    "  rule clear\n"
 	    "      Clear all rules\n"
@@ -499,6 +502,7 @@ cmd_rule(int argc, char *argv[])
 	if (strcmp(argv[0], "add") == 0) {
 		char *buf;
 		size_t len;
+		struct vlabel_rule_arg *arg;
 
 		if (argc < 2)
 			errx(EX_USAGE, "rule add requires a rule string");
@@ -514,37 +518,27 @@ cmd_rule(int argc, char *argv[])
 			err(EX_OSERR, "RULE_ADD");
 		}
 
+		arg = (struct vlabel_rule_arg *)buf;
+		printf("rule %u added\n", arg->vr_id);
 		free(buf);
-		printf("rule added\n");
 
-	} else if (strcmp(argv[0], "remove") == 0) {
-		if (argc < 2)
-			errx(EX_USAGE, "rule remove requires a rule ID");
-
-		id = (uint32_t)strtoul(argv[1], NULL, 10);
-		if (vlabel_syscall(VLABEL_SYS_RULE_REMOVE, &id) < 0)
-			err(EX_OSERR, "RULE_REMOVE");
-
-		printf("removed rule %u\n", id);
-
-	} else if (strcmp(argv[0], "clear") == 0) {
-		if (vlabel_syscall(VLABEL_SYS_RULE_CLEAR, NULL) < 0)
-			err(EX_OSERR, "RULE_CLEAR");
-
-		printf("all rules cleared\n");
-
-	} else if (strcmp(argv[0], "load") == 0) {
+	} else if (strcmp(argv[0], "append") == 0) {
+		/*
+		 * Append rules from file without clearing existing rules.
+		 * Unlike 'load', this adds to existing rules.
+		 */
 		FILE *fp;
 		char line[2048];
 		char *start, *end, *comment;
 		char *buf;
 		size_t len;
+		struct vlabel_rule_arg *arg;
 		int lineno = 0;
-		int loaded = 0;
+		int added = 0;
 		int errors = 0;
 
 		if (argc < 2)
-			errx(EX_USAGE, "rule load requires a file path");
+			errx(EX_USAGE, "rule append requires a file path");
 
 		fp = fopen(argv[1], "r");
 		if (fp == NULL)
@@ -593,18 +587,156 @@ cmd_rule(int argc, char *argv[])
 				continue;
 			}
 
+			arg = (struct vlabel_rule_arg *)buf;
+			printf("  rule %u added\n", arg->vr_id);
 			free(buf);
-			loaded++;
+			added++;
 		}
 
 		fclose(fp);
 
-		printf("loaded %d rules", loaded);
+		printf("appended %d rules", added);
 		if (errors > 0)
 			printf(" (%d errors)", errors);
 		printf("\n");
 
 		return (errors > 0 ? 1 : 0);
+
+	} else if (strcmp(argv[0], "remove") == 0) {
+		if (argc < 2)
+			errx(EX_USAGE, "rule remove requires a rule ID");
+
+		id = (uint32_t)strtoul(argv[1], NULL, 10);
+		if (vlabel_syscall(VLABEL_SYS_RULE_REMOVE, &id) < 0)
+			err(EX_OSERR, "RULE_REMOVE");
+
+		printf("removed rule %u\n", id);
+
+	} else if (strcmp(argv[0], "clear") == 0) {
+		if (vlabel_syscall(VLABEL_SYS_RULE_CLEAR, NULL) < 0)
+			err(EX_OSERR, "RULE_CLEAR");
+
+		printf("all rules cleared\n");
+
+	} else if (strcmp(argv[0], "load") == 0) {
+		/*
+		 * Atomic rule load - like PF's pfctl -f
+		 *
+		 * First pass: parse all rules, build packed buffer
+		 * Second pass: send to kernel atomically
+		 *
+		 * On success: old rules are cleared, new rules loaded
+		 * On failure: old rules remain unchanged
+		 */
+		FILE *fp;
+		char line[2048];
+		char *start, *end, *comment;
+		char *rule_buf;
+		size_t rule_len;
+		int lineno = 0;
+		int rule_count = 0;
+		int errors = 0;
+
+		/* Dynamic buffer for packed rules */
+		char *load_buf = NULL;
+		size_t load_buflen = 0;
+		size_t load_bufused = 0;
+
+		struct vlabel_rule_load_arg load_arg;
+
+		if (argc < 2)
+			errx(EX_USAGE, "rule load requires a file path");
+
+		fp = fopen(argv[1], "r");
+		if (fp == NULL)
+			err(EX_NOINPUT, "open %s", argv[1]);
+
+		/* First pass: parse all rules into buffer */
+		while (fgets(line, sizeof(line), fp) != NULL) {
+			lineno++;
+
+			/* Strip comments */
+			comment = strchr(line, '#');
+			if (comment != NULL)
+				*comment = '\0';
+
+			/* Trim leading whitespace */
+			start = line;
+			while (*start == ' ' || *start == '\t')
+				start++;
+
+			/* Trim trailing whitespace */
+			end = start + strlen(start) - 1;
+			while (end > start && (*end == '\n' || *end == '\r' ||
+			    *end == ' ' || *end == '\t')) {
+				*end = '\0';
+				end--;
+			}
+
+			/* Skip empty lines */
+			if (*start == '\0')
+				continue;
+
+			/* Parse rule */
+			ret = build_rule_arg(start, &rule_buf, &rule_len);
+			if (ret < 0) {
+				warnx("%s:%d: invalid rule syntax: %s",
+				    argv[1], lineno, start);
+				errors++;
+				continue;
+			}
+			if (ret > 0) /* empty after parsing */
+				continue;
+
+			/* Grow buffer if needed */
+			if (load_bufused + rule_len > load_buflen) {
+				size_t newlen = load_buflen == 0 ? 8192 :
+				    load_buflen * 2;
+				while (newlen < load_bufused + rule_len)
+					newlen *= 2;
+				load_buf = realloc(load_buf, newlen);
+				if (load_buf == NULL) {
+					free(rule_buf);
+					err(EX_OSERR, "realloc");
+				}
+				load_buflen = newlen;
+			}
+
+			/* Append rule to buffer */
+			memcpy(load_buf + load_bufused, rule_buf, rule_len);
+			load_bufused += rule_len;
+			rule_count++;
+
+			free(rule_buf);
+		}
+
+		fclose(fp);
+
+		if (errors > 0) {
+			warnx("aborting load due to %d parse errors", errors);
+			free(load_buf);
+			return (1);
+		}
+
+		if (rule_count == 0) {
+			printf("no rules to load (clearing existing rules)\n");
+		}
+
+		/* Atomic load via kernel syscall */
+		memset(&load_arg, 0, sizeof(load_arg));
+		load_arg.vrl_count = rule_count;
+		load_arg.vrl_buflen = load_bufused;
+		load_arg.vrl_buf = load_buf;
+
+		if (vlabel_syscall(VLABEL_SYS_RULE_LOAD, &load_arg) < 0) {
+			free(load_buf);
+			err(EX_OSERR, "RULE_LOAD");
+		}
+
+		free(load_buf);
+
+		printf("loaded %u rules (atomic)\n", load_arg.vrl_loaded);
+		return (0);
 
 	} else if (strcmp(argv[0], "list") == 0) {
 		struct vlabel_rule_list_arg list_arg;

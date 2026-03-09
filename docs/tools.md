@@ -111,12 +111,20 @@ Manage access control rules.
 vlabelctl rule add "deny exec * -> type=untrusted"
 vlabelctl rule add "allow read,write domain=web -> domain=web"
 
+# Load rules from file (atomic - like PF reload)
+vlabelctl rule load /etc/vlabel/rules.conf
+
 # Remove a rule by ID
 vlabelctl rule remove 5
+
+# List loaded rules
+vlabelctl rule list
 
 # Clear all rules
 vlabelctl rule clear
 ```
+
+**Atomic Rule Loading:** `vlabelctl rule load` replaces all rules atomically. If parsing fails, the old rules remain unchanged. This is similar to `pfctl -f` for PF.
 
 Line format:
 ```

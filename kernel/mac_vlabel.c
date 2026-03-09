@@ -399,8 +399,12 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 
 		error = vlabel_rule_add_from_arg(&rule_arg, data);
 		free(data, M_TEMP);
-		VLABEL_DPRINTF("syscall RULE_ADD: action=%d ops=0x%x err=%d",
-		    rule_arg.vr_action, rule_arg.vr_operations, error);
+		if (error == 0) {
+			/* Copyout the updated arg with assigned rule ID */
+			error = copyout(&rule_arg, arg, sizeof(rule_arg));
+		}
+		VLABEL_DPRINTF("syscall RULE_ADD: id=%u action=%d ops=0x%x err=%d",
+		    rule_arg.vr_id, rule_arg.vr_action, rule_arg.vr_operations, error);
 		break;
 
 	case VLABEL_SYS_RULE_REMOVE:
@@ -416,6 +420,21 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 		vlabel_rules_clear();
 		error = 0;
 		VLABEL_DPRINTF("syscall RULE_CLEAR");
+		break;
+
+	case VLABEL_SYS_RULE_LOAD:
+		{
+			struct vlabel_rule_load_arg load_arg;
+
+			error = copyin(arg, &load_arg, sizeof(load_arg));
+			if (error)
+				break;
+			error = vlabel_rules_load(&load_arg);
+			if (error == 0)
+				error = copyout(&load_arg, arg, sizeof(load_arg));
+			VLABEL_DPRINTF("syscall RULE_LOAD: count=%u loaded=%u err=%d",
+			    load_arg.vrl_count, load_arg.vrl_loaded, error);
+		}
 		break;
 
 	case VLABEL_SYS_RULE_LIST:
