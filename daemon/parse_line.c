@@ -9,43 +9,39 @@
  * Parses vLabel rules in a simple line-based format for CLI use.
  *
  * Format:
- *   action operations subject -> object [subj_context:...] [obj_context:...]
+ *   action operations subject [ctx:...] -> object [ctx:...] [=> newlabel]
+ *
+ * Context placement determines what it applies to:
+ *   - ctx: BEFORE '->' applies to subject (caller)
+ *   - ctx: AFTER '->' applies to object (target)
  *
  * Examples:
  *   deny exec * -> type=untrusted
  *   allow read,write domain=web -> domain=web
- *   allow exec type=admin -> * subj_context:jail=host
- *   deny debug * -> * obj_context:sandboxed=true
- *   deny signal * -> * subj_context:uid=1000 obj_context:uid=0
+ *   allow exec type=admin ctx:jail=host -> *
+ *   deny debug * ctx:uid=0 -> * ctx:sandboxed=true
+ *   deny signal type=user ctx:uid=1000 -> type=system ctx:uid=0
  *   transition exec type=user -> type=setuid,name=su => type=admin
  *
  * Pattern format:
  *   *                  - match anything
- *   type=value         - match type field
- *   domain=value       - match domain field
- *   name=value         - match name field
- *   level=value        - match level field
- *   type=a,domain=b    - match multiple fields
- *   !type=value        - negate match
+ *   key=value          - match key field
+ *   key1=a,key2=b      - match multiple fields (AND)
+ *   !pattern           - negate match
  *
- * Context constraints:
- *   subj_context:...   - constraints on the SUBJECT (caller/actor)
- *   obj_context:...    - constraints on the OBJECT (target)
- *   context:...        - DEPRECATED alias for subj_context:
- *
- * Context options (usable with subj_context: or obj_context:):
+ * Context options:
  *   jail=host          - must be on host (not in jail)
  *   jail=any           - must be in any jail
- *   jail=5             - must be in jail with ID 5
+ *   jail=N             - must be in jail with ID N
  *   sandboxed=true     - must be in capability mode (Capsicum)
  *   sandboxed=false    - must NOT be in capability mode
- *   uid=0              - effective UID must be 0 (root)
- *   gid=0              - effective GID must be 0 (wheel)
- *   ruid=1000          - real UID must be 1000
+ *   uid=N              - effective UID must be N
+ *   gid=N              - effective GID must be N
+ *   ruid=N             - real UID must be N
  *   tty=true           - must have controlling terminal
  *
  * Multiple constraints can be combined:
- *   subj_context:jail=host,uid=0  - root on host only
+ *   ctx:jail=host,uid=0  - root on host only
  */
 
 #include <sys/types.h>
@@ -232,7 +228,13 @@ parse_pattern(const char *word, struct vlabel_pattern_io *pattern)
 }
 
 /*
- * Parse context: context:jail=host,sandboxed=true
+ * Parse context: ctx:jail=host,sandboxed=true
+ *
+ * Valid keys: jail, sandboxed, tty, uid, gid, ruid
+ * Unknown keys are rejected.
+ *
+ * This function is additive - it merges new constraints into the existing
+ * context, allowing multiple ctx: tokens to be combined.
  */
 static int
 parse_context(const char *word, struct vlabel_context_io *ctx)
@@ -241,13 +243,17 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
 	char *p, *tok;
 	char *key, *val;
 
-	memset(ctx, 0, sizeof(*ctx));
-
-	/* Must start with "context:" */
-	if (strncasecmp(word, "context:", 8) != 0)
+	/* Must start with "ctx:" */
+	if (strncasecmp(word, "ctx:", 4) != 0)
 		return (-1);
 
-	strlcpy(buf, word + 8, sizeof(buf));
+	strlcpy(buf, word + 4, sizeof(buf));
+
+	/* Empty ctx: is an error */
+	if (buf[0] == '\0') {
+		fprintf(stderr, "empty context constraint\n");
+		return (-1);
+	}
 
 	for (tok = strtok_r(buf, ",", &p); tok != NULL;
 	     tok = strtok_r(NULL, ",", &p)) {
@@ -256,8 +262,10 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
 
 		key = tok;
 		val = strchr(tok, '=');
-		if (val == NULL)
-			continue;
+		if (val == NULL) {
+			fprintf(stderr, "invalid context syntax (missing '='): %s\n", tok);
+			return (-1);
+		}
 		*val++ = '\0';
 
 		if (strcasecmp(key, "jail") == 0) {
@@ -270,19 +278,31 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
 				errno = 0;
 				num = strtol(val, &endptr, 10);
 				if (errno != 0 || *endptr != '\0' || num < 0) {
-					fprintf(stderr, "invalid jail ID: %s\n", val);
+					fprintf(stderr, "invalid jail value: %s\n", val);
 					return (-1);
 				}
 				ctx->vc_jail_check = (int)num;
 			}
 		} else if (strcasecmp(key, "sandboxed") == 0) {
 			ctx->vc_flags |= VLABEL_CTX_CAP_SANDBOXED;
-			ctx->vc_cap_sandboxed = (strcasecmp(val, "true") == 0 ||
-			    strcmp(val, "1") == 0);
+			if (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0)
+				ctx->vc_cap_sandboxed = 1;
+			else if (strcasecmp(val, "false") == 0 || strcmp(val, "0") == 0)
+				ctx->vc_cap_sandboxed = 0;
+			else {
+				fprintf(stderr, "invalid sandboxed value: %s (use true/false)\n", val);
+				return (-1);
+			}
 		} else if (strcasecmp(key, "tty") == 0) {
 			ctx->vc_flags |= VLABEL_CTX_HAS_TTY;
-			ctx->vc_has_tty = (strcasecmp(val, "true") == 0 ||
-			    strcmp(val, "1") == 0);
+			if (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0)
+				ctx->vc_has_tty = 1;
+			else if (strcasecmp(val, "false") == 0 || strcmp(val, "0") == 0)
+				ctx->vc_has_tty = 0;
+			else {
+				fprintf(stderr, "invalid tty value: %s (use true/false)\n", val);
+				return (-1);
+			}
 		} else if (strcasecmp(key, "uid") == 0) {
 			ctx->vc_flags |= VLABEL_CTX_UID;
 			errno = 0;
@@ -310,6 +330,10 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
 				return (-1);
 			}
 			ctx->vc_uid = (uint32_t)num;
+		} else {
+			fprintf(stderr, "unknown context key: %s\n", key);
+			fprintf(stderr, "valid keys: jail, sandboxed, tty, uid, gid, ruid\n");
+			return (-1);
 		}
 	}
 
@@ -319,15 +343,29 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
 /*
  * Parse a rule line
  *
- * Format: action operations subject -> object [context:...] [=> newlabel]
+ * Format: action operations subject [ctx:...] -> object [ctx:...] [=> newlabel]
  *
- * Returns 0 on success, -1 on parse error.
+ * Context placement determines what it applies to:
+ *   - ctx: BEFORE '->' applies to subject (caller)
+ *   - ctx: AFTER '->' applies to object (target)
+ *
+ * Examples:
+ *   deny exec * -> type=untrusted
+ *   deny debug * ctx:jail=any -> type=system
+ *   deny debug * -> * ctx:sandboxed=true
+ *   deny signal * ctx:uid=0 -> * ctx:jail=host
+ *
+ * Returns 0 on success, -1 on parse error, 1 for empty/comment line.
  */
 int
 vlabeld_parse_line(const char *line, struct vlabel_rule_io *rule)
 {
-	char word[256];
+	char word[VLABEL_PATTERN_MAX_LEN];
 	const char *p;
+	bool got_arrow = false;
+	bool got_object = false;
+	bool got_subj_ctx = false;
+	bool got_obj_ctx = false;
 
 	memset(rule, 0, sizeof(*rule));
 	rule->vr_id = next_rule_id++;
@@ -359,30 +397,12 @@ vlabeld_parse_line(const char *line, struct vlabel_rule_io *rule)
 		return (-1);
 	}
 
-	/* Arrow "->" */
-	p = parse_word(p, word, sizeof(word));
-	if (strcmp(word, "->") != 0) {
-		fprintf(stderr, "expected '->', got: %s\n", word);
-		return (-1);
-	}
-
-	/* Object pattern */
-	p = parse_word(p, word, sizeof(word));
-	if (parse_pattern(word, &rule->vr_object) < 0) {
-		fprintf(stderr, "invalid object pattern: %s\n", word);
-		return (-1);
-	}
-
 	/*
-	 * Optional: context constraints or transition arrow
-	 *
-	 * Syntax:
-	 *   subj_context:key=val   - constraint on subject (caller)
-	 *   obj_context:key=val    - constraint on object (target)
-	 *   context:key=val        - DEPRECATED alias for subj_context:
-	 *
-	 * Both can be specified:
-	 *   deny debug * -> * subj_context:uid=0 obj_context:sandboxed=true
+	 * Now parse remaining tokens:
+	 * - "->" separates subject from object
+	 * - "=>" introduces transition label
+	 * - ctx: before -> applies to subject
+	 * - ctx: after -> applies to object
 	 */
 	p = skip_ws(p);
 	while (*p != '\0') {
@@ -390,36 +410,62 @@ vlabeld_parse_line(const char *line, struct vlabel_rule_io *rule)
 		if (word[0] == '\0')
 			break;
 
-		if (strncasecmp(word, "subj_context:", 13) == 0) {
-			/* Subject context - constraints on the caller */
-			char adjusted[256];
-			snprintf(adjusted, sizeof(adjusted), "context:%s", word + 13);
-			if (parse_context(adjusted, &rule->vr_subj_context) < 0) {
-				fprintf(stderr, "invalid subj_context: %s\n", word);
+		if (strcmp(word, "->") == 0) {
+			if (got_arrow) {
+				fprintf(stderr, "unexpected second '->'\n");
 				return (-1);
 			}
-		} else if (strncasecmp(word, "obj_context:", 12) == 0) {
-			/* Object context - constraints on the target (for proc ops) */
-			char adjusted[256];
-			snprintf(adjusted, sizeof(adjusted), "context:%s", word + 12);
-			if (parse_context(adjusted, &rule->vr_obj_context) < 0) {
-				fprintf(stderr, "invalid obj_context: %s\n", word);
+			got_arrow = true;
+
+			/* Next word must be object pattern */
+			p = parse_word(p, word, sizeof(word));
+			if (word[0] == '\0') {
+				fprintf(stderr, "missing object pattern after '->'\n");
 				return (-1);
 			}
-		} else if (strncasecmp(word, "context:", 8) == 0) {
-			/* DEPRECATED: alias for subj_context: (backward compat) */
-			if (parse_context(word, &rule->vr_subj_context) < 0) {
-				fprintf(stderr, "invalid context: %s\n", word);
+			if (parse_pattern(word, &rule->vr_object) < 0) {
+				fprintf(stderr, "invalid object pattern: %s\n", word);
 				return (-1);
 			}
+			got_object = true;
+
+		} else if (strncasecmp(word, "ctx:", 4) == 0) {
+			/* Position-based context: before -> = subject, after -> = object */
+			if (!got_arrow) {
+				/* Before arrow - applies to subject */
+				if (got_subj_ctx) {
+					fprintf(stderr, "duplicate subject ctx: (use comma-separated values)\n");
+					return (-1);
+				}
+				if (parse_context(word, &rule->vr_subj_context) < 0) {
+					return (-1);
+				}
+				got_subj_ctx = true;
+			} else {
+				/* After arrow - applies to object */
+				if (got_obj_ctx) {
+					fprintf(stderr, "duplicate object ctx: (use comma-separated values)\n");
+					return (-1);
+				}
+				if (parse_context(word, &rule->vr_obj_context) < 0) {
+					return (-1);
+				}
+				got_obj_ctx = true;
+			}
+
 		} else if (strcmp(word, "=>") == 0) {
 			/* Transition label */
+			if (!got_arrow) {
+				fprintf(stderr, "'=>' must appear after '->'\n");
+				return (-1);
+			}
 			p = parse_word(p, word, sizeof(word));
+			if (word[0] == '\0') {
+				fprintf(stderr, "missing label after '=>'\n");
+				return (-1);
+			}
 			strlcpy(rule->vr_newlabel, word, sizeof(rule->vr_newlabel));
-		} else if (strcmp(word, "->") == 0) {
-			/* Second arrow is invalid */
-			fprintf(stderr, "unexpected second '->'\n");
-			return (-1);
+
 		} else {
 			/* Unknown token */
 			fprintf(stderr, "unexpected token: %s\n", word);
@@ -427,6 +473,16 @@ vlabeld_parse_line(const char *line, struct vlabel_rule_io *rule)
 		}
 
 		p = skip_ws(p);
+	}
+
+	/* Validate we got the required parts */
+	if (!got_arrow) {
+		fprintf(stderr, "missing '->' in rule\n");
+		return (-1);
+	}
+	if (!got_object) {
+		fprintf(stderr, "missing object pattern\n");
+		return (-1);
 	}
 
 	return (0);

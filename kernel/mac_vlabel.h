@@ -138,7 +138,12 @@
 #define VLABEL_OP_ACCEPT		0x00400000	/* socket accept */
 #define VLABEL_OP_SEND			0x00800000	/* socket send */
 #define VLABEL_OP_RECEIVE		0x01000000	/* socket receive */
-#define VLABEL_OP_ALL			0x01FFFFFF
+#define VLABEL_OP_WAIT			0x02000000	/* wait4() on process */
+#define VLABEL_OP_MPROTECT		0x04000000	/* mprotect() */
+#define VLABEL_OP_SETCRED		0x08000000	/* setuid/setgid family */
+#define VLABEL_OP_AUDIT			0x10000000	/* BSM audit operations */
+#define VLABEL_OP_DELIVER		0x20000000	/* packet delivery to socket */
+#define VLABEL_OP_ALL			0x3FFFFFFF
 
 /*
  * Rule actions
@@ -189,13 +194,16 @@ struct vlabel_stats {
 };
 
 /*
- * Legacy structures for daemon rule parser
+ * Parser I/O structures
  *
- * These structures use fixed-size arrays for compatibility with the
- * existing parser code. The syscall API uses variable-length data,
- * so vlabelctl converts between formats.
+ * These structures use fixed-size arrays for the daemon/CLI parser.
+ * The syscall API uses variable-length data, so vlabelctl converts
+ * between formats when communicating with the kernel.
+ *
+ * VLABEL_PATTERN_MAX_LEN must accommodate the maximum parseable pattern:
+ * VLABEL_RULE_MAX_PAIRS pairs, each with key=value plus separator.
  */
-#define VLABEL_PATTERN_MAX_LEN	256	/* Max pattern string for parsing */
+#define VLABEL_PATTERN_MAX_LEN	(VLABEL_RULE_MAX_PAIRS * (VLABEL_RULE_KEY_LEN + VLABEL_RULE_VALUE_LEN + 2))
 
 struct vlabel_pattern_io {
 	uint32_t	vp_flags;
@@ -252,11 +260,13 @@ struct vlabel_rule_io {
  * Rules can have two independent context constraints:
  *
  * Subject context (vr_subj_context): checked against the CALLER
- *   - CLI syntax: subj_context:key=value  (or deprecated: context:key=value)
+ *   - CLI syntax: ctx:key=value (before the -> arrow)
+ *   - UCL syntax: subj_ctx = { key = value; }
  *   - Useful for: "only root can do X", "only host processes can do Y"
  *
  * Object context (vr_obj_context): checked against the TARGET
- *   - CLI syntax: obj_context:key=value
+ *   - CLI syntax: ctx:key=value (after the -> arrow)
+ *   - UCL syntax: obj_ctx = { key = value; }
  *   - Useful for: "can't debug sandboxed processes", "can't signal jailed procs"
  *   - Only meaningful for process operations (debug, signal, sched)
  *
@@ -264,13 +274,13 @@ struct vlabel_rule_io {
  * Both can be specified on the same rule.
  *
  * Examples:
- *   deny debug * -> * obj_context:sandboxed=true
+ *   deny debug * -> * ctx:sandboxed=true
  *     - Protects processes in capability mode from being debugged
  *
- *   deny signal * -> * subj_context:jail=any obj_context:jail=host
+ *   deny signal * ctx:jail=any -> * ctx:jail=host
  *     - Prevents jailed processes from signaling host processes
  *
- *   allow exec type=admin -> * subj_context:jail=host,uid=0
+ *   allow exec type=admin ctx:jail=host,uid=0 -> *
  *     - Only root on host can run admin binaries
  */
 struct vlabel_context_arg {
@@ -415,7 +425,7 @@ struct vlabel_label {
 };
 
 /*
- * Pattern for matching labels in rules (legacy - large)
+ * Pattern for matching labels (large version for file labels)
  *
  * Patterns are also stored as key=value pairs. A label matches a pattern
  * if ALL pairs in the pattern exist in the label with matching values.
@@ -426,8 +436,8 @@ struct vlabel_label {
  *   Pattern "type=*" matches any label that has a "type" key
  *   Pattern "" (empty) matches any label (wildcard)
  *
- * NOTE: This is the legacy large pattern struct (~5KB). New code should
- * use vlabel_rule_pattern which is optimized for rules (~1KB).
+ * NOTE: This struct is ~5KB due to large value sizes for file labels.
+ * For rule patterns, use vlabel_rule_pattern which is ~1KB.
  */
 struct vlabel_pattern {
 	uint32_t		vp_flags;			/* VLABEL_MATCH_NEGATE, etc */
@@ -637,6 +647,20 @@ int vlabel_cred_check_relabel(struct ucred *cred, struct label *newlabel);
 int vlabel_cred_check_setuid(struct ucred *cred, uid_t uid);
 int vlabel_cred_check_setgid(struct ucred *cred, gid_t gid);
 int vlabel_cred_check_setgroups(struct ucred *cred, int ngroups, gid_t *gidset);
+int vlabel_cred_check_seteuid(struct ucred *cred, uid_t euid);
+int vlabel_cred_check_setegid(struct ucred *cred, gid_t egid);
+int vlabel_cred_check_setreuid(struct ucred *cred, uid_t ruid, uid_t euid);
+int vlabel_cred_check_setregid(struct ucred *cred, gid_t rgid, gid_t egid);
+int vlabel_cred_check_setresuid(struct ucred *cred, uid_t ruid, uid_t euid,
+    uid_t suid);
+int vlabel_cred_check_setresgid(struct ucred *cred, gid_t rgid, gid_t egid,
+    gid_t sgid);
+int vlabel_cred_check_setcred(u_int flags, const struct ucred *old_cred,
+    struct ucred *new_cred);
+int vlabel_cred_check_setaudit(struct ucred *cred, struct auditinfo *ai);
+int vlabel_cred_check_setaudit_addr(struct ucred *cred,
+    struct auditinfo_addr *aia);
+int vlabel_cred_check_setauid(struct ucred *cred, uid_t auid);
 void vlabel_execve_transition(struct ucred *old, struct ucred *new,
     struct vnode *vp, struct label *vplabel, struct label *interpvplabel,
     struct image_params *imgp, struct label *execlabel);
@@ -685,6 +709,8 @@ int vlabel_vnode_check_lookup(struct ucred *cred, struct vnode *dvp,
     struct label *dvplabel, struct componentname *cnp);
 int vlabel_vnode_check_mmap(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, int prot, int flags);
+int vlabel_vnode_check_mprotect(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, int prot);
 int vlabel_vnode_check_open(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, accmode_t accmode);
 int vlabel_vnode_check_poll(struct ucred *active_cred, struct ucred *file_cred,
@@ -724,6 +750,10 @@ int vlabel_vnode_check_unlink(struct ucred *cred, struct vnode *dvp,
     struct componentname *cnp);
 int vlabel_vnode_check_write(struct ucred *active_cred, struct ucred *file_cred,
     struct vnode *vp, struct label *vplabel);
+void vlabel_vnode_check_mmap_downgrade(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, int *prot);
+int vlabel_vnode_setlabel_extattr(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, struct label *intlabel);
 void vlabel_mount_init_label(struct label *label);
 void vlabel_mount_destroy_label(struct label *label);
 
@@ -733,6 +763,8 @@ void vlabel_mount_destroy_label(struct label *label);
 int vlabel_proc_check_debug(struct ucred *cred, struct proc *p);
 int vlabel_proc_check_sched(struct ucred *cred, struct proc *p);
 int vlabel_proc_check_signal(struct ucred *cred, struct proc *p, int signum);
+int vlabel_proc_check_wait(struct ucred *cred, struct proc *p);
+int vlabel_priv_check(struct ucred *cred, int priv);
 int vlabel_priv_grant(struct ucred *cred, int priv);
 
 /*
@@ -763,6 +795,19 @@ int vlabel_socket_check_stat(struct ucred *cred, struct socket *so,
     struct label *solabel);
 int vlabel_socket_check_visible(struct ucred *cred, struct socket *so,
     struct label *solabel);
+int vlabel_socket_check_poll(struct ucred *cred, struct socket *so,
+    struct label *solabel);
+int vlabel_socket_check_deliver(struct socket *so, struct label *solabel,
+    struct mbuf *m, struct label *mlabel);
+
+/* Socketpeer label lifecycle */
+int vlabel_socketpeer_init_label(struct label *label, int flag);
+void vlabel_socketpeer_destroy_label(struct label *label);
+void vlabel_socketpeer_set_from_mbuf(struct mbuf *m, struct label *mlabel,
+    struct socket *so, struct label *sopeerlabel);
+void vlabel_socketpeer_set_from_socket(struct socket *oldso,
+    struct label *oldsolabel, struct socket *newso,
+    struct label *newsopeerlabel);
 
 /*
  * Function prototypes - vlabel_pipe.c
@@ -827,6 +872,10 @@ int vlabel_system_check_swapon(struct ucred *cred, struct vnode *vp,
     struct label *vplabel);
 int vlabel_system_check_swapoff(struct ucred *cred, struct vnode *vp,
     struct label *vplabel);
+int vlabel_system_check_audit(struct ucred *cred, void *record, int length);
+int vlabel_system_check_auditctl(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel);
+int vlabel_system_check_auditon(struct ucred *cred, int cmd);
 int vlabel_mount_check_stat(struct ucred *cred, struct mount *mp,
     struct label *mplabel);
 

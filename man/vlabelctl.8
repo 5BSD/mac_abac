@@ -25,11 +25,11 @@
 .Nm
 .Cm rule add
 .Ar action operations subject
+.Op Cm ctx: Ns Ar constraints
 .Cm ->
 .Ar object
+.Op Cm ctx: Ns Ar constraints
 .Op Cm => Ar newlabel
-.Op Cm subj_context: Ns Ar constraints
-.Op Cm obj_context: Ns Ar constraints
 .Nm
 .Cm rule remove
 .Ar id
@@ -222,13 +222,23 @@ Operations that can be controlled by rules:
 .It Cm all Ta All operations
 .El
 .Sh CONTEXT CONSTRAINTS
-Rules can include context constraints that check process attributes:
-.Bl -tag -width "subj_context:" -offset indent
-.It Cm subj_context: Ns Ar key=value,...
-Constraints on the calling process.
-.It Cm obj_context: Ns Ar key=value,...
-Constraints on the target process (for debug/signal/sched operations).
+Rules can include context constraints that check process attributes.
+The position of
+.Cm ctx:
+determines what it applies to:
+.Bl -tag -width "ctx: after ->" -offset indent
+.It Cm ctx: No before Cm ->
+Constraints on the calling process (subject).
+.It Cm ctx: No after Cm ->
+Constraints on the target process (object).
 .El
+.Pp
+Multiple constraints on the same side are comma-separated (one
+.Cm ctx:
+per side):
+.Bd -literal -offset indent
+ctx:uid=0,jail=host
+.Ed
 .Pp
 Available constraints:
 .Bl -tag -width "sandboxed=true" -compact
@@ -275,14 +285,17 @@ vlabelctl rule add transition exec '*' -> type=entrypoint,app=nginx \\
 .Pp
 Only root on host can run admin tools:
 .Bd -literal -offset indent
-vlabelctl rule add allow exec '*' -> type=admin \\
-    subj_context:uid=0,jail=host
+vlabelctl rule add allow exec '*' ctx:uid=0,jail=host -> type=admin
 .Ed
 .Pp
 Prevent jailed processes from debugging host processes:
 .Bd -literal -offset indent
-vlabelctl rule add deny debug '*' -> '*' \\
-    subj_context:jail=any obj_context:jail=host
+vlabelctl rule add deny debug '*' ctx:jail=any -> '*' ctx:jail=host
+.Ed
+.Pp
+Protect sandboxed processes from debugging:
+.Bd -literal -offset indent
+vlabelctl rule add deny debug '*' -> '*' ctx:sandboxed=true
 .Ed
 .Pp
 Label a file:

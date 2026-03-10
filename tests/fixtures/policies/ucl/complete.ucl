@@ -38,7 +38,7 @@ rules = [
         operations = ["exec"];
         subject = "*";
         object = { type = "hostonly"; };
-        context = { jail = "any"; };
+        subj_ctx = { jail = "any"; };
     },
 
     {
@@ -48,7 +48,7 @@ rules = [
         operations = ["exec"];
         subject = "*";
         object = { type = "privileged"; };
-        context = { uid = 0; };
+        subj_ctx = { uid = 0; };
     },
 
     {
@@ -58,7 +58,7 @@ rules = [
         operations = ["exec", "mmap"];
         subject = "*";
         object = "*";
-        context = { sandboxed = true; };
+        subj_ctx = { sandboxed = true; };
     },
 
     {
@@ -68,7 +68,7 @@ rules = [
         operations = ["debug"];
         subject = "*";
         object = "*";
-        obj_context = { sandboxed = true; };
+        obj_ctx = { sandboxed = true; };
     },
 
     {

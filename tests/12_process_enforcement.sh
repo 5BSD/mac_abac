@@ -209,7 +209,7 @@ info ""
 info "=== Context Constraints ==="
 
 # Test context constraints
-"$VLABELCTL" rule add "deny debug * -> * context:uid=0"
+"$VLABELCTL" rule add "deny debug * -> * ctx:uid=0"
 "$VLABELCTL" rule add "allow debug * -> *"
 
 run_test

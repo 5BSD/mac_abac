@@ -142,6 +142,82 @@ vlabel_proc_check_signal(struct ucred *cred, struct proc *p, int signum)
 }
 
 /*
+ * vlabel_proc_check_wait - Check if subject can wait on target process
+ *
+ * Controls wait4(), waitpid(), waitid() on processes.
+ * The subject is the waiting process, the object is the process being waited on.
+ */
+int
+vlabel_proc_check_wait(struct ucred *cred, struct proc *p)
+{
+	struct vlabel_label *subj, *obj;
+	int error;
+
+	VLABEL_CHECK_ENABLED();
+
+	/* Get subject label */
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	/* Get object (target process) label */
+	if (p == NULL || p->p_ucred == NULL || p->p_ucred->cr_label == NULL)
+		return (0);
+	obj = SLOT(p->p_ucred->cr_label);
+	if (obj == NULL)
+		obj = &vlabel_default_subject;
+
+	/* Evaluate rules - pass target process for object context checks */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_WAIT, p);
+
+	/* Permissive mode handling */
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
+}
+
+/*
+ * Privilege check - invoked before a process uses a privilege
+ *
+ * This is called before any privileged operation. Unlike priv_grant,
+ * which is called to check if a policy grants privileges, priv_check
+ * is for denying use of privileges that would otherwise be granted.
+ *
+ * Use cases:
+ *   - Prevent sandboxed processes from using certain privileges
+ *   - Restrict privilege use based on process labels
+ *
+ * Note: priv_check returns 0 to allow (let other policies decide),
+ * or EPERM to deny the privilege use.
+ */
+int
+vlabel_priv_check(struct ucred *cred, int priv)
+{
+	struct vlabel_label *subj;
+
+	VLABEL_CHECK_ENABLED();
+
+	/* Get subject label from credential */
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		return (0);
+
+	/*
+	 * For now, we don't restrict privilege use.
+	 * This hook is here for future expansion to allow rules like:
+	 *   deny priv type=untrusted -> priv:PRIV_VFS_SETGID
+	 *
+	 * TODO: Add privilege-based rules support.
+	 */
+	return (0);
+}
+
+/*
  * Privilege grant - always deny (return EPERM)
  *
  * This prevents the policy from granting additional privileges.

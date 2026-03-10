@@ -8,8 +8,8 @@ deny exec * -> type=untrusted
 allow read,write,open,stat domain=app -> domain=app
 
 # Context constraints
-deny debug * -> * obj_context:sandboxed=true
-allow signal type=supervisor -> type=worker subj_context:uid=0
+deny debug * -> * ctx:sandboxed=true
+allow signal type=supervisor ctx:uid=0 -> type=worker
 
 # Transition rules
 transition exec * -> type=setuid_bin => type=elevated

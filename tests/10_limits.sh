@@ -230,8 +230,9 @@ run_test
 info "Test: Rule with all context fields + complex patterns"
 # Context fields are separate from pattern key=value pairs
 # This tests that using many context fields doesn't hit pair limits
+# Use ctx: before -> for subject, after -> for object
 PATTERN_WITH_CTX="type=app,domain=secure,tier=prod,env=test"
-if "$VLABELCTL" rule add "deny debug $PATTERN_WITH_CTX -> $PATTERN_WITH_CTX subj_context:uid=0,jail=host,has_tty=true obj_context:sandboxed=true,jail=any" >/dev/null 2>&1; then
+if "$VLABELCTL" rule add "deny debug $PATTERN_WITH_CTX ctx:uid=0,jail=host,tty=true -> $PATTERN_WITH_CTX ctx:sandboxed=true,jail=any" >/dev/null 2>&1; then
     pass "all context fields + complex patterns accepted"
     "$VLABELCTL" rule clear >/dev/null 2>&1
 else
@@ -241,8 +242,9 @@ fi
 run_test
 info "Test: Max pattern pairs (8) with all context fields"
 # Rule patterns limited to 8 pairs, but context is separate
+# Use ctx: before -> for subject, after -> for object
 PATTERN_8="k1=v1,k2=v2,k3=v3,k4=v4,k5=v5,k6=v6,k7=v7,k8=v8"
-if "$VLABELCTL" rule add "deny signal $PATTERN_8 -> $PATTERN_8 subj_context:uid=0,gid=0,jail=host obj_context:sandboxed=true" >/dev/null 2>&1; then
+if "$VLABELCTL" rule add "deny signal $PATTERN_8 ctx:uid=0,gid=0,jail=host -> $PATTERN_8 ctx:sandboxed=true" >/dev/null 2>&1; then
     pass "8 pattern pairs + all contexts accepted"
     "$VLABELCTL" rule clear >/dev/null 2>&1
 else
@@ -251,7 +253,8 @@ fi
 
 run_test
 info "Test: Rule with both subj_context and obj_context"
-if "$VLABELCTL" rule add "deny sched type=a -> type=b subj_context:jail=any obj_context:jail=host" >/dev/null 2>&1; then
+# Use ctx: before -> for subject, after -> for object
+if "$VLABELCTL" rule add "deny sched type=a ctx:jail=any -> type=b ctx:jail=host" >/dev/null 2>&1; then
     pass "dual context constraints accepted"
     "$VLABELCTL" rule clear >/dev/null 2>&1
 else
@@ -298,6 +301,154 @@ else
 fi
 
 "$VLABELCTL" rule clear >/dev/null 2>&1
+
+# ===========================================
+# Test: Fully loaded rules (max pairs + max length keys/values)
+# ===========================================
+info ""
+info "=== Fully Loaded Rule Tests ==="
+
+# Generate max-length key (63 chars) and value (63 chars)
+# VLABEL_RULE_KEY_LEN = 64, VLABEL_RULE_VALUE_LEN = 64 (63 usable + null)
+# Each underscore string below is exactly 62 chars, plus 1-char prefix = 63
+MAX_KEY="k______________________________________________________________"
+MAX_VAL="v______________________________________________________________"
+
+run_test
+info "Test: Single pair with max-length key and value (63 chars each)"
+if "$VLABELCTL" rule add "allow read ${MAX_KEY}=${MAX_VAL} -> *" >/dev/null 2>&1; then
+    pass "max-length key=value accepted"
+    "$VLABELCTL" rule clear >/dev/null 2>&1
+else
+    fail "max-length key=value"
+fi
+
+run_test
+info "Test: 8 pairs with max-length keys and values"
+# This is the absolute maximum: 8 pairs × (63 + 1 + 63 + 1) = 1024 bytes
+# Each key/val is exactly 63 chars: "keyN" (4 chars) + 59 underscores = 63
+FULLY_LOADED=""
+FULLY_LOADED="${FULLY_LOADED}key1___________________________________________________________=val1___________________________________________________________"
+FULLY_LOADED="${FULLY_LOADED},key2___________________________________________________________=val2___________________________________________________________"
+FULLY_LOADED="${FULLY_LOADED},key3___________________________________________________________=val3___________________________________________________________"
+FULLY_LOADED="${FULLY_LOADED},key4___________________________________________________________=val4___________________________________________________________"
+FULLY_LOADED="${FULLY_LOADED},key5___________________________________________________________=val5___________________________________________________________"
+FULLY_LOADED="${FULLY_LOADED},key6___________________________________________________________=val6___________________________________________________________"
+FULLY_LOADED="${FULLY_LOADED},key7___________________________________________________________=val7___________________________________________________________"
+FULLY_LOADED="${FULLY_LOADED},key8___________________________________________________________=val8___________________________________________________________"
+if "$VLABELCTL" rule add "allow read ${FULLY_LOADED} -> *" >/dev/null 2>&1; then
+    pass "8 max-length pairs accepted (fully loaded pattern)"
+    "$VLABELCTL" rule clear >/dev/null 2>&1
+else
+    fail "8 max-length pairs (fully loaded pattern)"
+fi
+
+run_test
+info "Test: Fully loaded rule with both subject and object patterns"
+if "$VLABELCTL" rule add "allow read ${FULLY_LOADED} -> ${FULLY_LOADED}" >/dev/null 2>&1; then
+    pass "fully loaded subject AND object patterns accepted"
+    "$VLABELCTL" rule clear >/dev/null 2>&1
+else
+    fail "fully loaded subject AND object patterns"
+fi
+
+run_test
+info "Test: Fully loaded rule + all context constraints"
+# Use ctx: before -> for subject, after -> for object
+if "$VLABELCTL" rule add "deny debug ${FULLY_LOADED} ctx:uid=0,gid=0,jail=host,tty=true -> ${FULLY_LOADED} ctx:sandboxed=true,jail=any" >/dev/null 2>&1; then
+    pass "fully loaded patterns + all contexts accepted"
+    "$VLABELCTL" rule clear >/dev/null 2>&1
+else
+    fail "fully loaded patterns + all contexts"
+fi
+
+# ===========================================
+# Test: Fully loaded transition rules
+# ===========================================
+info ""
+info "=== Fully Loaded Transition Rule Tests ==="
+
+run_test
+info "Test: Transition rule with fully loaded newlabel"
+if "$VLABELCTL" rule add "transition exec * -> type=setuid => ${FULLY_LOADED}" >/dev/null 2>&1; then
+    pass "transition with fully loaded newlabel accepted"
+    "$VLABELCTL" rule clear >/dev/null 2>&1
+else
+    fail "transition with fully loaded newlabel"
+fi
+
+run_test
+info "Test: Fully loaded transition (all 3 patterns maxed)"
+if "$VLABELCTL" rule add "transition exec ${FULLY_LOADED} -> ${FULLY_LOADED} => ${FULLY_LOADED}" >/dev/null 2>&1; then
+    pass "fully loaded transition rule accepted"
+    "$VLABELCTL" rule clear >/dev/null 2>&1
+else
+    fail "fully loaded transition rule"
+fi
+
+run_test
+info "Test: Fully loaded transition + contexts"
+if "$VLABELCTL" rule add "transition exec ${FULLY_LOADED} -> ${FULLY_LOADED} ctx:uid=0,jail=host => ${FULLY_LOADED}" >/dev/null 2>&1; then
+    pass "fully loaded transition + contexts accepted"
+    "$VLABELCTL" rule clear >/dev/null 2>&1
+else
+    fail "fully loaded transition + contexts"
+fi
+
+# ===========================================
+# Test: Rules that exceed limits (should fail gracefully)
+# ===========================================
+info ""
+info "=== Oversized Rule Tests (should fail) ==="
+
+# Key too long (64 chars - one over limit)
+OVERLONG_KEY="________________________________________________________________"
+run_test
+info "Test: Key exceeds 63 chars (should fail)"
+if "$VLABELCTL" rule add "allow read ${OVERLONG_KEY}=value -> *" >/dev/null 2>&1; then
+    fail "overlong key should have been rejected"
+    "$VLABELCTL" rule clear >/dev/null 2>&1
+else
+    pass "overlong key correctly rejected"
+fi
+
+# Value too long (64 chars - one over limit)
+OVERLONG_VAL="________________________________________________________________"
+run_test
+info "Test: Value exceeds 63 chars (should fail)"
+if "$VLABELCTL" rule add "allow read type=${OVERLONG_VAL} -> *" >/dev/null 2>&1; then
+    fail "overlong value should have been rejected"
+    "$VLABELCTL" rule clear >/dev/null 2>&1
+else
+    pass "overlong value correctly rejected"
+fi
+
+# Too many pairs (9+)
+run_test
+info "Test: 9 pairs exceeds limit (should fail)"
+NINE_PAIRS="k1=v1,k2=v2,k3=v3,k4=v4,k5=v5,k6=v6,k7=v7,k8=v8,k9=v9"
+if "$VLABELCTL" rule add "allow read ${NINE_PAIRS} -> *" >/dev/null 2>&1; then
+    fail "9 pairs should have been rejected"
+    "$VLABELCTL" rule clear >/dev/null 2>&1
+else
+    pass "9 pairs correctly rejected"
+fi
+
+# ===========================================
+# Test: Verify limits command shows correct values
+# ===========================================
+info ""
+info "=== Limits Display Test ==="
+
+run_test
+info "Test: vlabelctl limits shows expected values"
+OUTPUT=$("$VLABELCTL" limits 2>&1)
+if echo "$OUTPUT" | grep -q "Max key=value pairs:  16" && \
+   echo "$OUTPUT" | grep -q "Max rules:"; then
+    pass "limits command shows expected values"
+else
+    fail "limits command output unexpected: $OUTPUT"
+fi
 
 # ===========================================
 # Restore original settings

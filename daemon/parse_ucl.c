@@ -34,7 +34,13 @@
  *         action = "allow";
  *         operations = ["exec"];
  *         subject = { type = "admin"; };
- *         context = { jail = "host"; };
+ *         subj_ctx = { jail = "host"; };
+ *     },
+ *     {
+ *         id = 4;
+ *         action = "deny";
+ *         operations = ["debug"];
+ *         obj_ctx = { sandboxed = true; };
  *     },
  *     {
  *         id = 100;
@@ -411,11 +417,11 @@ parse_rule(const ucl_object_t *obj, struct vlabel_rule_io *rule)
 	parse_pattern(val, &rule->vr_object);
 
 	/* subject context constraints */
-	val = ucl_object_lookup(obj, "context");
+	val = ucl_object_lookup(obj, "subj_ctx");
 	parse_context(val, &rule->vr_subj_context);
 
 	/* object context constraints */
-	val = ucl_object_lookup(obj, "obj_context");
+	val = ucl_object_lookup(obj, "obj_ctx");
 	parse_context(val, &rule->vr_obj_context);
 
 	/* newlabel (for transition rules) */

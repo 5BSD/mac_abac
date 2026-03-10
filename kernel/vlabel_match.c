@@ -23,7 +23,7 @@
 #include "mac_vlabel.h"
 
 /*
- * Check if a label matches a pattern (legacy large pattern)
+ * Check if a label matches a pattern (large pattern struct)
  *
  * This is a wrapper around vlabel_label_match from vlabel_label.c.
  * The actual matching logic supports arbitrary key=value pairs.

@@ -28,6 +28,18 @@
 #include "vlabelctl.h"
 
 /*
+ * Maximum rule line size for file parsing.
+ * A full rule: action + ops + subject + "->" + object + contexts + "=>" + newlabel
+ * Approximately: 12 + 200 + 1040 + 4 + 1040 + 200 + 4 + 1040 = ~3540 bytes
+ */
+#define VLABEL_MAX_RULE_LINE	(3 * VLABEL_PATTERN_MAX_LEN + 512)
+
+/*
+ * Initial buffer size for rule loading (grows dynamically).
+ */
+#define VLABEL_INITIAL_LOAD_BUFSIZE	8192
+
+/*
  * Context for UCL rule loading callback
  */
 struct ucl_load_ctx {
@@ -230,7 +242,8 @@ ucl_rule_callback(struct vlabel_rule_io *rule, void *ctx)
 
 	/* Grow buffer if needed */
 	if (lctx->bufused + rule_len > lctx->buflen) {
-		size_t newlen = lctx->buflen == 0 ? 8192 : lctx->buflen * 2;
+		size_t newlen = lctx->buflen == 0 ? VLABEL_INITIAL_LOAD_BUFSIZE :
+		    lctx->buflen * 2;
 		char *newbuf;
 
 		while (newlen < lctx->bufused + rule_len)
@@ -338,7 +351,7 @@ cmd_rule(int argc, char *argv[])
 		 * Unlike 'load', this adds to existing rules.
 		 */
 		FILE *fp;
-		char line[2048];
+		char line[VLABEL_MAX_RULE_LINE];
 		char *start, *end, *comment;
 		char *buf;
 		size_t len;
@@ -449,7 +462,7 @@ cmd_rule(int argc, char *argv[])
 		 * On failure: old rules remain unchanged
 		 */
 		FILE *fp;
-		char line[2048];
+		char line[VLABEL_MAX_RULE_LINE];
 		char *start, *end, *comment;
 		char *rule_buf;
 		size_t rule_len;
@@ -516,8 +529,8 @@ cmd_rule(int argc, char *argv[])
 
 			/* Grow buffer if needed */
 			if (load_bufused + rule_len > load_buflen) {
-				size_t newlen = load_buflen == 0 ? 8192 :
-				    load_buflen * 2;
+				size_t newlen = load_buflen == 0 ?
+				    VLABEL_INITIAL_LOAD_BUFSIZE : load_buflen * 2;
 				while (newlen < load_bufused + rule_len)
 					newlen *= 2;
 				load_buf = realloc(load_buf, newlen);
@@ -581,8 +594,9 @@ cmd_rule(int argc, char *argv[])
 			return (0);
 		}
 
-		/* Allocate buffer for rules (estimate size) */
-		list_arg.vrl_buflen = list_arg.vrl_total * 512;
+		/* Allocate buffer for rules (estimate size per rule) */
+		list_arg.vrl_buflen = list_arg.vrl_total *
+		    (sizeof(struct vlabel_rule_out) + 3 * VLABEL_PATTERN_MAX_LEN);
 		buf = malloc(list_arg.vrl_buflen);
 		if (buf == NULL)
 			err(EX_OSERR, "malloc");
@@ -723,7 +737,7 @@ cmd_rule(int argc, char *argv[])
 		if (strcmp(argv[1], "-f") == 0) {
 			/* File validation mode */
 			FILE *fp;
-			char line[2048];
+			char line[VLABEL_MAX_RULE_LINE];
 			char *start, *end, *comment;
 			int lineno = 0;
 			struct vlabel_rule_io rule_io;

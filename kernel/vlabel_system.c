@@ -331,3 +331,103 @@ vlabel_mount_check_stat(struct ucred *cred, struct mount *mp,
 
 	return (error);
 }
+
+/*
+ * BSM Audit system checks
+ *
+ * These control access to BSM audit operations. The AUDIT operation
+ * allows rules like:
+ *   deny audit type=untrusted -> type=system
+ */
+
+/*
+ * system_check_audit - Check if credential can submit an audit record
+ */
+int
+vlabel_system_check_audit(struct ucred *cred, void *record, int length)
+{
+	struct vlabel_label *subj;
+	int error;
+
+	VLABEL_CHECK_ENABLED();
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	vlabel_system_label_init();
+
+	error = vlabel_rules_check(cred, subj, &vlabel_system_label,
+	    VLABEL_OP_AUDIT, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
+}
+
+/*
+ * system_check_auditctl - Check if credential can change audit log file
+ */
+int
+vlabel_system_check_auditctl(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel)
+{
+	struct vlabel_label *subj, *obj;
+	int error;
+
+	VLABEL_CHECK_ENABLED();
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	/* Use vnode label if provided, otherwise system label */
+	if (vp != NULL && vplabel != NULL) {
+		obj = SLOT(vplabel);
+		if (obj == NULL)
+			obj = &vlabel_default_object;
+	} else {
+		vlabel_system_label_init();
+		obj = &vlabel_system_label;
+	}
+
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_AUDIT, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
+}
+
+/*
+ * system_check_auditon - Check if credential can configure audit system
+ */
+int
+vlabel_system_check_auditon(struct ucred *cred, int cmd)
+{
+	struct vlabel_label *subj;
+	int error;
+
+	VLABEL_CHECK_ENABLED();
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	vlabel_system_label_init();
+
+	error = vlabel_rules_check(cred, subj, &vlabel_system_label,
+	    VLABEL_OP_AUDIT, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
+}

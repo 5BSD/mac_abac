@@ -19,6 +19,8 @@
 #include <sys/vnode.h>
 #include <sys/imgact.h>
 
+#include <bsm/audit.h>
+
 #include <security/mac/mac_policy.h>
 
 #include "mac_vlabel.h"
@@ -188,6 +190,109 @@ vlabel_cred_check_setgid(struct ucred *cred, gid_t gid)
 
 int
 vlabel_cred_check_setgroups(struct ucred *cred, int ngroups, gid_t *gidset)
+{
+
+	VLABEL_CHECK_ENABLED();
+	return (0);
+}
+
+/*
+ * Extended credential check hooks
+ *
+ * These provide fine-grained control over credential changes.
+ * For now they're stubs that always allow, but they can be extended
+ * to support rules like:
+ *   deny setcred type=untrusted -> *
+ */
+
+int
+vlabel_cred_check_seteuid(struct ucred *cred, uid_t euid)
+{
+
+	VLABEL_CHECK_ENABLED();
+	return (0);
+}
+
+int
+vlabel_cred_check_setegid(struct ucred *cred, gid_t egid)
+{
+
+	VLABEL_CHECK_ENABLED();
+	return (0);
+}
+
+int
+vlabel_cred_check_setreuid(struct ucred *cred, uid_t ruid, uid_t euid)
+{
+
+	VLABEL_CHECK_ENABLED();
+	return (0);
+}
+
+int
+vlabel_cred_check_setregid(struct ucred *cred, gid_t rgid, gid_t egid)
+{
+
+	VLABEL_CHECK_ENABLED();
+	return (0);
+}
+
+int
+vlabel_cred_check_setresuid(struct ucred *cred, uid_t ruid, uid_t euid,
+    uid_t suid)
+{
+
+	VLABEL_CHECK_ENABLED();
+	return (0);
+}
+
+int
+vlabel_cred_check_setresgid(struct ucred *cred, gid_t rgid, gid_t egid,
+    gid_t sgid)
+{
+
+	VLABEL_CHECK_ENABLED();
+	return (0);
+}
+
+/*
+ * vlabel_cred_check_setcred - Check new-style credential change
+ *
+ * This is the newer API for credential changes, used by setcred().
+ * The 'flags' parameter indicates which credential fields are being changed.
+ */
+int
+vlabel_cred_check_setcred(u_int flags, const struct ucred *old_cred,
+    struct ucred *new_cred)
+{
+
+	VLABEL_CHECK_ENABLED();
+	return (0);
+}
+
+/*
+ * BSM Audit credential checks
+ *
+ * Control who can modify audit session information.
+ */
+int
+vlabel_cred_check_setaudit(struct ucred *cred, struct auditinfo *ai)
+{
+
+	VLABEL_CHECK_ENABLED();
+	return (0);
+}
+
+int
+vlabel_cred_check_setaudit_addr(struct ucred *cred, struct auditinfo_addr *aia)
+{
+
+	VLABEL_CHECK_ENABLED();
+	return (0);
+}
+
+int
+vlabel_cred_check_setauid(struct ucred *cred, uid_t auid)
 {
 
 	VLABEL_CHECK_ENABLED();

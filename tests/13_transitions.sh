@@ -261,7 +261,7 @@ info "=== Transition with Context Constraints ==="
 
 run_test
 info "Test: Transition with context constraint"
-if "$VLABELCTL" rule add "transition exec * -> type=setuid => type=elevated context:uid=0" >/dev/null 2>&1; then
+if "$VLABELCTL" rule add "transition exec * -> type=setuid => type=elevated ctx:uid=0" >/dev/null 2>&1; then
 	pass "transition with context accepted"
 else
 	fail "transition with context"
@@ -270,7 +270,7 @@ fi
 
 run_test
 info "Test: Transition with jail context"
-if "$VLABELCTL" rule add "transition exec * -> type=app => type=jailed context:jailed=true" >/dev/null 2>&1; then
+if "$VLABELCTL" rule add "transition exec * -> type=app => type=jailed ctx:jailed=true" >/dev/null 2>&1; then
 	pass "transition with jail context"
 else
 	fail "transition with jail context"

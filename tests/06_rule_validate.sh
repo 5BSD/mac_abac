@@ -81,7 +81,7 @@ fi
 
 run_test
 info "Test: Valid rule with context constraint"
-OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> type=admin context:uid=0" 2>&1)
+OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> type=admin ctx:uid=0" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "valid context rule"
 else
@@ -164,6 +164,66 @@ if echo "$OUTPUT" | grep -q "ERROR"; then
 	pass "empty rule rejected"
 else
 	fail "empty rule rejected (got: $OUTPUT)"
+fi
+
+# ===========================================
+# Context validation
+# ===========================================
+echo ""
+info "=== Context Validation ==="
+
+run_test
+info "Test: Unknown context key"
+OUTPUT=$("$VLABELCTL" rule validate "deny exec * -> * ctx:badkey=value" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "unknown context key"; then
+	pass "unknown context key rejected"
+else
+	fail "unknown context key rejected (got: $OUTPUT)"
+fi
+
+run_test
+info "Test: Invalid uid value"
+OUTPUT=$("$VLABELCTL" rule validate "deny exec * -> * ctx:uid=notanumber" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "invalid uid"; then
+	pass "invalid uid rejected"
+else
+	fail "invalid uid rejected (got: $OUTPUT)"
+fi
+
+run_test
+info "Test: Invalid sandboxed value"
+OUTPUT=$("$VLABELCTL" rule validate "deny exec * -> * ctx:sandboxed=maybe" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "invalid sandboxed"; then
+	pass "invalid sandboxed value rejected"
+else
+	fail "invalid sandboxed value rejected (got: $OUTPUT)"
+fi
+
+run_test
+info "Test: Invalid jail value"
+OUTPUT=$("$VLABELCTL" rule validate "deny exec * -> * ctx:jail=badvalue" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "invalid jail"; then
+	pass "invalid jail value rejected"
+else
+	fail "invalid jail value rejected (got: $OUTPUT)"
+fi
+
+run_test
+info "Test: Empty context"
+OUTPUT=$("$VLABELCTL" rule validate "deny exec * -> * ctx:" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "empty context\|ERROR"; then
+	pass "empty context rejected"
+else
+	fail "empty context rejected (got: $OUTPUT)"
+fi
+
+run_test
+info "Test: Valid context combinations"
+OUTPUT=$("$VLABELCTL" rule validate "deny exec * ctx:uid=0,jail=host -> * ctx:sandboxed=true" 2>&1)
+if echo "$OUTPUT" | grep -q "^OK"; then
+	pass "valid context combinations accepted"
+else
+	fail "valid context combinations accepted (got: $OUTPUT)"
 fi
 
 # ===========================================

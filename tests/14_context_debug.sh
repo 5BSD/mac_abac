@@ -175,7 +175,7 @@ cat > "$TEST_DIR/capmode_target.c" << 'CAPMODETARGETEOF'
 /*
  * capmode_target.c - Target process that enters capability mode
  *
- * This allows testing obj_context:sandboxed=true rules where the
+ * This allows testing ctx:sandboxed=true rules where the
  * TARGET (not the debugger) is in capability mode.
  */
 #include <sys/capsicum.h>
@@ -238,7 +238,7 @@ wait $TARGET_PID 2>/dev/null || true
 # ===========================================
 echo ""
 info "=== Test 2: Subject Context - Sandboxed Debugger Denied ==="
-info "(This tests subj_context:sandboxed=true - the CALLER is in capmode)"
+info "(This tests ctx:sandboxed=true - the CALLER is in capmode)"
 
 "$VLABELCTL" rule clear >/dev/null
 "$VLABELCTL" default allow
@@ -247,7 +247,7 @@ info "(This tests subj_context:sandboxed=true - the CALLER is in capmode)"
 # Rule order matters - first match wins
 # 1. Deny debug from sandboxed (capability mode) processes - SUBJECT context
 # 2. Allow everything else (safety catch-all)
-"$VLABELCTL" rule add "deny debug * -> * subj_context:sandboxed=true"
+"$VLABELCTL" rule add "deny debug * -> * ctx:sandboxed=true"
 "$VLABELCTL" rule add "allow all * -> *"
 
 info "Rules loaded:"
@@ -319,7 +319,7 @@ info "Mode restored to permissive"
 # ===========================================
 echo ""
 info "=== Test 2b: Object Context - Sandboxed Target Protected ==="
-info "(This tests obj_context:sandboxed=true - the TARGET is in capmode)"
+info "(This tests ctx:sandboxed=true - the TARGET is in capmode)"
 
 "$VLABELCTL" rule clear >/dev/null
 "$VLABELCTL" default allow
@@ -327,7 +327,7 @@ info "(This tests obj_context:sandboxed=true - the TARGET is in capmode)"
 # Rules:
 # 1. Deny debug TO processes in capability mode - OBJECT context
 # 2. Allow everything else
-"$VLABELCTL" rule add "deny debug * -> * obj_context:sandboxed=true"
+"$VLABELCTL" rule add "deny debug * -> * ctx:sandboxed=true"
 "$VLABELCTL" rule add "allow all * -> *"
 
 info "Rules loaded:"
@@ -349,7 +349,7 @@ EXIT_CODE=$?
 set -e
 case $EXIT_CODE in
 	1)
-		pass "ptrace DENIED by MAC - obj_context:sandboxed=true works!"
+		pass "ptrace DENIED by MAC - ctx:sandboxed=true works!"
 		;;
 	0)
 		"$VLABELCTL" mode permissive

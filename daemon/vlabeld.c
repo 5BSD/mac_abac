@@ -194,7 +194,7 @@ vlabeld_set_mode(int mode)
 }
 
 /*
- * Build a rule_arg buffer from vlabel_rule_io (legacy format)
+ * Build a rule_arg buffer from vlabel_rule_io (parser format)
  * and send it to the kernel via mac_syscall.
  */
 static int

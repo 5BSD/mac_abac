@@ -210,10 +210,10 @@ info "=== Test 2: Subject Context Only ==="
 "$VLABELCTL" default allow
 
 # Deny debug if caller is root (uid=0) - we ARE root, so this should deny
-"$VLABELCTL" rule add "deny debug * -> * subj_context:uid=0"
+"$VLABELCTL" rule add "deny debug * -> * ctx:uid=0"
 "$VLABELCTL" rule add "allow all * -> *"
 
-info "Rules (subj_context:uid=0):"
+info "Rules (ctx:uid=0):"
 "$VLABELCTL" rule list
 
 "$VLABELCTL" mode enforcing
@@ -223,13 +223,13 @@ TARGET_PID=$!
 sleep 1
 
 run_test
-info "Test 2a: subj_context:uid=0 denies root"
+info "Test 2a: ctx:uid=0 denies root"
 set +e
 "$TEST_DIR/debugger" "$TARGET_PID" 2>&1
 EXIT_CODE=$?
 set -e
 if [ $EXIT_CODE -eq 1 ]; then
-	pass "Root denied by subj_context:uid=0"
+	pass "Root denied by ctx:uid=0"
 else
 	fail "Root should be denied (exit=$EXIT_CODE)"
 fi
@@ -239,7 +239,7 @@ wait $TARGET_PID 2>/dev/null || true
 
 # Now test with uid=9999 (not us) - should allow
 "$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny debug * -> * subj_context:uid=9999"
+"$VLABELCTL" rule add "deny debug * -> * ctx:uid=9999"
 "$VLABELCTL" rule add "allow all * -> *"
 
 "$TEST_DIR/target" &
@@ -247,7 +247,7 @@ TARGET_PID=$!
 sleep 1
 
 run_test
-info "Test 2b: subj_context:uid=9999 allows root"
+info "Test 2b: ctx:uid=9999 allows root"
 if "$TEST_DIR/debugger" "$TARGET_PID" 2>/dev/null; then
 	pass "Root allowed (uid doesn't match 9999)"
 else
@@ -269,10 +269,10 @@ info "=== Test 3: Object Context Only ==="
 "$VLABELCTL" default allow
 
 # Deny debug if TARGET is in capability mode
-"$VLABELCTL" rule add "deny debug * -> * obj_context:sandboxed=true"
+"$VLABELCTL" rule add "deny debug * -> * ctx:sandboxed=true"
 "$VLABELCTL" rule add "allow all * -> *"
 
-info "Rules (obj_context:sandboxed=true):"
+info "Rules (ctx:sandboxed=true):"
 "$VLABELCTL" rule list
 
 "$VLABELCTL" mode enforcing
@@ -283,7 +283,7 @@ CAPMODE_PID=$!
 sleep 1
 
 run_test
-info "Test 3a: obj_context:sandboxed=true denies debug of capmode process"
+info "Test 3a: ctx:sandboxed=true denies debug of capmode process"
 set +e
 "$TEST_DIR/debugger" "$CAPMODE_PID" 2>&1
 EXIT_CODE=$?
@@ -325,11 +325,11 @@ info "=== Test 4: Both Subject and Object Context ==="
 "$VLABELCTL" default allow
 
 # Deny if: caller is root AND target is in capmode
-# Both conditions must be true
-"$VLABELCTL" rule add "deny debug * -> * subj_context:uid=0 obj_context:sandboxed=true"
+# Both conditions must be true - use ctx: before -> for subject, after -> for object
+"$VLABELCTL" rule add "deny debug * ctx:uid=0 -> * ctx:sandboxed=true"
 "$VLABELCTL" rule add "allow all * -> *"
 
-info "Rules (subj_context:uid=0 AND obj_context:sandboxed=true):"
+info "Rules (subj ctx:uid=0 AND obj ctx:sandboxed=true):"
 "$VLABELCTL" rule list
 
 "$VLABELCTL" mode enforcing
@@ -383,10 +383,10 @@ info "=== Test 5: Object Context Jail Check ==="
 
 # Deny debug if target is on host (jail=host means jail_id=0)
 # Since we're on host and target is on host, this should deny
-"$VLABELCTL" rule add "deny debug * -> * obj_context:jail=host"
+"$VLABELCTL" rule add "deny debug * -> * ctx:jail=host"
 "$VLABELCTL" rule add "allow all * -> *"
 
-info "Rules (obj_context:jail=host):"
+info "Rules (ctx:jail=host):"
 "$VLABELCTL" rule list
 
 "$VLABELCTL" mode enforcing
@@ -396,7 +396,7 @@ TARGET_PID=$!
 sleep 1
 
 run_test
-info "Test 5a: obj_context:jail=host denies debug of host process"
+info "Test 5a: ctx:jail=host denies debug of host process"
 set +e
 "$TEST_DIR/debugger" "$TARGET_PID" 2>&1
 EXIT_CODE=$?
@@ -412,7 +412,7 @@ wait $TARGET_PID 2>/dev/null || true
 
 # Now use jail=any - target is NOT in jail, so should ALLOW
 "$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny debug * -> * obj_context:jail=any"
+"$VLABELCTL" rule add "deny debug * -> * ctx:jail=any"
 "$VLABELCTL" rule add "allow all * -> *"
 
 "$TEST_DIR/target" &
@@ -420,7 +420,7 @@ TARGET_PID=$!
 sleep 1
 
 run_test
-info "Test 5b: obj_context:jail=any allows debug of host process"
+info "Test 5b: ctx:jail=any allows debug of host process"
 if "$TEST_DIR/debugger" "$TARGET_PID" 2>/dev/null; then
 	pass "Allowed (target not in jail)"
 else
@@ -440,9 +440,10 @@ info "=== Test 6: Rule Display Verification ==="
 
 "$VLABELCTL" rule clear >/dev/null
 
-"$VLABELCTL" rule add "deny debug * -> * subj_context:uid=0,jail=host"
-"$VLABELCTL" rule add "deny signal * -> * obj_context:sandboxed=true"
-"$VLABELCTL" rule add "deny sched * -> * subj_context:jail=any obj_context:jail=host"
+"$VLABELCTL" rule add "deny debug * -> * ctx:uid=0,jail=host"
+"$VLABELCTL" rule add "deny signal * -> * ctx:sandboxed=true"
+# Use both subject and object context for display testing
+"$VLABELCTL" rule add "deny sched * ctx:jail=any -> * ctx:jail=host"
 
 run_test
 info "Test 6: Rules display context constraints correctly"
@@ -451,72 +452,34 @@ echo "$OUTPUT"
 
 ERRORS=0
 
-if echo "$OUTPUT" | grep -q "subj_context:.*uid=0"; then
-	pass "subj_context:uid displayed"
+if echo "$OUTPUT" | grep -q "ctx:.*uid=0"; then
+	pass "ctx:uid displayed"
 else
-	fail "subj_context:uid not displayed"
+	fail "ctx:uid not displayed"
 	ERRORS=$((ERRORS + 1))
 fi
 
-if echo "$OUTPUT" | grep -q "subj_context:.*jail=host"; then
-	pass "subj_context:jail displayed"
+if echo "$OUTPUT" | grep -q "ctx:.*jail=host"; then
+	pass "ctx:jail displayed"
 else
-	fail "subj_context:jail not displayed"
+	fail "ctx:jail not displayed"
 	ERRORS=$((ERRORS + 1))
 fi
 
-if echo "$OUTPUT" | grep -q "obj_context:.*sandboxed=true"; then
-	pass "obj_context:sandboxed displayed"
+if echo "$OUTPUT" | grep -q "ctx:.*sandboxed=true"; then
+	pass "ctx:sandboxed displayed"
 else
-	fail "obj_context:sandboxed not displayed"
+	fail "ctx:sandboxed not displayed"
 	ERRORS=$((ERRORS + 1))
 fi
 
-if echo "$OUTPUT" | grep -q "subj_context:.*jail=any.*obj_context:.*jail=host"; then
+# Now checks that both subject and object contexts are displayed
+if echo "$OUTPUT" | grep -q "ctx:.*jail=any" && echo "$OUTPUT" | grep -q "ctx:.*jail=host"; then
 	pass "Both contexts displayed on same rule"
 else
 	fail "Both contexts not displayed correctly"
 	ERRORS=$((ERRORS + 1))
 fi
-
-# ===========================================
-# Test 7: Backward compatibility (context: alias)
-# ===========================================
-echo ""
-info "=== Test 7: Backward Compatibility (context: alias) ==="
-
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" default allow
-
-# Use old 'context:' syntax (should work as subj_context:)
-"$VLABELCTL" rule add "deny debug * -> * context:uid=0"
-"$VLABELCTL" rule add "allow all * -> *"
-
-info "Rules (using deprecated context: syntax):"
-"$VLABELCTL" rule list
-
-"$VLABELCTL" mode enforcing
-
-"$TEST_DIR/target" &
-TARGET_PID=$!
-sleep 1
-
-run_test
-info "Test 7: Deprecated 'context:' works as subj_context"
-set +e
-"$TEST_DIR/debugger" "$TARGET_PID" 2>&1
-EXIT_CODE=$?
-set -e
-if [ $EXIT_CODE -eq 1 ]; then
-	pass "Deprecated context: syntax works"
-else
-	fail "Should be denied (exit=$EXIT_CODE)"
-fi
-
-kill $TARGET_PID 2>/dev/null || true
-wait $TARGET_PID 2>/dev/null || true
-
-"$VLABELCTL" mode permissive
 
 # ===========================================
 # Summary

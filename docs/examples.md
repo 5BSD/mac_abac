@@ -56,8 +56,8 @@ Block jailed processes from host resources:
 # Label host-only files
 vlabelctl label set /etc/master.passwd "scope=host"
 
-# Rule with context
-vlabelctl rule add "deny read * -> scope=host subj_context:jail=any"
+# Rule with context - ctx: before -> applies to subject
+vlabelctl rule add "deny read * ctx:jail=any -> scope=host"
 vlabelctl rule add "allow read * -> *"
 ```
 
@@ -66,8 +66,29 @@ vlabelctl rule add "allow read * -> *"
 Prevent debugging sandboxed processes:
 
 ```sh
-vlabelctl rule add "deny debug * -> * obj_context:sandboxed=true"
+# ctx: after -> applies to object (target process)
+vlabelctl rule add "deny debug * -> * ctx:sandboxed=true"
 vlabelctl rule add "allow debug * -> *"
+```
+
+## Context Constraint Syntax
+
+Context constraints use `ctx:` with position determining what they apply to:
+
+```sh
+# ctx: BEFORE -> = subject constraint (caller)
+# ctx: AFTER  -> = object constraint (target)
+
+# Only root on host can access system files
+deny read * ctx:jail=any -> type=system        # jailed users blocked
+deny read * ctx:uid=1000 -> type=system        # non-root blocked
+allow read * ctx:uid=0,jail=host -> type=system  # root on host allowed
+
+# Protect sandboxed processes from debugging
+deny debug * -> * ctx:sandboxed=true
+
+# Both subject and object context
+deny debug * ctx:uid=0 -> * ctx:sandboxed=true  # root can't debug sandboxed
 ```
 
 ## DTrace Debugging

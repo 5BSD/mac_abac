@@ -645,6 +645,53 @@ vlabel_vnode_check_mmap(struct ucred *cred, struct vnode *vp,
 	return (error);
 }
 
+/*
+ * vlabel_vnode_check_mprotect - Check mprotect() protection changes
+ *
+ * Called when a process attempts to change the protection of a memory
+ * mapping that is backed by a vnode. This is useful for W^X enforcement:
+ * preventing the same memory from being both writable and executable.
+ *
+ * The 'prot' parameter contains the new protection flags (PROT_READ,
+ * PROT_WRITE, PROT_EXEC).
+ *
+ * Use cases:
+ *   - Prevent untrusted processes from making memory executable
+ *   - Enforce W^X policy on file-backed mappings
+ */
+int
+vlabel_vnode_check_mprotect(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, int prot)
+{
+	struct vlabel_label *subj, *obj;
+	int error;
+
+	VLABEL_CHECK_ENABLED();
+
+	/* Get subject label from credential */
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	/* Get object label from vnode */
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Evaluate rules */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_MPROTECT, NULL);
+
+	/* In permissive mode, log but allow */
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
+}
+
 int
 vlabel_vnode_check_open(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, accmode_t accmode)
@@ -1211,6 +1258,89 @@ vlabel_vnode_check_write(struct ucred *active_cred, struct ucred *file_cred,
 	/* In permissive mode, log but allow */
 	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
 		return (0);
+
+	return (error);
+}
+
+/*
+ * Check mmap protection downgrade (W^X enforcement).
+ *
+ * This hook is called when mmap() protections might be downgraded
+ * (e.g., from RWX to RX or RW). This is the companion to mprotect()
+ * for W^X enforcement.
+ *
+ * Unlike check_mprotect which returns an error, this hook modifies
+ * the protection bits directly by clearing disallowed combinations.
+ *
+ * For example, to enforce W^X on untrusted code:
+ *   - If PROT_WRITE and PROT_EXEC are both set, clear PROT_EXEC
+ *
+ * Currently we don't modify protections - this is a stub for future
+ * W^X policy implementation. To enable, rules would look like:
+ *   deny mmap type=untrusted -> *   (with PROT_WRITE|PROT_EXEC check)
+ */
+void
+vlabel_vnode_check_mmap_downgrade(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, int *prot)
+{
+	/*
+	 * Stub implementation - does not modify protections.
+	 *
+	 * A full W^X implementation would:
+	 * 1. Get subject/object labels
+	 * 2. Check if policy requires W^X for this combination
+	 * 3. If (*prot & (PROT_WRITE | PROT_EXEC)) == (PROT_WRITE | PROT_EXEC)
+	 *    then *prot &= ~PROT_EXEC;
+	 */
+	(void)cred;
+	(void)vp;
+	(void)vplabel;
+	(void)prot;
+}
+
+/*
+ * Set vnode label in extended attribute.
+ *
+ * This hook is called when a label needs to be written to persistent
+ * storage (extended attribute). It's typically invoked after
+ * vnode_check_relabel approves the label change.
+ *
+ * The intlabel parameter contains the new label to write.
+ *
+ * Returns 0 on success, error code on failure.
+ */
+int
+vlabel_vnode_setlabel_extattr(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel, struct label *intlabel)
+{
+	struct vlabel_label *newlabel;
+	char buf[VLABEL_MAX_LABEL_LEN];
+	int error, len;
+
+	VLABEL_CHECK_ENABLED();
+
+	if (intlabel == NULL)
+		return (EINVAL);
+
+	newlabel = SLOT(intlabel);
+	if (newlabel == NULL)
+		return (EINVAL);
+
+	/* Serialize label to string format */
+	len = vlabel_label_to_string(newlabel, buf, sizeof(buf));
+	if (len < 0)
+		return (EINVAL);
+
+	/* Write to extended attribute */
+	error = vn_extattr_set(vp, UIO_SYSSPACE, VLABEL_EXTATTR_NAMESPACE,
+	    VLABEL_EXTATTR_NAME, len, buf, curthread);
+
+	if (error == 0 && vplabel != NULL) {
+		/* Update in-memory label */
+		struct vlabel_label *vl = SLOT(vplabel);
+		if (vl != NULL)
+			vlabel_label_copy(newlabel, vl);
+	}
 
 	return (error);
 }

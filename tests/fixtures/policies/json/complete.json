@@ -28,7 +28,7 @@
             "operations": ["exec"],
             "subject": "*",
             "object": { "type": "hostonly" },
-            "context": { "jail": "any" }
+            "subj_ctx": { "jail": "any" }
         },
         {
             "id": 5,
@@ -36,7 +36,7 @@
             "operations": ["exec"],
             "subject": "*",
             "object": { "type": "privileged" },
-            "context": { "uid": 0 }
+            "subj_ctx": { "uid": 0 }
         },
         {
             "id": 6,
@@ -44,7 +44,7 @@
             "operations": ["debug"],
             "subject": "*",
             "object": "*",
-            "obj_context": { "sandboxed": true }
+            "obj_ctx": { "sandboxed": true }
         },
         {
             "id": 10,

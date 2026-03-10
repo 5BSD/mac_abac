@@ -212,8 +212,18 @@ static struct mac_policy_ops vlabel_ops = {
 	/* Credential checks */
 	.mpo_cred_check_relabel = vlabel_cred_check_relabel,
 	.mpo_cred_check_setuid = vlabel_cred_check_setuid,
+	.mpo_cred_check_seteuid = vlabel_cred_check_seteuid,
 	.mpo_cred_check_setgid = vlabel_cred_check_setgid,
+	.mpo_cred_check_setegid = vlabel_cred_check_setegid,
 	.mpo_cred_check_setgroups = vlabel_cred_check_setgroups,
+	.mpo_cred_check_setreuid = vlabel_cred_check_setreuid,
+	.mpo_cred_check_setregid = vlabel_cred_check_setregid,
+	.mpo_cred_check_setresuid = vlabel_cred_check_setresuid,
+	.mpo_cred_check_setresgid = vlabel_cred_check_setresgid,
+	.mpo_cred_check_setcred = vlabel_cred_check_setcred,
+	.mpo_cred_check_setaudit = vlabel_cred_check_setaudit,
+	.mpo_cred_check_setaudit_addr = vlabel_cred_check_setaudit_addr,
+	.mpo_cred_check_setauid = vlabel_cred_check_setauid,
 
 	/* Process exec transition */
 	.mpo_vnode_execve_transition = vlabel_execve_transition,
@@ -241,6 +251,7 @@ static struct mac_policy_ops vlabel_ops = {
 	.mpo_vnode_check_listextattr = vlabel_vnode_check_listextattr,
 	.mpo_vnode_check_lookup = vlabel_vnode_check_lookup,
 	.mpo_vnode_check_mmap = vlabel_vnode_check_mmap,
+	.mpo_vnode_check_mprotect = vlabel_vnode_check_mprotect,
 	.mpo_vnode_check_open = vlabel_vnode_check_open,
 	.mpo_vnode_check_poll = vlabel_vnode_check_poll,
 	.mpo_vnode_check_read = vlabel_vnode_check_read,
@@ -259,6 +270,8 @@ static struct mac_policy_ops vlabel_ops = {
 	.mpo_vnode_check_stat = vlabel_vnode_check_stat,
 	.mpo_vnode_check_unlink = vlabel_vnode_check_unlink,
 	.mpo_vnode_check_write = vlabel_vnode_check_write,
+	.mpo_vnode_check_mmap_downgrade = vlabel_vnode_check_mmap_downgrade,
+	.mpo_vnode_setlabel_extattr = vlabel_vnode_setlabel_extattr,
 
 	/* Mount label lifecycle */
 	.mpo_mount_init_label = vlabel_mount_init_label,
@@ -268,6 +281,7 @@ static struct mac_policy_ops vlabel_ops = {
 	.mpo_proc_check_debug = vlabel_proc_check_debug,
 	.mpo_proc_check_sched = vlabel_proc_check_sched,
 	.mpo_proc_check_signal = vlabel_proc_check_signal,
+	.mpo_proc_check_wait = vlabel_proc_check_wait,
 
 	/* Socket label lifecycle */
 	.mpo_socket_init_label = vlabel_socket_init_label,
@@ -282,10 +296,18 @@ static struct mac_policy_ops vlabel_ops = {
 	.mpo_socket_check_connect = vlabel_socket_check_connect,
 	.mpo_socket_check_create = vlabel_socket_check_create,
 	.mpo_socket_check_listen = vlabel_socket_check_listen,
+	.mpo_socket_check_poll = vlabel_socket_check_poll,
 	.mpo_socket_check_receive = vlabel_socket_check_receive,
 	.mpo_socket_check_send = vlabel_socket_check_send,
 	.mpo_socket_check_stat = vlabel_socket_check_stat,
 	.mpo_socket_check_visible = vlabel_socket_check_visible,
+	.mpo_socket_check_deliver = vlabel_socket_check_deliver,
+
+	/* Socketpeer label lifecycle */
+	.mpo_socketpeer_init_label = vlabel_socketpeer_init_label,
+	.mpo_socketpeer_destroy_label = vlabel_socketpeer_destroy_label,
+	.mpo_socketpeer_set_from_mbuf = vlabel_socketpeer_set_from_mbuf,
+	.mpo_socketpeer_set_from_socket = vlabel_socketpeer_set_from_socket,
 
 	/* Pipe label lifecycle */
 	.mpo_pipe_init_label = vlabel_pipe_init_label,
@@ -318,7 +340,8 @@ static struct mac_policy_ops vlabel_ops = {
 	.mpo_posixshm_check_unlink = vlabel_posixshm_check_unlink,
 	.mpo_posixshm_check_write = vlabel_posixshm_check_write,
 
-	/* Privilege grant */
+	/* Privilege hooks */
+	.mpo_priv_check = vlabel_priv_check,
 	.mpo_priv_grant = vlabel_priv_grant,
 
 	/* System-level checks */
@@ -329,6 +352,9 @@ static struct mac_policy_ops vlabel_ops = {
 	.mpo_system_check_acct = vlabel_system_check_acct,
 	.mpo_system_check_swapon = vlabel_system_check_swapon,
 	.mpo_system_check_swapoff = vlabel_system_check_swapoff,
+	.mpo_system_check_audit = vlabel_system_check_audit,
+	.mpo_system_check_auditctl = vlabel_system_check_auditctl,
+	.mpo_system_check_auditon = vlabel_system_check_auditon,
 	.mpo_mount_check_stat = vlabel_mount_check_stat,
 
 	/* Kernel environment (kenv) checks */

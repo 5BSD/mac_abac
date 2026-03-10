@@ -11,7 +11,7 @@
 # - Both: !type=restricted -> !type=untrusted
 #
 # Negation CANNOT be used on:
-# - Context constraints (subj_context:, obj_context:)
+# - Context constraints (ctx:, ctx:)
 # - Newlabel in transition rules
 #
 # Prerequisites:

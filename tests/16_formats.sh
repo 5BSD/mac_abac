@@ -114,36 +114,36 @@ else
 fi
 
 run_test
-info "Test: Subject context constraint"
+info "Test: Subject context constraint (ctx:)"
 "$VLABELCTL" rule clear >/dev/null
-if "$VLABELCTL" rule add "allow exec * -> type=admin context:uid=0" >/dev/null 2>&1; then
-	pass "subject context (context:)"
+if "$VLABELCTL" rule add "allow exec * -> type=admin ctx:uid=0" >/dev/null 2>&1; then
+	pass "subject context (ctx:)"
 else
-	fail "subject context (context:)"
+	fail "subject context (ctx:)"
 fi
 
 run_test
-info "Test: Subject context with subj_context:"
+info "Test: Subject context with uid"
 "$VLABELCTL" rule clear >/dev/null
-if "$VLABELCTL" rule add "allow exec * -> type=admin subj_context:uid=0" >/dev/null 2>&1; then
-	pass "subject context (subj_context:)"
+if "$VLABELCTL" rule add "allow exec * ctx:uid=0 -> type=admin" >/dev/null 2>&1; then
+	pass "subject context before arrow"
 else
-	fail "subject context (subj_context:)"
+	fail "subject context before arrow"
 fi
 
 run_test
 info "Test: Object context constraint"
 "$VLABELCTL" rule clear >/dev/null
-if "$VLABELCTL" rule add "deny debug * -> * obj_context:sandboxed=true" >/dev/null 2>&1; then
-	pass "object context (obj_context:)"
+if "$VLABELCTL" rule add "deny debug * -> * ctx:sandboxed=true" >/dev/null 2>&1; then
+	pass "object context (ctx:)"
 else
-	fail "object context (obj_context:)"
+	fail "object context (ctx:)"
 fi
 
 run_test
 info "Test: Both subject and object context"
 "$VLABELCTL" rule clear >/dev/null
-if "$VLABELCTL" rule add "deny signal * -> * subj_context:jail=any obj_context:jail=host" >/dev/null 2>&1; then
+if "$VLABELCTL" rule add "deny signal * ctx:jail=any -> * ctx:jail=host" >/dev/null 2>&1; then
 	pass "both contexts"
 else
 	fail "both contexts"
@@ -152,7 +152,7 @@ fi
 run_test
 info "Test: Context jail=host"
 "$VLABELCTL" rule clear >/dev/null
-if "$VLABELCTL" rule add "allow exec * -> * context:jail=host" >/dev/null 2>&1; then
+if "$VLABELCTL" rule add "allow exec * -> * ctx:jail=host" >/dev/null 2>&1; then
 	pass "context jail=host"
 else
 	fail "context jail=host"
@@ -161,7 +161,7 @@ fi
 run_test
 info "Test: Context jail=any"
 "$VLABELCTL" rule clear >/dev/null
-if "$VLABELCTL" rule add "deny exec * -> type=hostonly context:jail=any" >/dev/null 2>&1; then
+if "$VLABELCTL" rule add "deny exec * -> type=hostonly ctx:jail=any" >/dev/null 2>&1; then
 	pass "context jail=any"
 else
 	fail "context jail=any"
@@ -170,7 +170,7 @@ fi
 run_test
 info "Test: Context sandboxed=true"
 "$VLABELCTL" rule clear >/dev/null
-if "$VLABELCTL" rule add "deny exec * -> * context:sandboxed=true" >/dev/null 2>&1; then
+if "$VLABELCTL" rule add "deny exec * -> * ctx:sandboxed=true" >/dev/null 2>&1; then
 	pass "context sandboxed"
 else
 	fail "context sandboxed"
@@ -179,7 +179,7 @@ fi
 run_test
 info "Test: Context tty=true"
 "$VLABELCTL" rule clear >/dev/null
-if "$VLABELCTL" rule add "allow exec * -> type=interactive context:tty=true" >/dev/null 2>&1; then
+if "$VLABELCTL" rule add "allow exec * -> type=interactive ctx:tty=true" >/dev/null 2>&1; then
 	pass "context tty"
 else
 	fail "context tty"

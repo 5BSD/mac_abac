@@ -171,11 +171,11 @@ $VLABELCTL rule clear 2>/dev/null || true
 # ---------------------------------------------------------------------------
 # ACTION: add_context_rule
 # Verify context constraints work with debug operations
-# Rule: "deny debug * -> * context:sandboxed=true"
+# Rule: "deny debug * -> * ctx:sandboxed=true"
 # (deny debug if subject is in Capsicum sandbox)
 # ---------------------------------------------------------------------------
 info "ACTION: add_context_rule"
-RULE="deny debug * -> * context:sandboxed=true"
+RULE="deny debug * -> * ctx:sandboxed=true"
 info "  Rule: $RULE"
 if ! $VLABELCTL rule add "$RULE"; then
     fail "Could not add rule: $RULE"
@@ -274,7 +274,7 @@ echo ""
 echo "Example rules:"
 echo "  vlabelctl rule add \"deny debug * -> type=protected\""
 echo "  vlabelctl rule add \"allow debug type=admin -> *\""
-echo "  vlabelctl rule add \"deny debug * -> * context:sandboxed=true\""
+echo "  vlabelctl rule add \"deny debug * -> * ctx:sandboxed=true\""
 echo "  vlabelctl rule add \"allow signal type=supervisor -> type=worker\""
 echo ""
 

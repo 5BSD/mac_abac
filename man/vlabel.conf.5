@@ -73,15 +73,10 @@ Required for
 .Cm transition
 rules.
 The label assigned to the process after exec.
-.It Cm context
-Deprecated.
-Use
-.Cm subj_context
-instead.
-.It Cm subj_context
+.It Cm subj_ctx
 Optional.
 Object specifying constraints on the calling process.
-.It Cm obj_context
+.It Cm obj_ctx
 Optional.
 Object specifying constraints on the target process
 (only meaningful for debug, signal, and sched operations).
@@ -256,7 +251,7 @@ rules = [
         action = "allow";
         operations = ["exec"];
         object = { type = "admin"; };
-        subj_context = {
+        subj_ctx = {
             uid = 0;
             jail = "host";
             tty = true;
@@ -276,7 +271,7 @@ rules = [
     {
         action = "deny";
         operations = ["debug"];
-        obj_context = { sandboxed = true; };
+        obj_ctx = { sandboxed = true; };
     }
 ];
 .Ed
