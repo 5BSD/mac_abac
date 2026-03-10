@@ -323,6 +323,8 @@ All commands use: `mac_syscall("vlabel", VLABEL_SYS_*, arg)`
 | `VLABEL_SYS_RULE_CLEAR` | None | `NULL` | Clear all rules |
 | `VLABEL_SYS_RULE_LIST` | Read | `struct vlabel_rule_list_arg*` | List rules |
 | `VLABEL_SYS_TEST` | Read/Write | `struct vlabel_test_arg*` | Test access |
+| `VLABEL_SYS_REFRESH` | Write | `int*` (fd) | Refresh cached label from extattr |
+| `VLABEL_SYS_SETLABEL` | Write | `struct vlabel_setlabel_arg*` | Atomic set: extattr + cache |
 
 ### Variable-Length Structures
 

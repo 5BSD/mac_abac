@@ -187,6 +187,78 @@ cmd_label(int argc, char *argv[])
 		}
 		printf("label removed from %s\n", argv[1]);
 
+	} else if (strcmp(argv[0], "setatomic") == 0) {
+		/*
+		 * Atomic setlabel: write extattr AND update in-memory cache
+		 * in a single syscall. This is the preferred method for ZFS.
+		 */
+		struct vlabel_setlabel_arg *setlabel_arg;
+		char *converted;
+		size_t label_len, total_len;
+		int fd;
+
+		if (argc < 3)
+			errx(EX_USAGE, "label setatomic requires path and label");
+
+		/* Convert from comma format to newline format */
+		converted = convert_label_format(argv[2]);
+		if (converted == NULL)
+			errx(EX_OSERR, "failed to convert label format");
+
+		label_len = strlen(converted) + 1;
+		total_len = sizeof(struct vlabel_setlabel_arg) + label_len;
+
+		/* Open the file first to get fd */
+		fd = open(argv[1], O_RDONLY);
+		if (fd < 0) {
+			free(converted);
+			err(EX_OSERR, "open");
+		}
+
+		/* Build syscall argument */
+		setlabel_arg = calloc(1, total_len);
+		if (setlabel_arg == NULL) {
+			free(converted);
+			close(fd);
+			err(EX_OSERR, "calloc");
+		}
+
+		setlabel_arg->vsl_fd = fd;
+		setlabel_arg->vsl_label_len = label_len;
+		memcpy((char *)setlabel_arg + sizeof(struct vlabel_setlabel_arg),
+		    converted, label_len);
+
+		/* Perform atomic setlabel */
+		ret = mac_syscall(VLABEL_POLICY_NAME, VLABEL_SYS_SETLABEL,
+		    setlabel_arg);
+		free(setlabel_arg);
+		free(converted);
+		close(fd);
+
+		if (ret < 0)
+			err(EX_OSERR, "SETLABEL");
+
+		printf("label set atomically on %s\n", argv[1]);
+
+	} else if (strcmp(argv[0], "refresh") == 0) {
+		/*
+		 * Refresh the kernel's cached vnode label by re-reading
+		 * from extattr. Useful after setextattr.
+		 */
+		int fd;
+
+		fd = open(argv[1], O_RDONLY);
+		if (fd < 0)
+			err(EX_OSERR, "open");
+
+		ret = mac_syscall(VLABEL_POLICY_NAME, VLABEL_SYS_REFRESH, &fd);
+		close(fd);
+
+		if (ret < 0)
+			err(EX_OSERR, "REFRESH");
+
+		printf("label refreshed for %s\n", argv[1]);
+
 	} else {
 		errx(EX_USAGE, "unknown label command: %s", argv[0]);
 	}

@@ -253,6 +253,7 @@ struct vlabel_rule_io {
 
 #define VLABEL_SYS_TEST		20	/* arg: struct vlabel_test_arg* (in/out) */
 #define VLABEL_SYS_REFRESH	21	/* arg: int* (in: file descriptor) */
+#define VLABEL_SYS_SETLABEL	22	/* arg: struct vlabel_setlabel_arg* (in) */
 
 /*
  * Context constraints for rules (shared between kernel and userland)
@@ -394,6 +395,27 @@ struct vlabel_test_arg {
 	uint16_t	vt_subject_len;		/* Length including null */
 	uint16_t	vt_object_len;
 	/* Variable data follows: subject, object */
+};
+
+/*
+ * Set label argument - atomic set + refresh for ZFS/single-label filesystems
+ *
+ * This syscall atomically:
+ *   1. Writes the new label to the file's extended attribute
+ *   2. Updates the in-memory cached label on the vnode
+ *
+ * This avoids the race condition of separate setextattr + refresh calls
+ * and is required for filesystems like ZFS that don't use mac_vnode_setlabel().
+ *
+ * Layout in memory:
+ *   struct vlabel_setlabel_arg header
+ *   char label[vsl_label_len]   (null-terminated label string)
+ */
+struct vlabel_setlabel_arg {
+	int32_t		vsl_fd;			/* File descriptor */
+	uint16_t	vsl_label_len;		/* Length including null */
+	uint16_t	vsl_reserved;
+	/* Variable data follows: label string */
 };
 
 #ifdef _KERNEL

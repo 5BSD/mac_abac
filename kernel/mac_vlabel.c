@@ -660,6 +660,94 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 		}
 		break;
 
+	case VLABEL_SYS_SETLABEL:
+		/*
+		 * Atomically set a file's label: write to extattr AND update
+		 * the in-memory cached label in a single syscall.
+		 *
+		 * This is the preferred method for relabeling on ZFS and other
+		 * filesystems that don't support MNT_MULTILABEL. It avoids the
+		 * race condition of separate setextattr + VLABEL_SYS_REFRESH.
+		 *
+		 * Layout: struct vlabel_setlabel_arg + label string
+		 */
+		{
+			struct vlabel_setlabel_arg setlabel_arg;
+			struct file *fp;
+			struct vnode *vp;
+			struct vlabel_label *vl;
+			char *label_buf;
+			int label_len;
+
+			error = copyin(arg, &setlabel_arg, sizeof(setlabel_arg));
+			if (error)
+				break;
+
+			/* Validate label length */
+			if (setlabel_arg.vsl_label_len == 0 ||
+			    setlabel_arg.vsl_label_len > VLABEL_MAX_LABEL_LEN) {
+				error = EINVAL;
+				break;
+			}
+
+			/* Copyin the label string */
+			label_buf = malloc(setlabel_arg.vsl_label_len, M_TEMP, M_WAITOK);
+			error = copyin((char *)arg + sizeof(setlabel_arg),
+			    label_buf, setlabel_arg.vsl_label_len);
+			if (error) {
+				free(label_buf, M_TEMP);
+				break;
+			}
+
+			/* Ensure null termination */
+			label_buf[setlabel_arg.vsl_label_len - 1] = '\0';
+			label_len = strlen(label_buf);
+
+			/* Get the vnode from the file descriptor */
+			error = fget(td, setlabel_arg.vsl_fd, &cap_no_rights, &fp);
+			if (error) {
+				free(label_buf, M_TEMP);
+				break;
+			}
+
+			if (fp->f_type != DTYPE_VNODE) {
+				fdrop(fp, td);
+				free(label_buf, M_TEMP);
+				error = EINVAL;
+				break;
+			}
+
+			vp = fp->f_vnode;
+			if (vp == NULL) {
+				fdrop(fp, td);
+				free(label_buf, M_TEMP);
+				error = EINVAL;
+				break;
+			}
+
+			/* Lock vnode for exclusive access */
+			vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
+
+			/* Step 1: Write to extended attribute */
+			error = vn_extattr_set(vp, IO_NODELOCKED,
+			    VLABEL_EXTATTR_NAMESPACE, vlabel_extattr_name,
+			    label_len, label_buf, td);
+
+			if (error == 0 && vp->v_label != NULL) {
+				/* Step 2: Update in-memory label */
+				vl = SLOT(vp->v_label);
+				if (vl != NULL) {
+					error = vlabel_label_parse(label_buf,
+					    label_len, vl);
+				}
+			}
+
+			VOP_UNLOCK(vp);
+			fdrop(fp, td);
+			free(label_buf, M_TEMP);
+		}
+		break;
+
 	default:
 		error = EINVAL;
 		break;
