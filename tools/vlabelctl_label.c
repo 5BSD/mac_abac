@@ -109,7 +109,7 @@ cmd_label(int argc, char *argv[])
 		char *p;
 
 		len = extattr_get_file(argv[1], EXTATTR_NAMESPACE_SYSTEM,
-		    "vlabel", buf, sizeof(buf) - 1);
+		    get_extattr_name(), buf, sizeof(buf) - 1);
 		if (len < 0) {
 			if (errno == ENOATTR) {
 				printf("(no label)\n");
@@ -151,7 +151,7 @@ cmd_label(int argc, char *argv[])
 			errx(EX_OSERR, "failed to convert label format");
 
 		ret = extattr_set_file(argv[1], EXTATTR_NAMESPACE_SYSTEM,
-		    "vlabel", converted, strlen(converted));
+		    get_extattr_name(), converted, strlen(converted));
 		free(converted);
 		if (ret < 0)
 			err(EX_OSERR, "extattr_set_file");
@@ -177,7 +177,7 @@ cmd_label(int argc, char *argv[])
 
 	} else if (strcmp(argv[0], "remove") == 0) {
 		ret = extattr_delete_file(argv[1], EXTATTR_NAMESPACE_SYSTEM,
-		    "vlabel");
+		    get_extattr_name());
 		if (ret < 0) {
 			if (errno == ENOATTR) {
 				printf("(no label to remove)\n");

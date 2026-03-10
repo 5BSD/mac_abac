@@ -11,6 +11,7 @@
  */
 
 #include <sys/types.h>
+#include <sys/sysctl.h>
 #include <sys/mac.h>
 
 #include <err.h>
@@ -35,6 +36,31 @@ vlabel_syscall(int cmd, void *arg)
 	if (error < 0 && errno == ENOSYS)
 		errx(EX_UNAVAILABLE, "vLabel module not loaded");
 	return (error);
+}
+
+/*
+ * Get the extattr name from kernel sysctl.
+ * Returns static buffer with name, or default "vlabel" on error.
+ */
+const char *
+get_extattr_name(void)
+{
+	static char extattr_name[64];
+	static int initialized = 0;
+	size_t len;
+
+	if (initialized)
+		return (extattr_name);
+
+	len = sizeof(extattr_name);
+	if (sysctlbyname("security.mac.vlabel.extattr_name",
+	    extattr_name, &len, NULL, 0) < 0) {
+		/* Fall back to default if sysctl fails (module not loaded) */
+		strlcpy(extattr_name, "vlabel", sizeof(extattr_name));
+	}
+
+	initialized = 1;
+	return (extattr_name);
 }
 
 /*

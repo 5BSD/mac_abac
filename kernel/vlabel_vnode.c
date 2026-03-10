@@ -1333,7 +1333,7 @@ vlabel_vnode_setlabel_extattr(struct ucred *cred, struct vnode *vp,
 
 	/* Write to extended attribute */
 	error = vn_extattr_set(vp, UIO_SYSSPACE, VLABEL_EXTATTR_NAMESPACE,
-	    VLABEL_EXTATTR_NAME, len, buf, curthread);
+	    vlabel_extattr_name, len, buf, curthread);
 
 	if (error == 0 && vplabel != NULL) {
 		/* Update in-memory label */

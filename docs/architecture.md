@@ -298,6 +298,54 @@ vLabel: vlabel_vnode_setlabel_extattr()
 Done
 ```
 
+## Sysctl Tunables
+
+vLabel exposes configuration and statistics via the `security.mac.vlabel` sysctl tree.
+
+### Configuration Tunables (Read-Write)
+
+| Sysctl | Type | Default | Description |
+|--------|------|---------|-------------|
+| `security.mac.vlabel.enabled` | int | 1 | Enable (1) or disable (0) the module |
+| `security.mac.vlabel.mode` | int | 1 | 0=disabled, 1=permissive, 2=enforcing |
+| `security.mac.vlabel.default_policy` | int | 0 | Default when no rule matches: 0=allow, 1=deny |
+| `security.mac.vlabel.extattr_name` | string | "vlabel" | Extended attribute name in system namespace |
+
+**Mode values:**
+- `0` (disabled): All operations allowed, no rule evaluation
+- `1` (permissive): Rules evaluated, denials logged but not enforced
+- `2` (enforcing): Rules evaluated and enforced
+
+### Statistics (Read-Only)
+
+| Sysctl | Type | Description |
+|--------|------|-------------|
+| `security.mac.vlabel.checks` | uint64 | Total access checks performed |
+| `security.mac.vlabel.allowed` | uint64 | Operations allowed |
+| `security.mac.vlabel.denied` | uint64 | Operations denied (or would-deny in permissive) |
+| `security.mac.vlabel.rule_count` | int | Currently loaded rules |
+| `security.mac.vlabel.labels_read` | uint64 | Labels read from extended attributes |
+| `security.mac.vlabel.labels_default` | uint64 | Default labels assigned (no extattr) |
+| `security.mac.vlabel.labels_allocated` | uint64 | Label structures allocated |
+| `security.mac.vlabel.labels_freed` | uint64 | Label structures freed |
+| `security.mac.vlabel.parse_errors` | uint64 | Label parse failures |
+
+### Example Usage
+
+```sh
+# View all tunables
+sysctl security.mac.vlabel
+
+# Set enforcing mode
+sysctl security.mac.vlabel.mode=2
+
+# Set default deny policy
+sysctl security.mac.vlabel.default_policy=1
+
+# Check statistics
+sysctl security.mac.vlabel.checks security.mac.vlabel.denied
+```
+
 ## mac_syscall Interface
 
 vLabel uses the FreeBSD MAC Framework's syscall interface (`mac_syscall()`) instead of

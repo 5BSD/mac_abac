@@ -21,6 +21,7 @@
 int vlabel_syscall(int cmd, void *arg);
 char *convert_label_format(const char *input);
 const char *ops_to_string(uint32_t ops, char *buf, size_t buflen);
+const char *get_extattr_name(void);
 void usage(void);
 
 /*
