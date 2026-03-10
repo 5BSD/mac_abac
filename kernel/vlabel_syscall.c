@@ -291,11 +291,16 @@ vlabel_rule_add_locked(struct vlabel_rule_arg *arg, const char *data)
 
 /*
  * Atomic rule load - replace all rules at once (like PF reload)
+ *
+ * This function saves existing rules, attempts to load new rules,
+ * and rolls back on failure. The old_rules array is dynamically
+ * allocated to avoid kernel stack overflow (stack is typically 4-8KB,
+ * but VLABEL_MAX_RULES pointers could be 8KB+ on 64-bit).
  */
 int
 vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 {
-	struct vlabel_rule *old_rules[VLABEL_MAX_RULES];
+	struct vlabel_rule **old_rules;
 	int old_count, old_end;
 	char *kbuf;
 	size_t offset;
@@ -321,6 +326,14 @@ vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 		free(kbuf, M_TEMP);
 		return (error);
 	}
+
+	/*
+	 * Allocate rollback array dynamically to avoid stack overflow.
+	 * We only need to save up to vlabel_rule_end entries, but allocate
+	 * for VLABEL_MAX_RULES to simplify indexing during restore.
+	 */
+	old_rules = malloc(sizeof(struct vlabel_rule *) * VLABEL_MAX_RULES,
+	    M_TEMP, M_WAITOK | M_ZERO);
 
 	rw_wlock(&vlabel_rules_lock);
 
@@ -403,6 +416,7 @@ vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 
 	rw_wunlock(&vlabel_rules_lock);
 
+	free(old_rules, M_TEMP);
 	free(kbuf, M_TEMP);
 
 	load_arg->vrl_loaded = loaded;
@@ -411,46 +425,62 @@ vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 
 /*
  * Calculate the size needed to serialize a rule
+ *
+ * Uses dynamic allocation to avoid 8KB+ stack buffers for pattern strings.
  */
 static size_t
 vlabel_rule_out_size(const struct vlabel_rule *rule)
 {
-	char subj_buf[VLABEL_MAX_LABEL_LEN];
-	char obj_buf[VLABEL_MAX_LABEL_LEN];
-	size_t subj_len, obj_len, newlabel_len;
+	char *subj_buf, *obj_buf;
+	size_t subj_len, obj_len, newlabel_len, total;
+
+	subj_buf = malloc(VLABEL_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
+	obj_buf = malloc(VLABEL_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
 
 	subj_len = vlabel_pattern_to_string(&rule->vr_subject, subj_buf,
-	    sizeof(subj_buf)) + 1;
+	    VLABEL_MAX_LABEL_LEN) + 1;
 	obj_len = vlabel_pattern_to_string(&rule->vr_object, obj_buf,
-	    sizeof(obj_buf)) + 1;
+	    VLABEL_MAX_LABEL_LEN) + 1;
 	newlabel_len = (rule->vr_action == VLABEL_ACTION_TRANSITION) ?
 	    strlen(rule->vr_newlabel.vl_raw) + 1 : 0;
 
-	return sizeof(struct vlabel_rule_out) + subj_len + obj_len + newlabel_len;
+	total = sizeof(struct vlabel_rule_out) + subj_len + obj_len + newlabel_len;
+
+	free(subj_buf, M_TEMP);
+	free(obj_buf, M_TEMP);
+
+	return total;
 }
 
 /*
  * Serialize a rule to buffer
+ *
+ * Uses dynamic allocation to avoid 8KB+ stack buffers for pattern strings.
  */
 static size_t
 vlabel_rule_serialize(const struct vlabel_rule *rule, char *buf, size_t buflen)
 {
 	struct vlabel_rule_out *out = (struct vlabel_rule_out *)buf;
 	char *data;
+	char *subj_buf, *obj_buf;
 	size_t subj_len, obj_len, newlabel_len, total;
-	char subj_buf[VLABEL_MAX_LABEL_LEN];
-	char obj_buf[VLABEL_MAX_LABEL_LEN];
+
+	subj_buf = malloc(VLABEL_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
+	obj_buf = malloc(VLABEL_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
 
 	subj_len = vlabel_pattern_to_string(&rule->vr_subject, subj_buf,
-	    sizeof(subj_buf)) + 1;
+	    VLABEL_MAX_LABEL_LEN) + 1;
 	obj_len = vlabel_pattern_to_string(&rule->vr_object, obj_buf,
-	    sizeof(obj_buf)) + 1;
+	    VLABEL_MAX_LABEL_LEN) + 1;
 	newlabel_len = (rule->vr_action == VLABEL_ACTION_TRANSITION) ?
 	    strlen(rule->vr_newlabel.vl_raw) + 1 : 0;
 
 	total = sizeof(struct vlabel_rule_out) + subj_len + obj_len + newlabel_len;
-	if (total > buflen)
+	if (total > buflen) {
+		free(subj_buf, M_TEMP);
+		free(obj_buf, M_TEMP);
 		return (0);
+	}
 
 	/* Fill header */
 	memset(out, 0, sizeof(*out));
@@ -483,6 +513,9 @@ vlabel_rule_serialize(const struct vlabel_rule *rule, char *buf, size_t buflen)
 	data += obj_len;
 	if (newlabel_len > 0)
 		memcpy(data, rule->vr_newlabel.vl_raw, newlabel_len);
+
+	free(subj_buf, M_TEMP);
+	free(obj_buf, M_TEMP);
 
 	return (total);
 }
