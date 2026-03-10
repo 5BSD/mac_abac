@@ -220,6 +220,28 @@ Return 0 (allow) or EACCES (deny)
 
 ## Extended Attribute Flow
 
+### ZFS-Only Design
+
+vLabel is designed exclusively for ZFS filesystems. The traditional FreeBSD MAC label
+API (`mac_get_file`/`mac_set_file`, `getfmac`/`setfmac`) relies on filesystem callbacks:
+
+- `mac_vnode_create_extattr()` - Called during file creation to set initial label
+- `mac_vnode_setlabel_extattr()` - Called after `VOP_SETEXTATTR` to update cached label
+
+ZFS does not implement these callbacks because it uses its own SA-based attribute system
+rather than the UFS extattr infrastructure. The `MNT_MULTILABEL` mount flag that enables
+these callbacks is not supported on ZFS.
+
+**vLabel's approach works around this:**
+
+1. Labels are read via `VOP_GETEXTATTR()` during `mac_vnode_associate_extattr()`
+2. Labels are written via `VOP_SETEXTATTR()` through `vlabelctl`
+3. Cached labels are refreshed via the `VLABEL_SYS_REFRESH` syscall
+4. The `externalize_label`/`internalize_label` hooks are stubs (return errors)
+
+This means `vlabelctl` is the only supported tool for label management. The standard
+`getfmac`/`setfmac` tools will not work.
+
 ### Reading Labels
 
 ```
@@ -535,7 +557,7 @@ File labels and rule patterns have different requirements:
 
 | Limit | Value | Scope | Notes |
 |-------|-------|-------|-------|
-| Max rules | 1,024 | System-wide | ~2.1 MB for non-transition rules |
+| Max rules | 4,096 | System-wide | ~8.5 MB for non-transition rules |
 | Max pairs per file label | 16 | Per label | Complex labels need this |
 | Max pairs per rule pattern | 8 | Per pattern | Analysis shows 1-4 typical |
 | Max key length (labels) | 64 bytes | Per key | Same for labels and rules |
