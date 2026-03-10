@@ -23,7 +23,7 @@
 #include "mac_vlabel.h"
 
 /*
- * Check if a label matches a pattern
+ * Check if a label matches a pattern (legacy large pattern)
  *
  * This is a wrapper around vlabel_label_match from vlabel_label.c.
  * The actual matching logic supports arbitrary key=value pairs.
@@ -34,6 +34,62 @@ vlabel_pattern_match(const struct vlabel_label *label,
 {
 
 	return (vlabel_label_match(label, pattern));
+}
+
+/*
+ * Check if a label matches a compact rule pattern
+ *
+ * This function matches a label against the compact vlabel_rule_pattern
+ * structure used in rules. It has the same semantics as vlabel_label_match
+ * but operates on the smaller rule pattern structure.
+ *
+ * Pattern matching rules:
+ * - Empty pattern (npairs=0) = wildcard (matches anything)
+ * - Each pattern pair must exist in the label
+ * - Pattern value "*" matches any value for that key
+ * - VLABEL_MATCH_NEGATE inverts the result
+ */
+bool
+vlabel_rule_pattern_match(const struct vlabel_label *label,
+    const struct vlabel_rule_pattern *pattern)
+{
+	const char *label_value;
+	uint32_t i;
+	bool match = true;
+
+	if (label == NULL || pattern == NULL)
+		return (false);
+
+	/* Empty pattern matches everything */
+	if (pattern->vrp_npairs == 0) {
+		match = true;
+		goto done;
+	}
+
+	/* Check each pattern pair against the label */
+	for (i = 0; i < pattern->vrp_npairs && match; i++) {
+		const struct vlabel_rule_pair *rp = &pattern->vrp_pairs[i];
+
+		/* Find this key in the label */
+		label_value = vlabel_label_get_value(label, rp->vrp_key);
+
+		if (label_value == NULL) {
+			/* Key not found in label - no match */
+			match = false;
+		} else if (strcmp(rp->vrp_value, "*") != 0) {
+			/* Not a wildcard - must match exactly */
+			if (strcmp(label_value, rp->vrp_value) != 0)
+				match = false;
+		}
+		/* else: wildcard "*" matches any value - continue */
+	}
+
+done:
+	/* Handle negation */
+	if (pattern->vrp_flags & VLABEL_MATCH_NEGATE)
+		match = !match;
+
+	return (match);
 }
 
 /*
@@ -219,6 +275,8 @@ vlabel_context_matches(const struct vlabel_context *ctx,
  *
  * subj_cred: credential of the subject (caller) - used for subject context
  * obj_proc: target process for proc operations - used for object context (may be NULL)
+ *
+ * Uses vlabel_rule_pattern_match for the compact rule pattern structures.
  */
 bool
 vlabel_rule_matches(const struct vlabel_rule *rule,
@@ -233,12 +291,12 @@ vlabel_rule_matches(const struct vlabel_rule *rule,
 	if ((rule->vr_operations & op) == 0)
 		return (false);
 
-	/* Check subject pattern */
-	if (!vlabel_pattern_match(subj, &rule->vr_subject))
+	/* Check subject pattern (uses compact rule pattern) */
+	if (!vlabel_rule_pattern_match(subj, &rule->vr_subject))
 		return (false);
 
-	/* Check object pattern */
-	if (!vlabel_pattern_match(obj, &rule->vr_object))
+	/* Check object pattern (uses compact rule pattern) */
+	if (!vlabel_rule_pattern_match(obj, &rule->vr_object))
 		return (false);
 
 	/* Check subject context constraints (jail, capability mode, etc.) */
@@ -302,6 +360,58 @@ vlabel_pattern_to_string(const struct vlabel_pattern *pattern, char *buf,
 		if (pos < buflen - 1)
 			buf[pos++] = '=';
 		copied = strlcpy(buf + pos, pair->vp_value, buflen - pos);
+		pos = (pos + copied >= buflen) ? buflen - 1 : pos + copied;
+	}
+
+	return (pos);
+}
+
+/*
+ * Serialize a compact rule pattern to a string
+ *
+ * Converts the parsed key=value pairs back to a comma-separated string.
+ * Returns the number of characters written (not including null terminator).
+ */
+size_t
+vlabel_rule_pattern_to_string(const struct vlabel_rule_pattern *pattern,
+    char *buf, size_t buflen)
+{
+	size_t pos = 0;
+	uint32_t i;
+
+	if (buf == NULL || buflen == 0)
+		return (0);
+
+	buf[0] = '\0';
+
+	/* Empty pattern = wildcard */
+	if (pattern->vrp_npairs == 0) {
+		if (buflen > 1) {
+			buf[0] = '*';
+			buf[1] = '\0';
+			return (1);
+		}
+		return (0);
+	}
+
+	/* Build comma-separated key=value string */
+	for (i = 0; i < pattern->vrp_npairs && pos < buflen - 1; i++) {
+		const struct vlabel_rule_pair *pair = &pattern->vrp_pairs[i];
+		size_t needed, copied;
+
+		if (i > 0 && pos < buflen - 1)
+			buf[pos++] = ',';
+
+		/* Calculate space needed for "key=value" */
+		needed = strlen(pair->vrp_key) + 1 + strlen(pair->vrp_value);
+		if (pos + needed >= buflen)
+			break;
+
+		copied = strlcpy(buf + pos, pair->vrp_key, buflen - pos);
+		pos = (pos + copied >= buflen) ? buflen - 1 : pos + copied;
+		if (pos < buflen - 1)
+			buf[pos++] = '=';
+		copied = strlcpy(buf + pos, pair->vrp_value, buflen - pos);
 		pos = (pos + copied >= buflen) ? buflen - 1 : pos + copied;
 	}
 

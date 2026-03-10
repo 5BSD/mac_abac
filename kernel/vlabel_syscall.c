@@ -49,6 +49,7 @@ int
 vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data)
 {
 	struct vlabel_rule *newrule;
+	struct vlabel_label *newlabel;
 	const char *subject_str, *object_str, *newlabel_str;
 	char *converted;
 	int i, error;
@@ -81,12 +82,13 @@ vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data)
 	/* Fill in basic fields */
 	newrule->vr_action = arg->vr_action;
 	newrule->vr_operations = arg->vr_operations;
+	newrule->vr_newlabel = NULL;
 
-	/* Parse subject pattern */
-	newrule->vr_subject.vp_flags = arg->vr_subject_flags;
+	/* Parse subject pattern (uses compact rule pattern) */
+	newrule->vr_subject.vrp_flags = arg->vr_subject_flags;
 	if (arg->vr_subject_len > 0 && subject_str[0] != '\0' &&
 	    subject_str[0] != '*') {
-		error = vlabel_pattern_parse(subject_str, strlen(subject_str),
+		error = vlabel_rule_pattern_parse(subject_str, strlen(subject_str),
 		    &newrule->vr_subject);
 		if (error) {
 			VLABEL_DPRINTF("rule_add: failed to parse subject '%s'",
@@ -97,11 +99,11 @@ vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data)
 		}
 	}
 
-	/* Parse object pattern */
-	newrule->vr_object.vp_flags = arg->vr_object_flags;
+	/* Parse object pattern (uses compact rule pattern) */
+	newrule->vr_object.vrp_flags = arg->vr_object_flags;
 	if (arg->vr_object_len > 0 && object_str[0] != '\0' &&
 	    object_str[0] != '*') {
-		error = vlabel_pattern_parse(object_str, strlen(object_str),
+		error = vlabel_rule_pattern_parse(object_str, strlen(object_str),
 		    &newrule->vr_object);
 		if (error) {
 			VLABEL_DPRINTF("rule_add: failed to parse object '%s'",
@@ -128,19 +130,26 @@ vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data)
 	newrule->vr_obj_context.vc_uid = arg->vr_obj_context.vc_uid;
 	newrule->vr_obj_context.vc_gid = arg->vr_obj_context.vc_gid;
 
-	/* Parse newlabel for TRANSITION rules */
+	/* Parse newlabel for TRANSITION rules (separately allocated) */
 	if (arg->vr_action == VLABEL_ACTION_TRANSITION &&
 	    arg->vr_newlabel_len > 0 && newlabel_str[0] != '\0') {
+		newlabel = malloc(sizeof(*newlabel), M_TEMP, M_NOWAIT | M_ZERO);
+		if (newlabel == NULL) {
+			free(newrule, M_TEMP);
+			free(converted, M_TEMP);
+			return (ENOMEM);
+		}
 		vlabel_convert_label_format(newlabel_str, converted, VLABEL_MAX_LABEL_LEN);
-		error = vlabel_label_parse(converted, strlen(converted),
-		    &newrule->vr_newlabel);
+		error = vlabel_label_parse(converted, strlen(converted), newlabel);
 		if (error) {
 			VLABEL_DPRINTF("rule_add: failed to parse newlabel '%s'",
 			    newlabel_str);
+			free(newlabel, M_TEMP);
 			free(newrule, M_TEMP);
 			free(converted, M_TEMP);
 			return (error);
 		}
+		newrule->vr_newlabel = newlabel;
 	}
 
 	free(converted, M_TEMP);
@@ -211,12 +220,13 @@ vlabel_rule_add_locked(struct vlabel_rule_arg *arg, const char *data)
 
 	newrule->vr_action = arg->vr_action;
 	newrule->vr_operations = arg->vr_operations;
+	newrule->vr_newlabel = NULL;
 
-	/* Parse subject pattern */
-	newrule->vr_subject.vp_flags = arg->vr_subject_flags;
+	/* Parse subject pattern (uses compact rule pattern) */
+	newrule->vr_subject.vrp_flags = arg->vr_subject_flags;
 	if (arg->vr_subject_len > 0 && subject_str[0] != '\0' &&
 	    subject_str[0] != '*') {
-		error = vlabel_pattern_parse(subject_str, strlen(subject_str),
+		error = vlabel_rule_pattern_parse(subject_str, strlen(subject_str),
 		    &newrule->vr_subject);
 		if (error) {
 			free(newrule, M_TEMP);
@@ -225,11 +235,11 @@ vlabel_rule_add_locked(struct vlabel_rule_arg *arg, const char *data)
 		}
 	}
 
-	/* Parse object pattern */
-	newrule->vr_object.vp_flags = arg->vr_object_flags;
+	/* Parse object pattern (uses compact rule pattern) */
+	newrule->vr_object.vrp_flags = arg->vr_object_flags;
 	if (arg->vr_object_len > 0 && object_str[0] != '\0' &&
 	    object_str[0] != '*') {
-		error = vlabel_pattern_parse(object_str, strlen(object_str),
+		error = vlabel_rule_pattern_parse(object_str, strlen(object_str),
 		    &newrule->vr_object);
 		if (error) {
 			free(newrule, M_TEMP);
@@ -253,17 +263,25 @@ vlabel_rule_add_locked(struct vlabel_rule_arg *arg, const char *data)
 	newrule->vr_obj_context.vc_uid = arg->vr_obj_context.vc_uid;
 	newrule->vr_obj_context.vc_gid = arg->vr_obj_context.vc_gid;
 
-	/* Parse newlabel for TRANSITION rules */
+	/* Parse newlabel for TRANSITION rules (separately allocated) */
 	if (arg->vr_action == VLABEL_ACTION_TRANSITION &&
 	    arg->vr_newlabel_len > 0 && newlabel_str[0] != '\0') {
+		struct vlabel_label *newlabel;
+		newlabel = malloc(sizeof(*newlabel), M_TEMP, M_NOWAIT | M_ZERO);
+		if (newlabel == NULL) {
+			free(newrule, M_TEMP);
+			free(converted, M_TEMP);
+			return (ENOMEM);
+		}
 		vlabel_convert_label_format(newlabel_str, converted, VLABEL_MAX_LABEL_LEN);
-		error = vlabel_label_parse(converted, strlen(converted),
-		    &newrule->vr_newlabel);
+		error = vlabel_label_parse(converted, strlen(converted), newlabel);
 		if (error) {
+			free(newlabel, M_TEMP);
 			free(newrule, M_TEMP);
 			free(converted, M_TEMP);
 			return (error);
 		}
+		newrule->vr_newlabel = newlabel;
 	}
 
 	free(converted, M_TEMP);
@@ -396,10 +414,13 @@ vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 	}
 
 	if (error) {
-		/* Rollback: restore old rules */
+		/* Rollback: restore old rules, free new rules */
 		for (i = 0; i < VLABEL_MAX_RULES; i++) {
-			if (vlabel_rules[i] != NULL)
+			if (vlabel_rules[i] != NULL) {
+				if (vlabel_rules[i]->vr_newlabel != NULL)
+					free(vlabel_rules[i]->vr_newlabel, M_TEMP);
 				free(vlabel_rules[i], M_TEMP);
+			}
 			vlabel_rules[i] = old_rules[i];
 		}
 		vlabel_rule_count = old_count;
@@ -408,8 +429,11 @@ vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 	} else {
 		/* Success: free old rules */
 		for (i = 0; i < VLABEL_MAX_RULES; i++) {
-			if (old_rules[i] != NULL)
+			if (old_rules[i] != NULL) {
+				if (old_rules[i]->vr_newlabel != NULL)
+					free(old_rules[i]->vr_newlabel, M_TEMP);
 				free(old_rules[i], M_TEMP);
+			}
 		}
 		VLABEL_DPRINTF("rules_load: loaded %u rules atomically", loaded);
 	}
@@ -437,12 +461,13 @@ vlabel_rule_out_size(const struct vlabel_rule *rule)
 	subj_buf = malloc(VLABEL_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
 	obj_buf = malloc(VLABEL_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
 
-	subj_len = vlabel_pattern_to_string(&rule->vr_subject, subj_buf,
+	subj_len = vlabel_rule_pattern_to_string(&rule->vr_subject, subj_buf,
 	    VLABEL_MAX_LABEL_LEN) + 1;
-	obj_len = vlabel_pattern_to_string(&rule->vr_object, obj_buf,
+	obj_len = vlabel_rule_pattern_to_string(&rule->vr_object, obj_buf,
 	    VLABEL_MAX_LABEL_LEN) + 1;
-	newlabel_len = (rule->vr_action == VLABEL_ACTION_TRANSITION) ?
-	    strlen(rule->vr_newlabel.vl_raw) + 1 : 0;
+	newlabel_len = (rule->vr_action == VLABEL_ACTION_TRANSITION &&
+	    rule->vr_newlabel != NULL) ?
+	    strlen(rule->vr_newlabel->vl_raw) + 1 : 0;
 
 	total = sizeof(struct vlabel_rule_out) + subj_len + obj_len + newlabel_len;
 
@@ -468,12 +493,13 @@ vlabel_rule_serialize(const struct vlabel_rule *rule, char *buf, size_t buflen)
 	subj_buf = malloc(VLABEL_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
 	obj_buf = malloc(VLABEL_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
 
-	subj_len = vlabel_pattern_to_string(&rule->vr_subject, subj_buf,
+	subj_len = vlabel_rule_pattern_to_string(&rule->vr_subject, subj_buf,
 	    VLABEL_MAX_LABEL_LEN) + 1;
-	obj_len = vlabel_pattern_to_string(&rule->vr_object, obj_buf,
+	obj_len = vlabel_rule_pattern_to_string(&rule->vr_object, obj_buf,
 	    VLABEL_MAX_LABEL_LEN) + 1;
-	newlabel_len = (rule->vr_action == VLABEL_ACTION_TRANSITION) ?
-	    strlen(rule->vr_newlabel.vl_raw) + 1 : 0;
+	newlabel_len = (rule->vr_action == VLABEL_ACTION_TRANSITION &&
+	    rule->vr_newlabel != NULL) ?
+	    strlen(rule->vr_newlabel->vl_raw) + 1 : 0;
 
 	total = sizeof(struct vlabel_rule_out) + subj_len + obj_len + newlabel_len;
 	if (total > buflen) {
@@ -487,8 +513,8 @@ vlabel_rule_serialize(const struct vlabel_rule *rule, char *buf, size_t buflen)
 	out->vr_id = rule->vr_id;
 	out->vr_action = rule->vr_action;
 	out->vr_operations = rule->vr_operations;
-	out->vr_subject_flags = rule->vr_subject.vp_flags;
-	out->vr_object_flags = rule->vr_object.vp_flags;
+	out->vr_subject_flags = rule->vr_subject.vrp_flags;
+	out->vr_object_flags = rule->vr_object.vrp_flags;
 	out->vr_subj_context.vc_flags = rule->vr_subj_context.vc_flags;
 	out->vr_subj_context.vc_cap_sandboxed = rule->vr_subj_context.vc_cap_sandboxed;
 	out->vr_subj_context.vc_has_tty = rule->vr_subj_context.vc_has_tty;
@@ -512,7 +538,7 @@ vlabel_rule_serialize(const struct vlabel_rule *rule, char *buf, size_t buflen)
 	memcpy(data, obj_buf, obj_len);
 	data += obj_len;
 	if (newlabel_len > 0)
-		memcpy(data, rule->vr_newlabel.vl_raw, newlabel_len);
+		memcpy(data, rule->vr_newlabel->vl_raw, newlabel_len);
 
 	free(subj_buf, M_TEMP);
 	free(obj_buf, M_TEMP);
@@ -638,10 +664,10 @@ vlabel_rules_test_access(const char *subject, size_t subject_len,
 		if ((rule->vr_operations & operation) == 0)
 			continue;
 
-		if (!vlabel_pattern_match(subj_label, &rule->vr_subject))
+		if (!vlabel_rule_pattern_match(subj_label, &rule->vr_subject))
 			continue;
 
-		if (!vlabel_pattern_match(obj_label, &rule->vr_object))
+		if (!vlabel_rule_pattern_match(obj_label, &rule->vr_object))
 			continue;
 
 		/* Rule matches (skip context in test mode) */

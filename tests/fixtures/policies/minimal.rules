@@ -1,2 +1,2 @@
-# Minimal test policy
-allow exec * -> *
+# Minimal policy - single allow-all rule
+allow all * -> *

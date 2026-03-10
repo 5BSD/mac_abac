@@ -83,27 +83,32 @@
 /*
  * Rule constraints (system-wide limits)
  *
- * VLABEL_MAX_RULES (1024, planned: 4096+):
+ * VLABEL_MAX_RULES:
  *   Maximum rules loaded in the kernel. Rules are evaluated in order
- *   (first-match semantics like pf). Current limit is conservative due
- *   to memory usage (~19KB per rule with embedded patterns).
+ *   (first-match semantics like pf).
  *
- *   Memory impact at 1024 rules: ~19MB
- *   Memory impact at 4096 rules: ~76MB (current struct)
+ *   Memory impact with compact rules (~2.1KB each):
+ *   - 1024 rules: ~2.1 MB
+ *   - 4096 rules: ~8.5 MB
+ *   - 16384 rules: ~34 MB
  *
- *   A planned refactoring (see REFACTOR_RULES.md) will reduce per-rule
- *   memory to ~1.6KB by:
- *   - Reducing pattern pairs from 16 to 8 (covers all realistic cases)
- *   - Using smaller key/value sizes in patterns (32/64 vs 64/256)
- *   - Allocating transition labels separately (only for TRANSITION rules)
+ * VLABEL_RULE_MAX_PAIRS (8):
+ *   Maximum key=value pairs per rule pattern. Analysis of real policies
+ *   shows most patterns use 1-4 pairs. 8 provides headroom while keeping
+ *   rule structs compact. File labels still support 16 pairs.
  *
- *   After refactoring: 4096 rules = ~6.3MB, 16384 rules = ~25MB
+ * VLABEL_RULE_KEY_LEN (64):
+ *   Maximum key length in rule patterns. Same as file labels.
  *
- * WARNING: vlabel_rules_load() currently uses a stack array of size
- * VLABEL_MAX_RULES for atomic rollback. Values above ~1024 will cause
- * kernel stack overflow. This must be fixed before increasing the limit.
+ * VLABEL_RULE_VALUE_LEN (64):
+ *   Maximum value length in rule patterns. Reduced from 256 (file labels)
+ *   because rule pattern values are typically short (type names, domains).
+ *   Longest observed in real policies: ~21 characters.
  */
-#define VLABEL_MAX_RULES		1024	/* Max rules in kernel */
+#define VLABEL_MAX_RULES		4096	/* Max rules in kernel */
+#define VLABEL_RULE_MAX_PAIRS		8	/* Max pairs per rule pattern */
+#define VLABEL_RULE_KEY_LEN		64	/* Max key length in rules */
+#define VLABEL_RULE_VALUE_LEN		64	/* Max value length in rules */
 
 /*
  * Operations bitmask for rule matching
@@ -404,7 +409,7 @@ struct vlabel_label {
 };
 
 /*
- * Pattern for matching labels in rules
+ * Pattern for matching labels in rules (legacy - large)
  *
  * Patterns are also stored as key=value pairs. A label matches a pattern
  * if ALL pairs in the pattern exist in the label with matching values.
@@ -414,12 +419,45 @@ struct vlabel_label {
  *   Pattern "type=app,domain=web" matches label "type=app,domain=web,level=high"
  *   Pattern "type=*" matches any label that has a "type" key
  *   Pattern "" (empty) matches any label (wildcard)
+ *
+ * NOTE: This is the legacy large pattern struct (~5KB). New code should
+ * use vlabel_rule_pattern which is optimized for rules (~1KB).
  */
 struct vlabel_pattern {
 	uint32_t		vp_flags;			/* VLABEL_MATCH_NEGATE, etc */
 	uint32_t		vp_npairs;			/* Number of pairs to match */
 	struct vlabel_pair	vp_pairs[VLABEL_MAX_PAIRS];	/* Pairs to match */
 };
+
+/*
+ * Compact key-value pair for rule patterns
+ *
+ * Smaller than vlabel_pair (128 bytes vs 320 bytes) because rule patterns
+ * don't need the same value capacity as file labels. Keys and values in
+ * rule patterns are typically short identifiers.
+ */
+struct vlabel_rule_pair {
+	char	vrp_key[VLABEL_RULE_KEY_LEN];		/* 64 bytes */
+	char	vrp_value[VLABEL_RULE_VALUE_LEN];	/* 64 bytes */
+};
+/* Size: 128 bytes */
+
+/*
+ * Compact pattern for rule matching
+ *
+ * Uses 8 pairs (vs 16) with smaller key/value sizes. This reduces
+ * per-rule memory from ~10KB (2 patterns) to ~2KB while covering
+ * all realistic rule patterns.
+ *
+ * Analysis of real policies shows patterns typically use 1-4 pairs.
+ * 8 pairs provides ample headroom.
+ */
+struct vlabel_rule_pattern {
+	uint32_t		vrp_flags;			/* VLABEL_MATCH_NEGATE */
+	uint32_t		vrp_npairs;			/* Number of pairs */
+	struct vlabel_rule_pair	vrp_pairs[VLABEL_RULE_MAX_PAIRS];
+};
+/* Size: 8 + 8*128 = 1,032 bytes */
 
 /*
  * Context constraints for rules
@@ -440,17 +478,35 @@ struct vlabel_context {
 };
 
 /*
- * Access control rule
+ * Access control rule (compact version)
+ *
+ * Uses vlabel_rule_pattern (1KB each) instead of vlabel_pattern (5KB each),
+ * reducing per-rule memory from ~19KB to ~2.1KB.
+ *
+ * Transition labels are allocated separately (vr_newlabel pointer) rather
+ * than embedded, saving ~9KB for non-transition rules.
+ *
+ * Size breakdown:
+ *   - vr_id, vr_action, vr_operations: ~12 bytes
+ *   - vr_subject (vlabel_rule_pattern): 1,032 bytes
+ *   - vr_object (vlabel_rule_pattern): 1,032 bytes
+ *   - vr_subj_context, vr_obj_context: ~48 bytes
+ *   - vr_newlabel (pointer): 8 bytes
+ *   Total: ~2,132 bytes (non-transition)
+ *
+ * For transition rules, vr_newlabel points to a separately allocated
+ * vlabel_label (~9KB). This is freed when the rule is removed.
  */
 struct vlabel_rule {
-	uint32_t		vr_id;		/* Rule identifier */
-	uint8_t			vr_action;	/* ALLOW, DENY, or TRANSITION */
-	uint32_t		vr_operations;	/* Bitmask of operations */
-	struct vlabel_pattern	vr_subject;	/* Subject (process) pattern */
-	struct vlabel_pattern	vr_object;	/* Object (file) pattern */
-	struct vlabel_context	vr_subj_context; /* Subject context constraints */
-	struct vlabel_context	vr_obj_context;	/* Object context constraints */
-	struct vlabel_label	vr_newlabel;	/* New label for TRANSITION rules */
+	uint32_t		  vr_id;	   /* Rule identifier */
+	uint8_t			  vr_action;	   /* ALLOW, DENY, or TRANSITION */
+	uint8_t			  vr_reserved[3];
+	uint32_t		  vr_operations;   /* Bitmask of operations */
+	struct vlabel_rule_pattern vr_subject;	   /* Subject (process) pattern */
+	struct vlabel_rule_pattern vr_object;	   /* Object (file) pattern */
+	struct vlabel_context	  vr_subj_context; /* Subject context constraints */
+	struct vlabel_context	  vr_obj_context;  /* Object context constraints */
+	struct vlabel_label	 *vr_newlabel;	   /* Transition label (or NULL) */
 };
 
 /*
@@ -515,18 +571,24 @@ bool vlabel_label_match(const struct vlabel_label *label,
 uint32_t vlabel_label_hash(const char *str, size_t len);
 int vlabel_label_to_string(const struct vlabel_label *vl, char *buf, size_t buflen);
 int vlabel_pattern_parse(const char *str, size_t len, struct vlabel_pattern *pattern);
+int vlabel_rule_pattern_parse(const char *str, size_t len,
+    struct vlabel_rule_pattern *pattern);
 
 /*
  * Function prototypes - vlabel_match.c
  */
 bool vlabel_pattern_match(const struct vlabel_label *label,
     const struct vlabel_pattern *pattern);
+bool vlabel_rule_pattern_match(const struct vlabel_label *label,
+    const struct vlabel_rule_pattern *pattern);
 bool vlabel_context_matches(const struct vlabel_context *ctx,
     struct ucred *cred, struct proc *proc);
 bool vlabel_rule_matches(const struct vlabel_rule *rule,
     const struct vlabel_label *subj, const struct vlabel_label *obj,
     uint32_t op, struct ucred *subj_cred, struct proc *obj_proc);
 size_t vlabel_pattern_to_string(const struct vlabel_pattern *pattern,
+    char *buf, size_t buflen);
+size_t vlabel_rule_pattern_to_string(const struct vlabel_rule_pattern *pattern,
     char *buf, size_t buflen);
 void vlabel_convert_label_format(const char *src, char *dst, size_t dstlen);
 

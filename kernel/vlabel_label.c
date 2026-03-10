@@ -554,3 +554,108 @@ vlabel_pattern_parse(const char *str, size_t len, struct vlabel_pattern *pattern
 
 	return (0);
 }
+
+/*
+ * vlabel_rule_pattern_parse - Parse pattern string into compact rule pattern
+ *
+ * @str: Pattern string in comma-separated format "key1=val1,key2=val2,..."
+ *       or "*" for wildcard, or "!pattern" for negation
+ * @len: Length of string
+ * @pattern: Compact rule pattern structure to populate
+ *
+ * This is similar to vlabel_pattern_parse but uses the compact
+ * vlabel_rule_pattern structure with smaller limits:
+ *   - Max pairs: VLABEL_RULE_MAX_PAIRS (8 vs 16)
+ *   - Max key: VLABEL_RULE_KEY_LEN (64)
+ *   - Max value: VLABEL_RULE_VALUE_LEN (64 vs 256)
+ *
+ * Returns 0 on success, error code on failure.
+ */
+int
+vlabel_rule_pattern_parse(const char *str, size_t len,
+    struct vlabel_rule_pattern *pattern)
+{
+	const char *p, *end, *comma, *eq;
+	size_t keylen, valuelen;
+	struct vlabel_rule_pair *pair;
+	uint32_t saved_flags;
+
+	if (str == NULL || pattern == NULL)
+		return (EINVAL);
+
+	/*
+	 * Save flags before memset - the caller may have already set flags
+	 * (e.g., VLABEL_MATCH_NEGATE from the syscall argument).
+	 */
+	saved_flags = pattern->vrp_flags;
+	memset(pattern, 0, sizeof(*pattern));
+	pattern->vrp_flags = saved_flags;
+
+	/* Check for negation prefix */
+	if (len > 0 && str[0] == '!') {
+		pattern->vrp_flags |= VLABEL_MATCH_NEGATE;
+		str++;
+		len--;
+	}
+
+	/* Empty or "*" means wildcard - match everything */
+	if (len == 0 || (len == 1 && str[0] == '*'))
+		return (0);
+
+	/* Parse comma-separated key=value pairs */
+	p = str;
+	end = str + len;
+
+	while (p < end) {
+		/* Find next comma or end of string */
+		comma = memchr(p, ',', end - p);
+		if (comma == NULL)
+			comma = end;
+
+		/* Skip empty segments */
+		if (comma == p) {
+			p = comma + 1;
+			continue;
+		}
+
+		/* Check pair limit */
+		if (pattern->vrp_npairs >= VLABEL_RULE_MAX_PAIRS) {
+			VLABEL_DPRINTF("rule_pattern_parse: too many pairs (max %d)",
+			    VLABEL_RULE_MAX_PAIRS);
+			return (E2BIG);
+		}
+
+		/* Find '=' separator */
+		eq = memchr(p, '=', comma - p);
+		if (eq == NULL) {
+			VLABEL_DPRINTF("rule_pattern_parse: missing '=' in pair");
+			return (EINVAL);
+		}
+
+		keylen = eq - p;
+		valuelen = comma - eq - 1;
+
+		if (keylen == 0 || keylen >= VLABEL_RULE_KEY_LEN) {
+			VLABEL_DPRINTF("rule_pattern_parse: key length %zu invalid (max %d)",
+			    keylen, VLABEL_RULE_KEY_LEN - 1);
+			return (EINVAL);
+		}
+		if (valuelen >= VLABEL_RULE_VALUE_LEN) {
+			VLABEL_DPRINTF("rule_pattern_parse: value length %zu too long (max %d)",
+			    valuelen, VLABEL_RULE_VALUE_LEN - 1);
+			return (EINVAL);
+		}
+
+		/* Store this pair */
+		pair = &pattern->vrp_pairs[pattern->vrp_npairs];
+		memcpy(pair->vrp_key, p, keylen);
+		pair->vrp_key[keylen] = '\0';
+		memcpy(pair->vrp_value, eq + 1, valuelen);
+		pair->vrp_value[valuelen] = '\0';
+		pattern->vrp_npairs++;
+
+		p = comma + 1;
+	}
+
+	return (0);
+}

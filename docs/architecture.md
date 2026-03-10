@@ -107,16 +107,16 @@ fields are removed in favor of flexible pairs.
 
 ```c
 struct vlabel_rule {
-    uint32_t              vr_id;           // Unique identifier
-    uint8_t               vr_action;       // ALLOW/DENY/TRANSITION
-    uint32_t              vr_operations;   // Operation bitmask
-    struct vlabel_pattern vr_subject;      // Subject pattern (~5KB)
-    struct vlabel_pattern vr_object;       // Object pattern (~5KB)
-    struct vlabel_context vr_subj_context; // Subject constraints (24B)
-    struct vlabel_context vr_obj_context;  // Object constraints (24B)
-    struct vlabel_label   vr_newlabel;     // For transitions (~9KB)
+    uint32_t                vr_id;           // Unique identifier
+    uint8_t                 vr_action;       // ALLOW/DENY/TRANSITION
+    uint32_t                vr_operations;   // Operation bitmask
+    struct vlabel_rule_pattern vr_subject;   // Subject pattern (1,032 bytes)
+    struct vlabel_rule_pattern vr_object;    // Object pattern (1,032 bytes)
+    struct vlabel_context   vr_subj_context; // Subject constraints (24B)
+    struct vlabel_context   vr_obj_context;  // Object constraints (24B)
+    struct vlabel_label    *vr_newlabel;     // For transitions (pointer, NULL if not used)
 };
-// Current size: ~19KB per rule (see Memory Analysis below)
+// Size: ~2.1KB (non-transition), ~11KB (transition with allocated newlabel)
 ```
 
 ### vlabel_match.c - Pattern Matching
@@ -490,90 +490,55 @@ dtrace -n 'vlabel:::mode-change {
 
 ## Memory Analysis
 
-### Current Structure Sizes (v1)
+### Structure Sizes
 
 | Structure | Size | Notes |
 |-----------|------|-------|
-| `vlabel_pair` | 320 bytes | 64 key + 256 value |
+| `vlabel_pair` | 320 bytes | 64 key + 256 value (file labels) |
 | `vlabel_label` | ~9,224 bytes | 4096 raw + 8 meta + 16×320 pairs |
-| `vlabel_pattern` | ~5,128 bytes | 8 meta + 16×320 pairs |
+| `vlabel_rule_pair` | 128 bytes | 64 key + 64 value (rule patterns) |
+| `vlabel_rule_pattern` | 1,032 bytes | 8 meta + 8×128 pairs |
 | `vlabel_context` | 24 bytes | Flags + uid/gid/jail |
-| `vlabel_rule` | **~19,528 bytes** | Subject + object + newlabel + contexts |
+| `vlabel_rule` (non-transition) | **~2,132 bytes** | Subject + object patterns + contexts |
+| `vlabel_rule` (transition) | **~11,356 bytes** | +9KB for allocated newlabel |
 
-### Memory Usage at Scale (Current)
+### Memory Usage at Scale
 
-| Rules | Memory |
-|-------|--------|
-| 100 | 1.9 MB |
-| 1,024 | 19.4 MB |
-| 4,096 | 77.8 MB |
-| 16,384 | 311 MB |
+| Rules | Non-Transition | With 10% Transitions |
+|-------|----------------|----------------------|
+| 100 | 213 KB | 1.1 MB |
+| 1,024 | 2.1 MB | 11 MB |
+| 4,096 | 8.5 MB | 45 MB |
 
-### The Problem
+### Design Rationale
 
-Most rules use 1-4 key=value pairs per pattern, but every rule allocates
-space for 16 pairs × 320 bytes = 5KB per pattern. A typical rule like
-`allow exec type=app -> *` uses ~20 bytes of actual data but allocates ~19KB.
+File labels and rule patterns have different requirements:
 
-### Planned Optimization (v2)
+**File labels** (`vlabel_label`, `vlabel_pair`):
+- Stored in extended attributes, cached per-vnode
+- May contain paths, descriptions, complex values
+- 16 pairs × (64-byte key + 256-byte value) = 5KB per label
+- Size is acceptable because labels are sparse (most files unlabeled)
 
-Separate limits for rules vs file labels:
-- File labels: Keep 16 pairs (complex labels need this)
-- Rule patterns: Reduce to 8 pairs (covers all realistic cases)
-- Smaller pair sizes for rules: 32-byte key + 64-byte value = 96 bytes
+**Rule patterns** (`vlabel_rule_pattern`, `vlabel_rule_pair`):
+- Loaded into kernel memory for every rule
+- Contain short identifiers: type names, domains, categories
+- Analysis shows 1-4 pairs typical, values rarely exceed 30 chars
+- 8 pairs × (64-byte key + 64-byte value) = 1KB per pattern
 
-**Target structure sizes:**
-
-| Structure | Size | Notes |
-|-----------|------|-------|
-| `vlabel_rule_pair` | 96 bytes | 32 key + 64 value |
-| `vlabel_rule_pattern` | 776 bytes | 8 meta + 8×96 pairs |
-| `vlabel_rule` (non-transition) | **~1,612 bytes** | 12x smaller |
-| `vlabel_rule` (transition) | ~10,836 bytes | +9KB for newlabel |
-
-**Target memory usage:**
-
-| Rules | Current | Target | Savings |
-|-------|---------|--------|---------|
-| 1,024 | 19 MB | 1.6 MB | 12x |
-| 4,096 | 76 MB | 6.3 MB | 12x |
-| 16,384 | 304 MB | 25 MB | 12x |
-
-### Parsing Flow (Current vs Planned)
-
-**Current (v1):**
-```
-vlabelctl: parse "type=app" → vlabel_rule_io (fixed arrays)
-    ↓
-Kernel: parse again → vlabel_pattern (fixed arrays)
-    ↓
-Store in rule
-```
-
-**Planned (v2):**
-```
-vlabelctl: parse "type=app" → vlabel_rule_pattern_arg (binary)
-    ↓
-Kernel: validate, copy directly → vlabel_rule_pattern
-    ↓
-Store in rule (no kernel parsing)
-```
-
-Benefits:
-- No string parsing in kernel
-- Better error messages in userland
-- Smaller attack surface
-- Simpler kernel code
+**Transition labels** (`vr_newlabel` pointer):
+- Only ~5-10% of rules are transition rules
+- Allocated separately only when needed
+- Non-transition rules save ~9KB each
 
 ## System Limits
 
-| Limit | Current | Planned | Rationale |
-|-------|---------|---------|-----------|
-| Max rules | 1,024 | 4,096+ | Memory optimization enables more |
-| Max pairs per label | 16 | 16 | Complex file labels need this |
-| Max pairs per pattern | 16 | 8 | Analysis shows 1-4 typical |
-| Max key length | 64 | 64 (labels), 32 (patterns) | Keys are short identifiers |
-| Max value length | 256 | 256 (labels), 64 (patterns) | Values rarely exceed 64 |
-| Max label length | 4,096 | 4,096 | Soft limit for extattrs |
-
-See `REFACTOR_RULES.md` for detailed implementation plan.
+| Limit | Value | Scope | Notes |
+|-------|-------|-------|-------|
+| Max rules | 1,024 | System-wide | ~2.1 MB for non-transition rules |
+| Max pairs per file label | 16 | Per label | Complex labels need this |
+| Max pairs per rule pattern | 8 | Per pattern | Analysis shows 1-4 typical |
+| Max key length (labels) | 64 bytes | Per key | Same for labels and rules |
+| Max value length (labels) | 256 bytes | Per value | Paths, descriptions |
+| Max value length (rules) | 64 bytes | Per value | Short identifiers only |
+| Max label length | 4,096 bytes | Per extattr | Soft limit for storage |

@@ -116,21 +116,29 @@ sysctl security.mac.vlabel.mode=2
 
 ## Limits
 
-| Limit | Value | Scope |
+### File Labels (Extended Attributes)
+
+| Limit | Value | Notes |
 |-------|-------|-------|
-| Label size | 4 KB | Per label |
+| Label size | 4 KB | Total extattr size |
 | Key length | 64 bytes | Per key |
 | Value length | 256 bytes | Per value |
 | Key-value pairs | 16 | Per label |
-| Rules | 1,024 | System-wide |
-| Rule structure | 68 bytes | Per rule (header only) |
-| Context constraints | 20 bytes | Per context (subj + obj = 40 bytes) |
 
-Note: The mac_syscall interface uses variable-length structures, eliminating the
-previous ioctl size limitations. Each rule has a 68-byte header plus variable-length
-pattern strings. Context constraints (subject and object) add 40 bytes per rule when
-both are used. These limits are designed for practical use while maintaining
-reasonable kernel memory usage.
+### Rule Patterns
+
+| Limit | Value | Notes |
+|-------|-------|-------|
+| Max rules | 1,024 | System-wide |
+| Key length | 64 bytes | Per key |
+| Value length | 64 bytes | Per value (shorter than labels) |
+| Key-value pairs | 8 | Per pattern (subject or object) |
+| Rule size | ~2.1 KB | Non-transition rules |
+| Rule size | ~11 KB | Transition rules (includes newlabel) |
+
+Note: Rule patterns use smaller limits than file labels because pattern values
+are short identifiers (type names, domains), while file labels may contain paths
+or descriptions. This reduces per-rule memory from ~19KB to ~2KB.
 
 ## DTrace Probes
 

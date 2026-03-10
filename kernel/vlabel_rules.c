@@ -123,6 +123,8 @@ vlabel_rules_destroy(void)
 		rule = vlabel_rules[i];
 		if (rule != NULL) {
 			vlabel_rules[i] = NULL;
+			if (rule->vr_newlabel != NULL)
+				free(rule->vr_newlabel, M_TEMP);
 			free(rule, M_TEMP);
 		}
 	}
@@ -313,10 +315,12 @@ vlabel_rules_get_transition(struct ucred *cred, struct vlabel_label *subj,
 
 		/* Transitions don't need object context (no target process) */
 		if (vlabel_rule_matches(rule, subj, obj, VLABEL_OP_EXEC, cred, NULL)) {
-			vlabel_label_copy(&rule->vr_newlabel, newlabel);
-			result = 0;
-			VLABEL_DPRINTF("get_transition: rule %u -> '%s'",
-			    rule->vr_id, newlabel->vl_raw);
+			if (rule->vr_newlabel != NULL) {
+				vlabel_label_copy(rule->vr_newlabel, newlabel);
+				result = 0;
+				VLABEL_DPRINTF("get_transition: rule %u -> '%s'",
+				    rule->vr_id, newlabel->vl_raw);
+			}
 			break;
 		}
 	}
@@ -348,6 +352,8 @@ vlabel_rule_remove(uint32_t id)
 			rw_wunlock(&vlabel_rules_lock);
 			/* DTrace: rule removed */
 			SDT_PROBE1(vlabel, rules, rule, remove, id);
+			if (rule->vr_newlabel != NULL)
+				free(rule->vr_newlabel, M_TEMP);
 			free(rule, M_TEMP);
 			VLABEL_DPRINTF("rule_remove: removed rule %u", id);
 			return (0);
@@ -374,6 +380,8 @@ vlabel_rules_clear(void)
 		rule = vlabel_rules[i];
 		if (rule != NULL) {
 			vlabel_rules[i] = NULL;
+			if (rule->vr_newlabel != NULL)
+				free(rule->vr_newlabel, M_TEMP);
 			free(rule, M_TEMP);
 			cleared++;
 		}

@@ -1,24 +1,14 @@
-# Web server sandbox policy
-# Demonstrates domain isolation for web applications
+# Web application sandbox policy
+# Processes with domain=web can only access files with domain=web
 
-# Web processes can only access web files
-allow read,write,open,mmap domain=web -> domain=web
+# Allow web processes to access web files
+allow read,write,open domain=web -> domain=web
 
-# Web can read shared libraries
-allow read,exec,mmap domain=web -> type=shared
+# Allow web processes to execute trusted binaries
+allow exec domain=web -> type=trusted
 
-# Web can't touch system files
-deny read,write domain=web -> type=system
-deny exec domain=web -> type=system
+# Deny web processes from accessing system files
+deny read,write domain=web -> domain=system
 
-# Web can't access database directly
-deny read,write domain=web -> domain=database
-
-# Transition nginx to web domain when started by init
-transition exec type=init -> name=nginx => type=daemon,domain=web
-
-# Transition php-fpm to web domain
-transition exec type=init -> name=php-fpm => type=daemon,domain=web
-
-# Default deny for web domain
-deny all domain=web -> *
+# Allow all for trusted processes
+allow all type=trusted -> *

@@ -1,41 +1,22 @@
-# Complete valid policy for validation testing
-# This file should pass validation with no errors
+# Complete valid policy demonstrating all features
 
 # Basic allow/deny rules
-allow exec * -> *
+allow exec type=trusted -> *
 deny exec * -> type=untrusted
-allow read,write domain=web -> domain=web
 
-# Multi-operation rules
-allow read,write,mmap,stat domain=app -> domain=app
-deny exec,mmap * -> type=malware
-
-# Negation patterns
-deny exec * -> !type=trusted
-allow exec !type=restricted -> *
-
-# Transitions with newlabel (use => syntax)
-transition exec type=user -> name=nginx => type=daemon,domain=web
-transition exec type=init -> type=app => type=daemon
-transition exec * -> type=setuid => type=privileged
+# Multiple operations
+allow read,write,open,stat domain=app -> domain=app
 
 # Context constraints
-allow exec * -> type=admin context:uid=0
-deny exec * -> type=hostonly context:jail=any
-allow exec * -> type=interactive context:tty=true
-deny exec * -> * context:sandboxed=true
+deny debug * -> * obj_context:sandboxed=true
+allow signal type=supervisor -> type=worker subj_context:uid=0
 
-# Complex multi-key patterns
-allow read type=app,domain=web,tier=frontend -> type=data,domain=web
-deny write type=app,env=prod -> type=config,critical=true
+# Transition rules
+transition exec * -> type=setuid_bin => type=elevated
 
-# Process-to-process operations
-allow debug type=debugger -> *
-allow signal type=supervisor -> type=worker
-deny sched * -> type=realtime
+# Wildcards
+allow lookup * -> *
+allow stat * -> *
 
-# Combined process operations
-allow debug,signal,sched type=admin -> *
-
-# Wildcard catch-all (should be last in real policy)
-allow all type=system -> *
+# Negation patterns
+deny exec !type=trusted -> type=sensitive

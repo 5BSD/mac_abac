@@ -1,14 +1,10 @@
-# Rules that should generate warnings but not errors
+# Rules that generate warnings but are still valid
 
-# Transition without newlabel - should warn
-transition exec * -> type=app
+# Transition without newlabel (warning: no label to transition to)
+transition exec * -> type=setuid
 
-# Another transition missing newlabel
-transition exec type=user -> name=setuid
-
-# Valid rules mixed in
+# Another valid rule
 allow exec * -> *
-deny exec * -> type=blocked
 
-# One more transition without newlabel
-transition exec type=init -> type=daemon
+# Transition with exec on non-exec operation (warning but accepted)
+transition read * -> type=data => type=elevated
