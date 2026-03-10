@@ -38,12 +38,28 @@ parse_operation(const char *opstr)
 		return VLABEL_OP_READ;
 	if (strcasecmp(opstr, "write") == 0)
 		return VLABEL_OP_WRITE;
+	if (strcasecmp(opstr, "open") == 0)
+		return VLABEL_OP_OPEN;
+	if (strcasecmp(opstr, "mmap") == 0)
+		return VLABEL_OP_MMAP;
+	if (strcasecmp(opstr, "access") == 0)
+		return VLABEL_OP_ACCESS;
+	if (strcasecmp(opstr, "setextattr") == 0)
+		return VLABEL_OP_SETEXTATTR;
+	if (strcasecmp(opstr, "getextattr") == 0)
+		return VLABEL_OP_GETEXTATTR;
 	if (strcasecmp(opstr, "debug") == 0)
 		return VLABEL_OP_DEBUG;
 	if (strcasecmp(opstr, "signal") == 0)
 		return VLABEL_OP_SIGNAL;
 	if (strcasecmp(opstr, "sched") == 0)
 		return VLABEL_OP_SCHED;
+	if (strcasecmp(opstr, "readdir") == 0)
+		return VLABEL_OP_READDIR;
+	if (strcasecmp(opstr, "create") == 0)
+		return VLABEL_OP_CREATE;
+	if (strcasecmp(opstr, "lookup") == 0)
+		return VLABEL_OP_LOOKUP;
 	if (strcasecmp(opstr, "all") == 0)
 		return VLABEL_OP_ALL;
 

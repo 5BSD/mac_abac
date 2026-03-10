@@ -110,6 +110,7 @@ run_test_script "Context Constraints" ./15_context_constraints.sh "$VLABELCTL"
 run_test_script "Policy Formats" ./16_formats.sh "$VLABELCTL"
 run_test_script "Pattern Negation" ./17_negation.sh "$VLABELCTL"
 run_test_script "File Operations" ./12_file_ops.sh "$VLABELCTL"
+run_test_script "Label Protection" ./18_label_protection.sh "$VLABELCTL"
 
 # DTrace test - only run if dtrace is available
 if which dtrace >/dev/null 2>&1; then

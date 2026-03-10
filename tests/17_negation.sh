@@ -140,7 +140,8 @@ info "Test: Object negation - DENY non-trusted"
 "$VLABELCTL" rule clear >/dev/null
 "$VLABELCTL" rule add "deny exec * -> !type=trusted" >/dev/null
 # type=untrusted should be DENIED (it's not trusted)
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=untrusted" 2>&1)
+# Note: vlabelctl test returns non-zero on DENY, use || true to capture output
+OUTPUT=$("$VLABELCTL" test exec "type=user" "type=untrusted" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "deny non-trusted object"
 else
@@ -150,7 +151,7 @@ fi
 run_test
 info "Test: Object negation - ALLOW trusted"
 # type=trusted should be ALLOWED (negation doesn't match)
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=trusted" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=user" "type=trusted" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "allow trusted object"
 else
@@ -165,7 +166,7 @@ info "Test: Subject negation - ALLOW non-restricted"
 "$VLABELCTL" rule add "allow exec !type=restricted -> *" >/dev/null
 "$VLABELCTL" default deny >/dev/null
 # type=user should be ALLOWED (it's not restricted)
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=any" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=user" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "allow non-restricted subject"
 else
@@ -175,7 +176,7 @@ fi
 run_test
 info "Test: Subject negation - DEFAULT for restricted"
 # type=restricted should NOT match the rule (falls through to default deny)
-OUTPUT=$("$VLABELCTL" test exec "type=restricted" "type=any" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=restricted" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "restricted subject falls to default"
 else
@@ -199,7 +200,7 @@ info "Test: Positive deny before catch-all allow"
 "$VLABELCTL" rule clear >/dev/null
 "$VLABELCTL" rule add "deny exec type=restricted -> type=secret" >/dev/null
 "$VLABELCTL" rule add "allow exec * -> *" >/dev/null
-OUTPUT=$("$VLABELCTL" test exec "type=restricted" "type=secret" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=restricted" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "positive deny works"
 else
@@ -214,14 +215,14 @@ info "Test: Allow exception with deny default"
 "$VLABELCTL" rule clear >/dev/null
 "$VLABELCTL" rule add "allow exec type=trusted -> type=trusted" >/dev/null
 "$VLABELCTL" default deny >/dev/null
-OUTPUT=$("$VLABELCTL" test exec "type=trusted" "type=trusted" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=trusted" "type=trusted" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "trusted->trusted allowed"
 else
 	fail "trusted->trusted allowed (got: $OUTPUT)"
 fi
 
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=trusted" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=user" "type=trusted" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "non-trusted subject denied"
 else
@@ -240,7 +241,7 @@ info "Test: Double negation - allow !restricted -> !secret"
 "$VLABELCTL" default deny >/dev/null
 
 # user -> public: both negations match, ALLOW
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=public" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=user" "type=public" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "user->public allowed"
 else
@@ -248,7 +249,7 @@ else
 fi
 
 # restricted -> public: subject negation doesn't match, falls to default DENY
-OUTPUT=$("$VLABELCTL" test exec "type=restricted" "type=public" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=restricted" "type=public" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "restricted->public denied"
 else
@@ -256,7 +257,7 @@ else
 fi
 
 # user -> secret: object negation doesn't match, falls to default DENY
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=secret" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=user" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "user->secret denied"
 else
@@ -264,7 +265,7 @@ else
 fi
 
 # restricted -> secret: neither negation matches, falls to default DENY
-OUTPUT=$("$VLABELCTL" test exec "type=restricted" "type=secret" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=restricted" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "restricted->secret denied"
 else
@@ -288,7 +289,7 @@ info "Test: Negated multi-key pattern"
 "$VLABELCTL" rule add "allow exec * -> *" >/dev/null
 
 # Object with only type=trusted (missing domain=system) - negation matches, DENY
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=trusted" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=user" "type=trusted" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "partial match causes deny"
 else
@@ -296,7 +297,7 @@ else
 fi
 
 # Object with both type=trusted,domain=system - negation doesn't match, ALLOW
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=trusted,domain=system" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=user" "type=trusted,domain=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "full match allows"
 else
@@ -317,7 +318,7 @@ info "Test: Negation of empty/unlabeled"
 "$VLABELCTL" rule add "allow exec * -> *" >/dev/null
 
 # Empty label (unlabeled file) - negation matches, DENY
-OUTPUT=$("$VLABELCTL" test exec "type=user" "" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=user" "" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "empty label causes negation match"
 else
@@ -332,7 +333,7 @@ info "Test: Negated wildcard (!*) matches nothing"
 "$VLABELCTL" rule add "allow exec * -> *" >/dev/null
 
 # Any object should NOT trigger the deny rule (rule pattern can't match)
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=anything" 2>&1)
+OUTPUT=$("$VLABELCTL" test exec "type=user" "type=anything" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "!* matches nothing"
 else

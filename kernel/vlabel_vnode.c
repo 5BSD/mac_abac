@@ -304,8 +304,41 @@ int
 vlabel_vnode_check_deleteextattr(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, int attrnamespace, const char *name)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
+
+	/*
+	 * Always protect our own label attribute from deletion.
+	 * This prevents unauthorized removal of security labels.
+	 */
+	if (attrnamespace == VLABEL_EXTATTR_NAMESPACE &&
+	    name != NULL && strcmp(name, vlabel_extattr_name) == 0) {
+		/* Get subject label from credential */
+		if (cred == NULL || cred->cr_label == NULL)
+			return (EPERM);
+		subj = SLOT(cred->cr_label);
+		if (subj == NULL)
+			subj = &vlabel_default_subject;
+
+		/* Get object label from vnode */
+		if (vplabel == NULL)
+			return (EPERM);
+		obj = SLOT(vplabel);
+		if (obj == NULL)
+			obj = &vlabel_default_object;
+
+		/* Check setextattr operation - deletion is a form of modification */
+		error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_SETEXTATTR, NULL);
+
+		/* In permissive mode, log but allow */
+		if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+			return (0);
+
+		return (error);
+	}
+
 	return (0);
 }
 
@@ -370,8 +403,43 @@ int
 vlabel_vnode_check_getextattr(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, int attrnamespace, const char *name)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
+
+	/*
+	 * Optionally protect reading of our label attribute.
+	 * This can prevent information disclosure about security labels.
+	 *
+	 * Only check for our specific attribute - don't block other extattrs.
+	 */
+	if (attrnamespace == VLABEL_EXTATTR_NAMESPACE &&
+	    name != NULL && strcmp(name, vlabel_extattr_name) == 0) {
+		/* Get subject label from credential */
+		if (cred == NULL || cred->cr_label == NULL)
+			return (0);  /* Allow if no cred - kernel internal */
+		subj = SLOT(cred->cr_label);
+		if (subj == NULL)
+			subj = &vlabel_default_subject;
+
+		/* Get object label from vnode */
+		if (vplabel == NULL)
+			return (0);
+		obj = SLOT(vplabel);
+		if (obj == NULL)
+			obj = &vlabel_default_object;
+
+		/* Check getextattr operation */
+		error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_GETEXTATTR, NULL);
+
+		/* In permissive mode, log but allow */
+		if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+			return (0);
+
+		return (error);
+	}
+
 	return (0);
 }
 
@@ -604,8 +672,46 @@ int
 vlabel_vnode_check_setextattr(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, int attrnamespace, const char *name)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
+
+	/*
+	 * Always protect our own label attribute from modification.
+	 * This prevents unauthorized changes to security labels.
+	 *
+	 * Note: vlabelctl uses this path to set labels, so rules must
+	 * allow setextattr for administrative processes. Example:
+	 *   allow setextattr type=admin -> *
+	 *   deny setextattr * -> *
+	 */
+	if (attrnamespace == VLABEL_EXTATTR_NAMESPACE &&
+	    name != NULL && strcmp(name, vlabel_extattr_name) == 0) {
+		/* Get subject label from credential */
+		if (cred == NULL || cred->cr_label == NULL)
+			return (EPERM);
+		subj = SLOT(cred->cr_label);
+		if (subj == NULL)
+			subj = &vlabel_default_subject;
+
+		/* Get object label from vnode */
+		if (vplabel == NULL)
+			return (EPERM);
+		obj = SLOT(vplabel);
+		if (obj == NULL)
+			obj = &vlabel_default_object;
+
+		/* Check setextattr operation */
+		error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_SETEXTATTR, NULL);
+
+		/* In permissive mode, log but allow */
+		if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+			return (0);
+
+		return (error);
+	}
+
 	return (0);
 }
 

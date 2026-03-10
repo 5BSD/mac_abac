@@ -6,11 +6,19 @@
 # Verifies the increased limits from the mac_syscall migration work correctly.
 #
 # Current limits:
-#   - Label length: 4096 bytes
-#   - Key length: 64 bytes
-#   - Value length: 256 bytes
-#   - Key-value pairs: 16 per label
-#   - Rules: 1024 max
+#   FILE LABELS (stored in extattr):
+#     - Label length: 4096 bytes
+#     - Key length: 64 bytes (63 usable)
+#     - Value length: 256 bytes (255 usable)
+#     - Key-value pairs: 16 per label
+#
+#   RULE PATTERNS (more compact):
+#     - Key length: 64 bytes (63 usable)
+#     - Value length: 64 bytes (63 usable)
+#     - Key-value pairs: 8 per pattern
+#
+#   SYSTEM:
+#     - Rules: 4096 max
 #
 # Prerequisites:
 # - Must be run as root
@@ -95,15 +103,8 @@ else
     fail "8 key-value pairs"
 fi
 
-run_test
-info "Test: Rule with 16 key-value pairs (maximum)"
-PATTERN_16="k01=v01,k02=v02,k03=v03,k04=v04,k05=v05,k06=v06,k07=v07,k08=v08,k09=v09,k10=v10,k11=v11,k12=v12,k13=v13,k14=v14,k15=v15,k16=v16"
-if "$VLABELCTL" rule add "allow read $PATTERN_16 -> *" >/dev/null 2>&1; then
-    pass "16 key-value pairs accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
-else
-    fail "16 key-value pairs"
-fi
+# Note: Rule patterns are limited to 8 pairs (VLABEL_RULE_MAX_PAIRS)
+# File labels support 16 pairs but rules are more compact
 
 # ===========================================
 # Test: Key and value lengths
@@ -131,24 +132,27 @@ else
     fail "60-char key"
 fi
 
+# Note: Rule pattern values are limited to 64 chars (VLABEL_RULE_VALUE_LEN)
+# File labels support 256-char values but rules use shorter values
+
 run_test
-info "Test: Moderate value length (100 chars)"
-VALUE_100="this_is_a_moderately_long_value_string_that_should_be_accepted_by_the_system_without_any_problems___"
-if "$VLABELCTL" rule add "allow read type=$VALUE_100 -> *" >/dev/null 2>&1; then
-    pass "100-char value accepted"
+info "Test: Moderate value length (50 chars, under 64 rule limit)"
+VALUE_50="this_is_a_moderately_long_value_string_that_is_ok"
+if "$VLABELCTL" rule add "allow read type=$VALUE_50 -> *" >/dev/null 2>&1; then
+    pass "50-char value accepted"
     "$VLABELCTL" rule clear >/dev/null 2>&1
 else
-    fail "100-char value"
+    fail "50-char value"
 fi
 
 run_test
-info "Test: Long value length (200 chars, under 256 limit)"
-VALUE_200="this_is_a_very_long_value_string_that_tests_the_increased_limit_of_256_characters_per_value_which_should_now_be_possible_with_the_mac_syscall_interface_that_replaced_the_old_ioctl_device_interface____"
-if "$VLABELCTL" rule add "allow read type=$VALUE_200 -> *" >/dev/null 2>&1; then
-    pass "200-char value accepted"
+info "Test: Max value length (63 chars, at rule limit)"
+VALUE_63="this_is_exactly_sixty_three_characters_long_for_rule_patterns__"
+if "$VLABELCTL" rule add "allow read type=$VALUE_63 -> *" >/dev/null 2>&1; then
+    pass "63-char value accepted"
     "$VLABELCTL" rule clear >/dev/null 2>&1
 else
-    fail "200-char value"
+    fail "63-char value"
 fi
 
 # ===========================================
