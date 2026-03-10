@@ -36,7 +36,6 @@ vlabel_socket_init_label(struct label *label, int flag)
 	if (vl == NULL)
 		return (ENOMEM);
 	SLOT_SET(label, vl);
-	VLABEL_DPRINTF("socket_init_label: allocated label %p", vl);
 	return (0);
 }
 
@@ -81,11 +80,8 @@ vlabel_socket_create(struct ucred *cred, struct socket *so,
 	credlabel = SLOT(cred->cr_label);
 	slabel = SLOT(solabel);
 
-	if (credlabel != NULL && slabel != NULL) {
+	if (credlabel != NULL && slabel != NULL)
 		vlabel_label_copy(credlabel, slabel);
-		VLABEL_DPRINTF("socket_create: inherited label '%s' from cred",
-		    slabel->vl_raw);
-	}
 }
 
 /*
@@ -103,11 +99,8 @@ vlabel_socket_newconn(struct socket *oldso, struct label *oldsolabel,
 	oldlabel = SLOT(oldsolabel);
 	newlabel = SLOT(newsolabel);
 
-	if (oldlabel != NULL && newlabel != NULL) {
+	if (oldlabel != NULL && newlabel != NULL)
 		vlabel_label_copy(oldlabel, newlabel);
-		VLABEL_DPRINTF("socket_newconn: inherited label '%s' from parent",
-		    newlabel->vl_raw);
-	}
 }
 
 /*

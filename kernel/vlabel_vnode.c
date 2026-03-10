@@ -51,7 +51,6 @@ vlabel_vnode_init_label(struct label *label)
 
 	vl = vlabel_label_alloc(M_WAITOK);
 	SLOT_SET(label, vl);
-	VLABEL_DPRINTF("vnode_init_label: allocated label %p", vl);
 }
 
 void
@@ -95,7 +94,6 @@ vlabel_vnode_read_extattr(struct vnode *vp, struct label *vplabel)
 
 	vl = SLOT(vplabel);
 	if (vl == NULL) {
-		VLABEL_DPRINTF("read_extattr: NULL label slot");
 		return;
 	}
 
@@ -116,9 +114,6 @@ vlabel_vnode_read_extattr(struct vnode *vp, struct label *vplabel)
 	error = vn_extattr_get(vp, IO_NODELOCKED, VLABEL_EXTATTR_NAMESPACE,
 	    vlabel_extattr_name, &buflen, buf, curthread);
 
-	VLABEL_DPRINTF("read_extattr: vn_extattr_get returned %d, buflen=%d",
-	    error, buflen);
-
 	if (error == ENOATTR || error == EOPNOTSUPP) {
 		/*
 		 * No label on this vnode - use default object label.
@@ -128,15 +123,11 @@ vlabel_vnode_read_extattr(struct vnode *vp, struct label *vplabel)
 		/* DTrace: default label assigned */
 		SDT_PROBE1(vlabel, label, extattr, default, 0);
 		atomic_add_64(&vlabel_labels_default, 1);
-		VLABEL_DPRINTF("read_extattr: no label (err=%d), using default",
-		    error);
 		return;
 	} else if (error != 0) {
 		/*
-		 * Error reading extattr - use default and log.
+		 * Error reading extattr - use default.
 		 */
-		VLABEL_DPRINTF("read_extattr: error %d reading extattr",
-		    error);
 		free(buf, M_TEMP);
 		vlabel_label_set_default(vl, false);
 		return;
@@ -148,8 +139,6 @@ vlabel_vnode_read_extattr(struct vnode *vp, struct label *vplabel)
 	buf[buflen] = '\0';
 	error = vlabel_label_parse(buf, buflen, vl);
 	if (error != 0) {
-		VLABEL_DPRINTF("read_extattr: parse error %d for '%s'",
-		    error, buf);
 		free(buf, M_TEMP);
 		vlabel_label_set_default(vl, false);
 		return;
@@ -160,7 +149,6 @@ vlabel_vnode_read_extattr(struct vnode *vp, struct label *vplabel)
 	SDT_PROBE2(vlabel, label, extattr, read, vl->vl_raw, vp);
 	atomic_add_64(&vlabel_labels_read, 1);
 
-	VLABEL_DPRINTF("read_extattr: loaded label '%s'", vl->vl_raw);
 }
 
 /*
@@ -268,36 +256,119 @@ int
 vlabel_vnode_check_chdir(struct ucred *cred, struct vnode *dvp,
     struct label *dvplabel)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (dvplabel == NULL)
+		return (0);
+	obj = SLOT(dvplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_CHDIR, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
 vlabel_vnode_check_chroot(struct ucred *cred, struct vnode *dvp,
     struct label *dvplabel)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (dvplabel == NULL)
+		return (0);
+	obj = SLOT(dvplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Use CHDIR for chroot - both are directory access checks */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_CHDIR, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
 vlabel_vnode_check_create(struct ucred *cred, struct vnode *dvp,
     struct label *dvplabel, struct componentname *cnp, struct vattr *vap)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	/* Check against parent directory label */
+	if (dvplabel == NULL)
+		return (0);
+	obj = SLOT(dvplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_CREATE, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
 vlabel_vnode_check_deleteacl(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, acl_type_t type)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Use WRITE as proxy for ACL modification */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_WRITE, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
@@ -353,7 +424,6 @@ vlabel_vnode_check_exec(struct ucred *cred, struct vnode *vp,
 
 	/* Get subject label from credential */
 	if (cred == NULL || cred->cr_label == NULL) {
-		VLABEL_DPRINTF("check_exec: no credential label");
 		return (0);
 	}
 	subj = SLOT(cred->cr_label);
@@ -362,30 +432,18 @@ vlabel_vnode_check_exec(struct ucred *cred, struct vnode *vp,
 
 	/* Get object label from vnode */
 	if (vplabel == NULL) {
-		VLABEL_DPRINTF("check_exec: no vnode label");
 		return (0);
 	}
 	obj = SLOT(vplabel);
 	if (obj == NULL)
 		obj = &vlabel_default_object;
 
-	VLABEL_DPRINTF("check_exec: subj='%s' obj='%s'",
-	    subj->vl_raw, obj->vl_raw);
-
 	/* Evaluate rules - no target process for vnode ops */
 	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_EXEC, NULL);
 
-	/*
-	 * In permissive mode, log but don't enforce.
-	 */
-	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE) {
-		VLABEL_DPRINTF("check_exec: DENIED (permissive mode, allowing)");
+	/* In permissive mode, don't enforce */
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
 		return (0);
-	}
-
-	if (error != 0) {
-		VLABEL_DPRINTF("check_exec: DENIED");
-	}
 
 	return (error);
 }
@@ -394,9 +452,30 @@ int
 vlabel_vnode_check_getacl(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, acl_type_t type)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Use STAT as proxy for reading ACLs */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_STAT, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
@@ -448,27 +527,89 @@ vlabel_vnode_check_link(struct ucred *cred, struct vnode *dvp,
     struct label *dvplabel, struct vnode *vp, struct label *vplabel,
     struct componentname *cnp)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	/* Check against target file's label */
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_LINK, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
 vlabel_vnode_check_listextattr(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, int attrnamespace)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Use GETEXTATTR as proxy for listing extattrs */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_GETEXTATTR, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
 vlabel_vnode_check_lookup(struct ucred *cred, struct vnode *dvp,
     struct label *dvplabel, struct componentname *cnp)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (dvplabel == NULL)
+		return (0);
+	obj = SLOT(dvplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_LOOKUP, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
@@ -541,9 +682,30 @@ int
 vlabel_vnode_check_poll(struct ucred *active_cred, struct ucred *file_cred,
     struct vnode *vp, struct label *vplabel)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (active_cred == NULL || active_cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(active_cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Use READ as proxy for poll - checking readability */
+	error = vlabel_rules_check(active_cred, subj, obj, VLABEL_OP_READ, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
@@ -583,9 +745,29 @@ int
 vlabel_vnode_check_readdir(struct ucred *cred, struct vnode *dvp,
     struct label *dvplabel)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (dvplabel == NULL)
+		return (0);
+	obj = SLOT(dvplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_READDIR, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
@@ -625,9 +807,30 @@ int
 vlabel_vnode_check_relabel(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, struct label *newlabel)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Use SETEXTATTR as proxy for relabeling */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_SETEXTATTR, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
@@ -635,9 +838,30 @@ vlabel_vnode_check_rename_from(struct ucred *cred, struct vnode *dvp,
     struct label *dvplabel, struct vnode *vp, struct label *vplabel,
     struct componentname *cnp)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	/* Check against source file's label */
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_RENAME, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
@@ -645,27 +869,90 @@ vlabel_vnode_check_rename_to(struct ucred *cred, struct vnode *dvp,
     struct label *dvplabel, struct vnode *vp, struct label *vplabel,
     int samedir, struct componentname *cnp)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	/* Check against target directory's label */
+	if (dvplabel == NULL)
+		return (0);
+	obj = SLOT(dvplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_RENAME, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
 vlabel_vnode_check_revoke(struct ucred *cred, struct vnode *vp,
     struct label *vplabel)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Use WRITE as proxy for revoke - modifies file state */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_WRITE, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
 vlabel_vnode_check_setacl(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, acl_type_t type, struct acl *acl)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Use WRITE as proxy for ACL modification */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_WRITE, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
@@ -719,45 +1006,149 @@ int
 vlabel_vnode_check_setflags(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, u_long flags)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Use WRITE as proxy for setting file flags */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_WRITE, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
 vlabel_vnode_check_setmode(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, mode_t mode)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Use WRITE as proxy for chmod */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_WRITE, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
 vlabel_vnode_check_setowner(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, uid_t uid, gid_t gid)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Use WRITE as proxy for chown */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_WRITE, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
 vlabel_vnode_check_setutimes(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, struct timespec atime, struct timespec mtime)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Use WRITE as proxy for utimes */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_WRITE, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
 vlabel_vnode_check_stat(struct ucred *active_cred, struct ucred *file_cred,
     struct vnode *vp, struct label *vplabel)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (active_cred == NULL || active_cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(active_cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	error = vlabel_rules_check(active_cred, subj, obj, VLABEL_OP_STAT, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
@@ -765,9 +1156,30 @@ vlabel_vnode_check_unlink(struct ucred *cred, struct vnode *dvp,
     struct label *dvplabel, struct vnode *vp, struct label *vplabel,
     struct componentname *cnp)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	/* Check against target file's label */
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_UNLINK, NULL);
+
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int

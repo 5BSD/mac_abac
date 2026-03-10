@@ -543,14 +543,13 @@ extern int vlabel_initialized;
 extern int vlabel_default_policy;	/* 0=allow, 1=deny when no rule matches */
 
 /*
- * Debug output macro
+ * Debug output - use DTrace only
+ *
+ * All debugging is done via DTrace probes defined in mac_vlabel.c.
+ * See scripts/dtrace/ for tracing scripts.
+ *
+ * Example: dtrace -n 'vlabel:::check-deny { printf("%s -> %s", stringof(arg0), stringof(arg1)); }'
  */
-#ifdef VLABEL_DEBUG
-#define VLABEL_DPRINTF(fmt, ...)					\
-	printf("vlabel: " fmt "\n", ##__VA_ARGS__)
-#else
-#define VLABEL_DPRINTF(fmt, ...)	do { } while (0)
-#endif
 
 /*
  * Common check macro - early exit if disabled or not initialized
@@ -785,6 +784,143 @@ int vlabel_pipe_check_stat(struct ucred *cred, struct pipepair *pp,
     struct label *pplabel);
 int vlabel_pipe_check_write(struct ucred *cred, struct pipepair *pp,
     struct label *pplabel);
+
+/*
+ * Function prototypes - vlabel_posixshm.c
+ */
+void vlabel_posixshm_init_label(struct label *label);
+void vlabel_posixshm_destroy_label(struct label *label);
+void vlabel_posixshm_create(struct ucred *cred, struct shmfd *shmfd,
+    struct label *shmlabel);
+int vlabel_posixshm_check_create(struct ucred *cred, const char *path);
+int vlabel_posixshm_check_mmap(struct ucred *cred, struct shmfd *shmfd,
+    struct label *shmlabel, int prot, int flags);
+int vlabel_posixshm_check_open(struct ucred *cred, struct shmfd *shmfd,
+    struct label *shmlabel, accmode_t accmode);
+int vlabel_posixshm_check_read(struct ucred *active_cred,
+    struct ucred *file_cred, struct shmfd *shmfd, struct label *shmlabel);
+int vlabel_posixshm_check_setmode(struct ucred *cred, struct shmfd *shmfd,
+    struct label *shmlabel, mode_t mode);
+int vlabel_posixshm_check_setowner(struct ucred *cred, struct shmfd *shmfd,
+    struct label *shmlabel, uid_t uid, gid_t gid);
+int vlabel_posixshm_check_stat(struct ucred *active_cred,
+    struct ucred *file_cred, struct shmfd *shmfd, struct label *shmlabel);
+int vlabel_posixshm_check_truncate(struct ucred *active_cred,
+    struct ucred *file_cred, struct shmfd *shmfd, struct label *shmlabel);
+int vlabel_posixshm_check_unlink(struct ucred *cred, struct shmfd *shmfd,
+    struct label *shmlabel);
+int vlabel_posixshm_check_write(struct ucred *active_cred,
+    struct ucred *file_cred, struct shmfd *shmfd, struct label *shmlabel);
+
+/*
+ * Function prototypes - vlabel_system.c
+ */
+int vlabel_kld_check_load(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel);
+int vlabel_kld_check_stat(struct ucred *cred);
+int vlabel_system_check_reboot(struct ucred *cred, int howto);
+int vlabel_system_check_sysctl(struct ucred *cred, struct sysctl_oid *oidp,
+    void *arg1, int arg2, struct sysctl_req *req);
+int vlabel_system_check_acct(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel);
+int vlabel_system_check_swapon(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel);
+int vlabel_system_check_swapoff(struct ucred *cred, struct vnode *vp,
+    struct label *vplabel);
+int vlabel_mount_check_stat(struct ucred *cred, struct mount *mp,
+    struct label *mplabel);
+
+/*
+ * Function prototypes - vlabel_kenv.c
+ */
+int vlabel_kenv_check_dump(struct ucred *cred);
+int vlabel_kenv_check_get(struct ucred *cred, char *name);
+int vlabel_kenv_check_set(struct ucred *cred, char *name, char *value);
+int vlabel_kenv_check_unset(struct ucred *cred, char *name);
+
+/*
+ * Function prototypes - vlabel_posixsem.c
+ */
+void vlabel_posixsem_init_label(struct label *label);
+void vlabel_posixsem_destroy_label(struct label *label);
+void vlabel_posixsem_create(struct ucred *cred, struct ksem *ks,
+    struct label *kslabel);
+int vlabel_posixsem_check_getvalue(struct ucred *active_cred,
+    struct ucred *file_cred, struct ksem *ks, struct label *kslabel);
+int vlabel_posixsem_check_open(struct ucred *cred, struct ksem *ks,
+    struct label *kslabel);
+int vlabel_posixsem_check_post(struct ucred *active_cred,
+    struct ucred *file_cred, struct ksem *ks, struct label *kslabel);
+int vlabel_posixsem_check_setmode(struct ucred *cred, struct ksem *ks,
+    struct label *kslabel, mode_t mode);
+int vlabel_posixsem_check_setowner(struct ucred *cred, struct ksem *ks,
+    struct label *kslabel, uid_t uid, gid_t gid);
+int vlabel_posixsem_check_stat(struct ucred *active_cred,
+    struct ucred *file_cred, struct ksem *ks, struct label *kslabel);
+int vlabel_posixsem_check_unlink(struct ucred *cred, struct ksem *ks,
+    struct label *kslabel);
+int vlabel_posixsem_check_wait(struct ucred *active_cred,
+    struct ucred *file_cred, struct ksem *ks, struct label *kslabel);
+
+/*
+ * Function prototypes - vlabel_sysv.c (SysV IPC)
+ */
+/* Message queue messages */
+void vlabel_sysvmsg_init_label(struct label *label);
+void vlabel_sysvmsg_destroy_label(struct label *label);
+void vlabel_sysvmsg_cleanup(struct label *msglabel);
+void vlabel_sysvmsg_create(struct ucred *cred, struct msqid_kernel *msqkptr,
+    struct label *msqlabel, struct msg *msgptr, struct label *msglabel);
+
+/* Message queues */
+void vlabel_sysvmsq_init_label(struct label *label);
+void vlabel_sysvmsq_destroy_label(struct label *label);
+void vlabel_sysvmsq_cleanup(struct label *msqlabel);
+void vlabel_sysvmsq_create(struct ucred *cred, struct msqid_kernel *msqkptr,
+    struct label *msqlabel);
+int vlabel_sysvmsq_check_msgmsq(struct ucred *cred, struct msg *msgptr,
+    struct label *msglabel, struct msqid_kernel *msqkptr,
+    struct label *msqklabel);
+int vlabel_sysvmsq_check_msgrcv(struct ucred *cred, struct msg *msgptr,
+    struct label *msglabel);
+int vlabel_sysvmsq_check_msgrmid(struct ucred *cred, struct msg *msgptr,
+    struct label *msglabel);
+int vlabel_sysvmsq_check_msqget(struct ucred *cred,
+    struct msqid_kernel *msqkptr, struct label *msqklabel);
+int vlabel_sysvmsq_check_msqctl(struct ucred *cred,
+    struct msqid_kernel *msqkptr, struct label *msqklabel, int cmd);
+int vlabel_sysvmsq_check_msqrcv(struct ucred *cred,
+    struct msqid_kernel *msqkptr, struct label *msqklabel);
+int vlabel_sysvmsq_check_msqsnd(struct ucred *cred,
+    struct msqid_kernel *msqkptr, struct label *msqklabel);
+
+/* SysV semaphores */
+void vlabel_sysvsem_init_label(struct label *label);
+void vlabel_sysvsem_destroy_label(struct label *label);
+void vlabel_sysvsem_cleanup(struct label *semalabel);
+void vlabel_sysvsem_create(struct ucred *cred, struct semid_kernel *semakptr,
+    struct label *semalabel);
+int vlabel_sysvsem_check_semctl(struct ucred *cred,
+    struct semid_kernel *semakptr, struct label *semaklabel, int cmd);
+int vlabel_sysvsem_check_semget(struct ucred *cred,
+    struct semid_kernel *semakptr, struct label *semaklabel);
+int vlabel_sysvsem_check_semop(struct ucred *cred,
+    struct semid_kernel *semakptr, struct label *semaklabel, size_t accesstype);
+
+/* SysV shared memory */
+void vlabel_sysvshm_init_label(struct label *label);
+void vlabel_sysvshm_destroy_label(struct label *label);
+void vlabel_sysvshm_cleanup(struct label *shmlabel);
+void vlabel_sysvshm_create(struct ucred *cred, struct shmid_kernel *shmsegptr,
+    struct label *shmlabel);
+int vlabel_sysvshm_check_shmat(struct ucred *cred,
+    struct shmid_kernel *shmsegptr, struct label *shmseglabel, int shmflg);
+int vlabel_sysvshm_check_shmctl(struct ucred *cred,
+    struct shmid_kernel *shmsegptr, struct label *shmseglabel, int cmd);
+int vlabel_sysvshm_check_shmdt(struct ucred *cred,
+    struct shmid_kernel *shmsegptr, struct label *shmseglabel);
+int vlabel_sysvshm_check_shmget(struct ucred *cred,
+    struct shmid_kernel *shmsegptr, struct label *shmseglabel, int shmflg);
 
 #endif /* _KERNEL */
 

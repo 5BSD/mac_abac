@@ -113,6 +113,9 @@ run_test_script "File Operations" ./12_file_ops.sh "$VLABELCTL"
 run_test_script "Label Protection" ./18_label_protection.sh "$VLABELCTL"
 run_test_script "Socket Operations" ./19_socket.sh "$VLABELCTL"
 run_test_script "Pipe Operations" ./20_pipe.sh "$VLABELCTL"
+run_test_script "POSIX Shared Memory" ./21_posixshm.sh "$VLABELCTL"
+run_test_script "Directory & Metadata" ./22_directory.sh "$VLABELCTL"
+run_test_script "System Operations" ./23_system.sh "$VLABELCTL"
 
 # DTrace test - only run if dtrace is available
 if which dtrace >/dev/null 2>&1; then

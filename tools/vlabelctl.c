@@ -130,6 +130,14 @@ ops_to_string(uint32_t ops, char *buf, size_t buflen)
 		strlcat(buf, "getextattr,", buflen);
 	if (ops & VLABEL_OP_LOOKUP)
 		strlcat(buf, "lookup,", buflen);
+	if (ops & VLABEL_OP_LINK)
+		strlcat(buf, "link,", buflen);
+	if (ops & VLABEL_OP_RENAME)
+		strlcat(buf, "rename,", buflen);
+	if (ops & VLABEL_OP_UNLINK)
+		strlcat(buf, "unlink,", buflen);
+	if (ops & VLABEL_OP_CHDIR)
+		strlcat(buf, "chdir,", buflen);
 	if (ops & VLABEL_OP_CONNECT)
 		strlcat(buf, "connect,", buflen);
 	if (ops & VLABEL_OP_BIND)
@@ -424,6 +432,10 @@ cmd_limits(int argc __unused, char *argv[] __unused)
 	printf("    %-12s  0x%08x  %s\n", "debug",      VLABEL_OP_DEBUG,      "ptrace/procfs debug");
 	printf("    %-12s  0x%08x  %s\n", "signal",     VLABEL_OP_SIGNAL,     "send signal");
 	printf("    %-12s  0x%08x  %s\n", "sched",      VLABEL_OP_SCHED,      "scheduler control");
+	printf("    %-12s  0x%08x  %s\n", "link",       VLABEL_OP_LINK,       "create hard link");
+	printf("    %-12s  0x%08x  %s\n", "rename",     VLABEL_OP_RENAME,     "rename file");
+	printf("    %-12s  0x%08x  %s\n", "unlink",     VLABEL_OP_UNLINK,     "unlink/delete file");
+	printf("    %-12s  0x%08x  %s\n", "chdir",      VLABEL_OP_CHDIR,      "change directory");
 	printf("    %-12s  0x%08x  %s\n", "connect",    VLABEL_OP_CONNECT,    "socket connect");
 	printf("    %-12s  0x%08x  %s\n", "bind",       VLABEL_OP_BIND,       "socket bind");
 	printf("    %-12s  0x%08x  %s\n", "listen",     VLABEL_OP_LISTEN,     "socket listen");

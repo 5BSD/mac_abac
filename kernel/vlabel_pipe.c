@@ -34,7 +34,6 @@ vlabel_pipe_init_label(struct label *label)
 
 	vl = vlabel_label_alloc(M_WAITOK);
 	SLOT_SET(label, vl);
-	VLABEL_DPRINTF("pipe_init_label: allocated label %p", vl);
 }
 
 void
@@ -78,11 +77,8 @@ vlabel_pipe_create(struct ucred *cred, struct pipepair *pp,
 	credlabel = SLOT(cred->cr_label);
 	plabel = SLOT(pplabel);
 
-	if (credlabel != NULL && plabel != NULL) {
+	if (credlabel != NULL && plabel != NULL)
 		vlabel_label_copy(credlabel, plabel);
-		VLABEL_DPRINTF("pipe_create: inherited label '%s' from cred",
-		    plabel->vl_raw);
-	}
 }
 
 /*

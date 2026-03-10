@@ -43,7 +43,6 @@ vlabel_proc_check_debug(struct ucred *cred, struct proc *p)
 
 	/* Get subject (debugger) label from credential */
 	if (cred == NULL || cred->cr_label == NULL) {
-		VLABEL_DPRINTF("check_debug: no credential label");
 		return (0);
 	}
 	subj = SLOT(cred->cr_label);
@@ -52,30 +51,18 @@ vlabel_proc_check_debug(struct ucred *cred, struct proc *p)
 
 	/* Get object (target process) label from its credential */
 	if (p == NULL || p->p_ucred == NULL || p->p_ucred->cr_label == NULL) {
-		VLABEL_DPRINTF("check_debug: no target process label");
 		return (0);
 	}
 	obj = SLOT(p->p_ucred->cr_label);
 	if (obj == NULL)
 		obj = &vlabel_default_subject;  /* Processes use subject default */
 
-	VLABEL_DPRINTF("check_debug: subj='%s' obj='%s' target_pid=%d",
-	    subj->vl_raw, obj->vl_raw, p->p_pid);
-
 	/* Evaluate rules - pass target process for object context checks */
 	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_DEBUG, p);
 
-	/*
-	 * In permissive mode, log but don't enforce.
-	 */
-	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE) {
-		VLABEL_DPRINTF("check_debug: DENIED (permissive mode, allowing)");
+	/* In permissive mode, don't enforce */
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
 		return (0);
-	}
-
-	if (error != 0) {
-		VLABEL_DPRINTF("check_debug: DENIED pid=%d", p->p_pid);
-	}
 
 	return (error);
 }
@@ -107,17 +94,12 @@ vlabel_proc_check_sched(struct ucred *cred, struct proc *p)
 	if (obj == NULL)
 		obj = &vlabel_default_subject;
 
-	VLABEL_DPRINTF("check_sched: subj='%s' obj='%s' target_pid=%d",
-	    subj->vl_raw, obj->vl_raw, p->p_pid);
-
 	/* Evaluate rules - pass target process for object context checks */
 	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_SCHED, p);
 
 	/* Permissive mode handling */
-	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE) {
-		VLABEL_DPRINTF("check_sched: DENIED (permissive mode, allowing)");
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
 		return (0);
-	}
 
 	return (error);
 }
@@ -149,17 +131,12 @@ vlabel_proc_check_signal(struct ucred *cred, struct proc *p, int signum)
 	if (obj == NULL)
 		obj = &vlabel_default_subject;
 
-	VLABEL_DPRINTF("check_signal: subj='%s' obj='%s' target_pid=%d sig=%d",
-	    subj->vl_raw, obj->vl_raw, p->p_pid, signum);
-
 	/* Evaluate rules - pass target process for object context checks */
 	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_SIGNAL, p);
 
 	/* Permissive mode handling */
-	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE) {
-		VLABEL_DPRINTF("check_signal: DENIED (permissive mode, allowing)");
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
 		return (0);
-	}
 
 	return (error);
 }

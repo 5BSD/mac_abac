@@ -263,18 +263,11 @@ vlabel_execve_transition(struct ucred *old, struct ucred *new,
 		SDT_PROBE4(vlabel, cred, transition, exec,
 		    oldvl->vl_raw, newvl->vl_raw, objvl->vl_raw,
 		    curproc ? curproc->p_pid : 0);
-		VLABEL_DPRINTF("execve_transition: '%s' -> '%s' via transition rule",
-		    oldvl->vl_raw, newvl->vl_raw);
 	} else if (objvl->vl_raw[0] != '\0') {
 		/* Priority 2: Inherit vnode label */
 		vlabel_label_copy(objvl, newvl);
-		VLABEL_DPRINTF("execve_transition: '%s' -> '%s' (inherited from vnode)",
-		    oldvl->vl_raw, newvl->vl_raw);
-	} else {
-		/* Priority 3: Keep parent label (already copied) */
-		VLABEL_DPRINTF("execve_transition: '%s' unchanged (unlabeled exec)",
-		    oldvl->vl_raw);
 	}
+	/* Priority 3: Keep parent label (already copied) */
 
 	free(transition_label, M_TEMP);
 }

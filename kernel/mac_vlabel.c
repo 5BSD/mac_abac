@@ -301,8 +301,100 @@ static struct mac_policy_ops vlabel_ops = {
 	.mpo_pipe_check_stat = vlabel_pipe_check_stat,
 	.mpo_pipe_check_write = vlabel_pipe_check_write,
 
+	/* POSIX shm label lifecycle */
+	.mpo_posixshm_init_label = vlabel_posixshm_init_label,
+	.mpo_posixshm_destroy_label = vlabel_posixshm_destroy_label,
+	.mpo_posixshm_create = vlabel_posixshm_create,
+
+	/* POSIX shm checks */
+	.mpo_posixshm_check_create = vlabel_posixshm_check_create,
+	.mpo_posixshm_check_mmap = vlabel_posixshm_check_mmap,
+	.mpo_posixshm_check_open = vlabel_posixshm_check_open,
+	.mpo_posixshm_check_read = vlabel_posixshm_check_read,
+	.mpo_posixshm_check_setmode = vlabel_posixshm_check_setmode,
+	.mpo_posixshm_check_setowner = vlabel_posixshm_check_setowner,
+	.mpo_posixshm_check_stat = vlabel_posixshm_check_stat,
+	.mpo_posixshm_check_truncate = vlabel_posixshm_check_truncate,
+	.mpo_posixshm_check_unlink = vlabel_posixshm_check_unlink,
+	.mpo_posixshm_check_write = vlabel_posixshm_check_write,
+
 	/* Privilege grant */
 	.mpo_priv_grant = vlabel_priv_grant,
+
+	/* System-level checks */
+	.mpo_kld_check_load = vlabel_kld_check_load,
+	.mpo_kld_check_stat = vlabel_kld_check_stat,
+	.mpo_system_check_reboot = vlabel_system_check_reboot,
+	.mpo_system_check_sysctl = vlabel_system_check_sysctl,
+	.mpo_system_check_acct = vlabel_system_check_acct,
+	.mpo_system_check_swapon = vlabel_system_check_swapon,
+	.mpo_system_check_swapoff = vlabel_system_check_swapoff,
+	.mpo_mount_check_stat = vlabel_mount_check_stat,
+
+	/* Kernel environment (kenv) checks */
+	.mpo_kenv_check_dump = vlabel_kenv_check_dump,
+	.mpo_kenv_check_get = vlabel_kenv_check_get,
+	.mpo_kenv_check_set = vlabel_kenv_check_set,
+	.mpo_kenv_check_unset = vlabel_kenv_check_unset,
+
+	/* POSIX semaphore lifecycle */
+	.mpo_posixsem_init_label = vlabel_posixsem_init_label,
+	.mpo_posixsem_destroy_label = vlabel_posixsem_destroy_label,
+	.mpo_posixsem_create = vlabel_posixsem_create,
+
+	/* POSIX semaphore checks */
+	.mpo_posixsem_check_getvalue = vlabel_posixsem_check_getvalue,
+	.mpo_posixsem_check_open = vlabel_posixsem_check_open,
+	.mpo_posixsem_check_post = vlabel_posixsem_check_post,
+	.mpo_posixsem_check_setmode = vlabel_posixsem_check_setmode,
+	.mpo_posixsem_check_setowner = vlabel_posixsem_check_setowner,
+	.mpo_posixsem_check_stat = vlabel_posixsem_check_stat,
+	.mpo_posixsem_check_unlink = vlabel_posixsem_check_unlink,
+	.mpo_posixsem_check_wait = vlabel_posixsem_check_wait,
+
+	/* SysV message queue message lifecycle */
+	.mpo_sysvmsg_init_label = vlabel_sysvmsg_init_label,
+	.mpo_sysvmsg_destroy_label = vlabel_sysvmsg_destroy_label,
+	.mpo_sysvmsg_cleanup = vlabel_sysvmsg_cleanup,
+	.mpo_sysvmsg_create = vlabel_sysvmsg_create,
+
+	/* SysV message queue lifecycle */
+	.mpo_sysvmsq_init_label = vlabel_sysvmsq_init_label,
+	.mpo_sysvmsq_destroy_label = vlabel_sysvmsq_destroy_label,
+	.mpo_sysvmsq_cleanup = vlabel_sysvmsq_cleanup,
+	.mpo_sysvmsq_create = vlabel_sysvmsq_create,
+
+	/* SysV message queue checks */
+	.mpo_sysvmsq_check_msgmsq = vlabel_sysvmsq_check_msgmsq,
+	.mpo_sysvmsq_check_msgrcv = vlabel_sysvmsq_check_msgrcv,
+	.mpo_sysvmsq_check_msgrmid = vlabel_sysvmsq_check_msgrmid,
+	.mpo_sysvmsq_check_msqget = vlabel_sysvmsq_check_msqget,
+	.mpo_sysvmsq_check_msqctl = vlabel_sysvmsq_check_msqctl,
+	.mpo_sysvmsq_check_msqrcv = vlabel_sysvmsq_check_msqrcv,
+	.mpo_sysvmsq_check_msqsnd = vlabel_sysvmsq_check_msqsnd,
+
+	/* SysV semaphore lifecycle */
+	.mpo_sysvsem_init_label = vlabel_sysvsem_init_label,
+	.mpo_sysvsem_destroy_label = vlabel_sysvsem_destroy_label,
+	.mpo_sysvsem_cleanup = vlabel_sysvsem_cleanup,
+	.mpo_sysvsem_create = vlabel_sysvsem_create,
+
+	/* SysV semaphore checks */
+	.mpo_sysvsem_check_semctl = vlabel_sysvsem_check_semctl,
+	.mpo_sysvsem_check_semget = vlabel_sysvsem_check_semget,
+	.mpo_sysvsem_check_semop = vlabel_sysvsem_check_semop,
+
+	/* SysV shared memory lifecycle */
+	.mpo_sysvshm_init_label = vlabel_sysvshm_init_label,
+	.mpo_sysvshm_destroy_label = vlabel_sysvshm_destroy_label,
+	.mpo_sysvshm_cleanup = vlabel_sysvshm_cleanup,
+	.mpo_sysvshm_create = vlabel_sysvshm_create,
+
+	/* SysV shared memory checks */
+	.mpo_sysvshm_check_shmat = vlabel_sysvshm_check_shmat,
+	.mpo_sysvshm_check_shmctl = vlabel_sysvshm_check_shmctl,
+	.mpo_sysvshm_check_shmdt = vlabel_sysvshm_check_shmdt,
+	.mpo_sysvshm_check_shmget = vlabel_sysvshm_check_shmget,
 };
 
 /*
@@ -313,7 +405,6 @@ static void
 vlabel_init(struct mac_policy_conf *mpc)
 {
 
-	VLABEL_DPRINTF("initializing vLabel MAC policy");
 
 	/* Initialize label subsystem (UMA zone) */
 	vlabel_label_init();
@@ -328,14 +419,12 @@ vlabel_init(struct mac_policy_conf *mpc)
 	/* Mark as initialized - hooks can now safely run */
 	vlabel_initialized = 1;
 
-	VLABEL_DPRINTF("vLabel MAC policy initialized (mode=%d)", vlabel_mode);
 }
 
 static void
 vlabel_destroy(struct mac_policy_conf *mpc)
 {
 
-	VLABEL_DPRINTF("destroying vLabel MAC policy");
 
 	/* Destroy rule engine */
 	vlabel_rules_destroy();
@@ -343,7 +432,6 @@ vlabel_destroy(struct mac_policy_conf *mpc)
 	/* Destroy label subsystem (UMA zone) */
 	vlabel_label_destroy();
 
-	VLABEL_DPRINTF("vLabel MAC policy destroyed");
 }
 
 /*
@@ -372,7 +460,6 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 	switch (call) {
 	case VLABEL_SYS_GETMODE:
 		error = copyout(&vlabel_mode, arg, sizeof(int));
-		VLABEL_DPRINTF("syscall GETMODE: %d", vlabel_mode);
 		break;
 
 	case VLABEL_SYS_SETMODE:
@@ -383,7 +470,6 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 			error = EINVAL;
 			break;
 		}
-		VLABEL_DPRINTF("syscall SETMODE: %d -> %d", vlabel_mode, val);
 		SDT_PROBE2(vlabel, policy, mode, change, vlabel_mode, val);
 		vlabel_mode = val;
 		break;
@@ -391,20 +477,16 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 	case VLABEL_SYS_GETSTATS:
 		vlabel_rules_get_stats(&stats);
 		error = copyout(&stats, arg, sizeof(stats));
-		VLABEL_DPRINTF("syscall GETSTATS");
 		break;
 
 	case VLABEL_SYS_GETDEFPOL:
 		error = copyout(&vlabel_default_policy, arg, sizeof(int));
-		VLABEL_DPRINTF("syscall GETDEFPOL: %d", vlabel_default_policy);
 		break;
 
 	case VLABEL_SYS_SETDEFPOL:
 		error = copyin(arg, &val, sizeof(int));
 		if (error)
 			break;
-		VLABEL_DPRINTF("syscall SETDEFPOL: %d -> %d",
-		    vlabel_default_policy, val);
 		vlabel_default_policy = val;
 		break;
 
@@ -442,8 +524,6 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 			/* Copyout the updated arg with assigned rule ID */
 			error = copyout(&rule_arg, arg, sizeof(rule_arg));
 		}
-		VLABEL_DPRINTF("syscall RULE_ADD: id=%u action=%d ops=0x%x err=%d",
-		    rule_arg.vr_id, rule_arg.vr_action, rule_arg.vr_operations, error);
 		break;
 
 	case VLABEL_SYS_RULE_REMOVE:
@@ -451,14 +531,11 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 		if (error)
 			break;
 		error = vlabel_rule_remove(rule_id);
-		VLABEL_DPRINTF("syscall RULE_REMOVE: id=%u err=%d",
-		    rule_id, error);
 		break;
 
 	case VLABEL_SYS_RULE_CLEAR:
 		vlabel_rules_clear();
 		error = 0;
-		VLABEL_DPRINTF("syscall RULE_CLEAR");
 		break;
 
 	case VLABEL_SYS_RULE_LOAD:
@@ -471,8 +548,6 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 			error = vlabel_rules_load(&load_arg);
 			if (error == 0)
 				error = copyout(&load_arg, arg, sizeof(load_arg));
-			VLABEL_DPRINTF("syscall RULE_LOAD: count=%u loaded=%u err=%d",
-			    load_arg.vrl_count, load_arg.vrl_loaded, error);
 		}
 		break;
 
@@ -483,8 +558,6 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 		error = vlabel_rules_list(&list_arg);
 		if (error == 0)
 			error = copyout(&list_arg, arg, sizeof(list_arg));
-		VLABEL_DPRINTF("syscall RULE_LIST: total=%u count=%u err=%d",
-		    list_arg.vrl_total, list_arg.vrl_count, error);
 		break;
 
 	case VLABEL_SYS_TEST:
@@ -521,8 +594,6 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 
 		if (error == 0)
 			error = copyout(&test_arg, arg, sizeof(test_arg));
-		VLABEL_DPRINTF("syscall TEST: result=%u rule=%u err=%d",
-		    test_arg.vt_result, test_arg.vt_rule_id, error);
 		break;
 
 	case VLABEL_SYS_REFRESH:
@@ -542,16 +613,12 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 			struct vnode *vp;
 
 			error = fget(td, val, &cap_no_rights, &fp);
-			if (error) {
-				VLABEL_DPRINTF("syscall REFRESH: fget failed %d",
-				    error);
+			if (error)
 				break;
-			}
 
 			if (fp->f_type != DTYPE_VNODE) {
 				fdrop(fp, td);
 				error = EINVAL;
-				VLABEL_DPRINTF("syscall REFRESH: not a vnode");
 				break;
 			}
 
@@ -560,8 +627,6 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 				vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
 				vlabel_vnode_refresh_label(vp, vp->v_label);
 				VOP_UNLOCK(vp);
-				VLABEL_DPRINTF("syscall REFRESH: refreshed fd %d",
-				    val);
 			}
 
 			fdrop(fp, td);
@@ -570,7 +635,6 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 		break;
 
 	default:
-		VLABEL_DPRINTF("syscall: unknown cmd %d", call);
 		error = EINVAL;
 		break;
 	}

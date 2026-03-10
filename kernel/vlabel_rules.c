@@ -100,7 +100,6 @@ vlabel_rules_init(void)
 	vlabel_allowed = 0;
 	vlabel_denied = 0;
 
-	VLABEL_DPRINTF("rule engine initialized");
 }
 
 /*
@@ -111,11 +110,6 @@ vlabel_rules_destroy(void)
 {
 	struct vlabel_rule *rule;
 	int i;
-
-	VLABEL_DPRINTF("rule engine destroyed (rules=%d, checks=%ju, denied=%ju)",
-	    vlabel_rule_count,
-	    (uintmax_t)vlabel_checks,
-	    (uintmax_t)vlabel_denied);
 
 	/* Free all dynamically allocated rules */
 	rw_wlock(&vlabel_rules_lock);
@@ -158,7 +152,6 @@ vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 
 	/* Safety checks */
 	if (subj == NULL || obj == NULL) {
-		VLABEL_DPRINTF("rules_check: NULL label, allowing");
 		atomic_add_64(&vlabel_allowed, 1);
 		return (0);
 	}
@@ -182,20 +175,10 @@ vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 			matched_rule_id = rule->vr_id;
 
 			if (rule->vr_action == VLABEL_ACTION_ALLOW ||
-			    rule->vr_action == VLABEL_ACTION_TRANSITION) {
+			    rule->vr_action == VLABEL_ACTION_TRANSITION)
 				result = 0;
-				VLABEL_DPRINTF("rules_check: rule %u %s "
-				    "subj='%s' obj='%s' op=0x%x",
-				    rule->vr_id,
-				    rule->vr_action == VLABEL_ACTION_TRANSITION ?
-				        "TRANSITION" : "ALLOW",
-				    subj->vl_raw, obj->vl_raw, op);
-			} else {
+			else
 				result = EACCES;
-				VLABEL_DPRINTF("rules_check: rule %u DENY "
-				    "subj='%s' obj='%s' op=0x%x",
-				    rule->vr_id, subj->vl_raw, obj->vl_raw, op);
-			}
 			goto out;
 		}
 	}
@@ -205,17 +188,10 @@ vlabel_rules_check(struct ucred *cred, struct vlabel_label *subj,
 	 */
 	SDT_PROBE2(vlabel, rules, rule, nomatch, vlabel_default_policy, op);
 
-	if (vlabel_default_policy == 0) {
+	if (vlabel_default_policy == 0)
 		result = 0;
-		VLABEL_DPRINTF("rules_check: no rule matched, default ALLOW "
-		    "subj='%s' obj='%s' op=0x%x",
-		    subj->vl_raw, obj->vl_raw, op);
-	} else {
+	else
 		result = EACCES;
-		VLABEL_DPRINTF("rules_check: no rule matched, default DENY "
-		    "subj='%s' obj='%s' op=0x%x",
-		    subj->vl_raw, obj->vl_raw, op);
-	}
 
 out:
 	rw_runlock(&vlabel_rules_lock);
@@ -272,9 +248,6 @@ vlabel_rules_will_transition(struct ucred *cred, struct vlabel_label *subj,
 		/* Transitions don't need object context (no target process) */
 		if (vlabel_rule_matches(rule, subj, obj, VLABEL_OP_EXEC, cred, NULL)) {
 			result = true;
-			VLABEL_DPRINTF("will_transition: rule %u matches "
-			    "subj='%s' obj='%s'",
-			    rule->vr_id, subj->vl_raw, obj->vl_raw);
 			break;
 		}
 	}
@@ -318,8 +291,6 @@ vlabel_rules_get_transition(struct ucred *cred, struct vlabel_label *subj,
 			if (rule->vr_newlabel != NULL) {
 				vlabel_label_copy(rule->vr_newlabel, newlabel);
 				result = 0;
-				VLABEL_DPRINTF("get_transition: rule %u -> '%s'",
-				    rule->vr_id, newlabel->vl_raw);
 			}
 			break;
 		}
@@ -355,7 +326,6 @@ vlabel_rule_remove(uint32_t id)
 			if (rule->vr_newlabel != NULL)
 				free(rule->vr_newlabel, M_TEMP);
 			free(rule, M_TEMP);
-			VLABEL_DPRINTF("rule_remove: removed rule %u", id);
 			return (0);
 		}
 	}
@@ -397,7 +367,6 @@ vlabel_rules_clear(void)
 
 	(void)cleared;
 
-	VLABEL_DPRINTF("rules_clear: all rules cleared");
 }
 
 /*

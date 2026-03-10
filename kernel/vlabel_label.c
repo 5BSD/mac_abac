@@ -74,7 +74,6 @@ vlabel_label_init(void)
 	vlabel_labels_freed = 0;
 	vlabel_parse_errors = 0;
 
-	VLABEL_DPRINTF("label subsystem initialized");
 }
 
 /*
@@ -95,10 +94,6 @@ vlabel_label_init(void)
 void
 vlabel_label_destroy(void)
 {
-
-	VLABEL_DPRINTF("label subsystem destroyed (alloc=%ju, freed=%ju)",
-	    (uintmax_t)vlabel_labels_allocated,
-	    (uintmax_t)vlabel_labels_freed);
 
 	/* Don't destroy the zone - see note above */
 }
@@ -184,16 +179,12 @@ parse_kv_pair(const char *str, size_t len, struct vlabel_label *vl)
 	size_t keylen, valuelen;
 
 	/* Check if we have room for another pair */
-	if (vl->vl_npairs >= VLABEL_MAX_PAIRS) {
-		VLABEL_DPRINTF("parse_kv_pair: too many pairs (max %d)",
-		    VLABEL_MAX_PAIRS);
+	if (vl->vl_npairs >= VLABEL_MAX_PAIRS)
 		return (E2BIG);
-	}
 
 	/* Find the '=' separator */
 	eq = memchr(str, '=', len);
 	if (eq == NULL) {
-		VLABEL_DPRINTF("parse_kv_pair: no '=' in pair");
 		return (EINVAL);
 	}
 
@@ -201,16 +192,10 @@ parse_kv_pair(const char *str, size_t len, struct vlabel_label *vl)
 	valuelen = len - keylen - 1;
 
 	/* Validate lengths */
-	if (keylen == 0 || keylen >= VLABEL_MAX_KEY_LEN) {
-		VLABEL_DPRINTF("parse_kv_pair: key too long (%zu >= %d)",
-		    keylen, VLABEL_MAX_KEY_LEN);
+	if (keylen == 0 || keylen >= VLABEL_MAX_KEY_LEN)
 		return (EINVAL);
-	}
-	if (valuelen >= VLABEL_MAX_VALUE_LEN) {
-		VLABEL_DPRINTF("parse_kv_pair: value too long (%zu >= %d)",
-		    valuelen, VLABEL_MAX_VALUE_LEN);
+	if (valuelen >= VLABEL_MAX_VALUE_LEN)
 		return (EINVAL);
-	}
 
 	/* Store in the next available pair slot */
 	pair = &vl->vl_pairs[vl->vl_npairs];
@@ -255,7 +240,6 @@ vlabel_label_parse(const char *str, size_t len, struct vlabel_label *vl)
 
 	if (len > VLABEL_MAX_LABEL_LEN) {
 		atomic_add_64(&vlabel_parse_errors, 1);
-		VLABEL_DPRINTF("label too long: %zu > %d", len, VLABEL_MAX_LABEL_LEN);
 		return (EINVAL);
 	}
 
@@ -286,9 +270,6 @@ vlabel_label_parse(const char *str, size_t len, struct vlabel_label *vl)
 		/* Move past newline */
 		p = nl + 1;
 	}
-
-	VLABEL_DPRINTF("parsed label: raw='%s' npairs=%u",
-	    vl->vl_raw, vl->vl_npairs);
 
 	return (0);
 }
@@ -491,11 +472,8 @@ vlabel_pattern_parse(const char *str, size_t len, struct vlabel_pattern *pattern
 	if (len == 0 || (len == 1 && str[0] == '*'))
 		return (0);
 
-	if (len > VLABEL_MAX_LABEL_LEN) {
-		VLABEL_DPRINTF("pattern_parse: pattern too long (%zu > %d)",
-		    len, VLABEL_MAX_LABEL_LEN);
+	if (len > VLABEL_MAX_LABEL_LEN)
 		return (EINVAL);
-	}
 
 	/* Parse comma-separated key=value pairs */
 	p = str;
@@ -514,32 +492,22 @@ vlabel_pattern_parse(const char *str, size_t len, struct vlabel_pattern *pattern
 		}
 
 		/* Check pair limit */
-		if (pattern->vp_npairs >= VLABEL_MAX_PAIRS) {
-			VLABEL_DPRINTF("pattern_parse: too many pairs (max %d)",
-			    VLABEL_MAX_PAIRS);
+		if (pattern->vp_npairs >= VLABEL_MAX_PAIRS)
 			return (E2BIG);
-		}
 
 		/* Find '=' separator */
 		eq = memchr(p, '=', comma - p);
 		if (eq == NULL) {
-			VLABEL_DPRINTF("pattern_parse: missing '=' in pair");
 			return (EINVAL);
 		}
 
 		keylen = eq - p;
 		valuelen = comma - eq - 1;
 
-		if (keylen == 0 || keylen >= VLABEL_MAX_KEY_LEN) {
-			VLABEL_DPRINTF("pattern_parse: key length %zu invalid (max %d)",
-			    keylen, VLABEL_MAX_KEY_LEN - 1);
+		if (keylen == 0 || keylen >= VLABEL_MAX_KEY_LEN)
 			return (EINVAL);
-		}
-		if (valuelen >= VLABEL_MAX_VALUE_LEN) {
-			VLABEL_DPRINTF("pattern_parse: value length %zu too long (max %d)",
-			    valuelen, VLABEL_MAX_VALUE_LEN - 1);
+		if (valuelen >= VLABEL_MAX_VALUE_LEN)
 			return (EINVAL);
-		}
 
 		/* Store this pair */
 		pair = &pattern->vp_pairs[pattern->vp_npairs];
@@ -619,32 +587,22 @@ vlabel_rule_pattern_parse(const char *str, size_t len,
 		}
 
 		/* Check pair limit */
-		if (pattern->vrp_npairs >= VLABEL_RULE_MAX_PAIRS) {
-			VLABEL_DPRINTF("rule_pattern_parse: too many pairs (max %d)",
-			    VLABEL_RULE_MAX_PAIRS);
+		if (pattern->vrp_npairs >= VLABEL_RULE_MAX_PAIRS)
 			return (E2BIG);
-		}
 
 		/* Find '=' separator */
 		eq = memchr(p, '=', comma - p);
 		if (eq == NULL) {
-			VLABEL_DPRINTF("rule_pattern_parse: missing '=' in pair");
 			return (EINVAL);
 		}
 
 		keylen = eq - p;
 		valuelen = comma - eq - 1;
 
-		if (keylen == 0 || keylen >= VLABEL_RULE_KEY_LEN) {
-			VLABEL_DPRINTF("rule_pattern_parse: key length %zu invalid (max %d)",
-			    keylen, VLABEL_RULE_KEY_LEN - 1);
+		if (keylen == 0 || keylen >= VLABEL_RULE_KEY_LEN)
 			return (EINVAL);
-		}
-		if (valuelen >= VLABEL_RULE_VALUE_LEN) {
-			VLABEL_DPRINTF("rule_pattern_parse: value length %zu too long (max %d)",
-			    valuelen, VLABEL_RULE_VALUE_LEN - 1);
+		if (valuelen >= VLABEL_RULE_VALUE_LEN)
 			return (EINVAL);
-		}
 
 		/* Store this pair */
 		pair = &pattern->vrp_pairs[pattern->vrp_npairs];

@@ -133,12 +133,10 @@ vlabel_context_matches(const struct vlabel_context *ctx,
 		check_proc = proc;
 	} else {
 		/* No context info available, can't match constraints */
-		VLABEL_DPRINTF("context: no cred or proc provided");
 		return (false);
 	}
 
 	if (check_cred == NULL) {
-		VLABEL_DPRINTF("context: no credential available");
 		return (false);
 	}
 
@@ -173,12 +171,8 @@ vlabel_context_matches(const struct vlabel_context *ctx,
 			}
 		}
 
-		if (is_sandboxed != ctx->vc_cap_sandboxed) {
-			VLABEL_DPRINTF("context: cap_sandboxed mismatch "
-			    "(want %d, got %d)",
-			    ctx->vc_cap_sandboxed, is_sandboxed);
+		if (is_sandboxed != ctx->vc_cap_sandboxed)
 			return (false);
-		}
 	}
 
 	/* Check jail context */
@@ -190,57 +184,38 @@ vlabel_context_matches(const struct vlabel_context *ctx,
 		switch (ctx->vc_jail_check) {
 		case 0:
 			/* Must be on host (jail 0) */
-			if (jailid != 0) {
-				VLABEL_DPRINTF("context: jail mismatch "
-				    "(want host, got jail %d)", jailid);
+			if (jailid != 0)
 				return (false);
-			}
 			break;
 		case -1:
 			/* Must be in any jail (not host) */
-			if (jailid == 0) {
-				VLABEL_DPRINTF("context: jail mismatch "
-				    "(want any jail, got host)");
+			if (jailid == 0)
 				return (false);
-			}
 			break;
 		default:
 			/* Must be in specific jail */
-			if (jailid != ctx->vc_jail_check) {
-				VLABEL_DPRINTF("context: jail mismatch "
-				    "(want %d, got %d)",
-				    ctx->vc_jail_check, jailid);
+			if (jailid != ctx->vc_jail_check)
 				return (false);
-			}
 			break;
 		}
 	}
 
 	/* Check effective UID */
 	if (ctx->vc_flags & VLABEL_CTX_UID) {
-		if (check_cred->cr_uid != ctx->vc_uid) {
-			VLABEL_DPRINTF("context: uid mismatch "
-			    "(want %u, got %u)", ctx->vc_uid, check_cred->cr_uid);
+		if (check_cred->cr_uid != ctx->vc_uid)
 			return (false);
-		}
 	}
 
 	/* Check effective GID */
 	if (ctx->vc_flags & VLABEL_CTX_GID) {
-		if (check_cred->cr_gid != ctx->vc_gid) {
-			VLABEL_DPRINTF("context: gid mismatch "
-			    "(want %u, got %u)", ctx->vc_gid, check_cred->cr_gid);
+		if (check_cred->cr_gid != ctx->vc_gid)
 			return (false);
-		}
 	}
 
 	/* Check real UID */
 	if (ctx->vc_flags & VLABEL_CTX_RUID) {
-		if (check_cred->cr_ruid != ctx->vc_uid) {
-			VLABEL_DPRINTF("context: ruid mismatch "
-			    "(want %u, got %u)", ctx->vc_uid, check_cred->cr_ruid);
+		if (check_cred->cr_ruid != ctx->vc_uid)
 			return (false);
-		}
 	}
 
 	/* Check session/login context - via process's session */
@@ -258,15 +233,10 @@ vlabel_context_matches(const struct vlabel_context *ctx,
 			PROC_UNLOCK(check_proc);
 		}
 
-		if (has_tty != ctx->vc_has_tty) {
-			VLABEL_DPRINTF("context: tty mismatch "
-			    "(want %d, got %d)",
-			    ctx->vc_has_tty, has_tty);
+		if (has_tty != ctx->vc_has_tty)
 			return (false);
-		}
 	}
 
-	VLABEL_DPRINTF("context: all constraints matched");
 	return (true);
 }
 

@@ -91,8 +91,6 @@ vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data)
 		error = vlabel_rule_pattern_parse(subject_str, strlen(subject_str),
 		    &newrule->vr_subject);
 		if (error) {
-			VLABEL_DPRINTF("rule_add: failed to parse subject '%s'",
-			    subject_str);
 			free(newrule, M_TEMP);
 			free(converted, M_TEMP);
 			return (error);
@@ -106,8 +104,6 @@ vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data)
 		error = vlabel_rule_pattern_parse(object_str, strlen(object_str),
 		    &newrule->vr_object);
 		if (error) {
-			VLABEL_DPRINTF("rule_add: failed to parse object '%s'",
-			    object_str);
 			free(newrule, M_TEMP);
 			free(converted, M_TEMP);
 			return (error);
@@ -142,8 +138,6 @@ vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data)
 		vlabel_convert_label_format(newlabel_str, converted, VLABEL_MAX_LABEL_LEN);
 		error = vlabel_label_parse(converted, strlen(converted), newlabel);
 		if (error) {
-			VLABEL_DPRINTF("rule_add: failed to parse newlabel '%s'",
-			    newlabel_str);
 			free(newlabel, M_TEMP);
 			free(newrule, M_TEMP);
 			free(converted, M_TEMP);
@@ -181,10 +175,6 @@ vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data)
 	/* DTrace: rule added */
 	SDT_PROBE3(vlabel, rules, rule, add,
 	    newrule->vr_id, newrule->vr_action,
-	    newrule->vr_operations);
-	VLABEL_DPRINTF("rule_add: added rule %u at slot %d "
-	    "action=%u ops=0x%x",
-	    newrule->vr_id, i, newrule->vr_action,
 	    newrule->vr_operations);
 	return (0);
 }
@@ -403,11 +393,8 @@ vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 		}
 
 		error = vlabel_rule_add_locked(arg, data);
-		if (error) {
-			VLABEL_DPRINTF("rules_load: failed to add rule %u: %d",
-			    i, error);
+		if (error)
 			break;
-		}
 
 		loaded++;
 		offset += rule_size;
@@ -425,7 +412,6 @@ vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 		}
 		vlabel_rule_count = old_count;
 		vlabel_rule_end = old_end;
-		VLABEL_DPRINTF("rules_load: rollback, restored %d rules", old_count);
 	} else {
 		/* Success: free old rules */
 		for (i = 0; i < VLABEL_MAX_RULES; i++) {
@@ -435,7 +421,6 @@ vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 				free(old_rules[i], M_TEMP);
 			}
 		}
-		VLABEL_DPRINTF("rules_load: loaded %u rules atomically", loaded);
 	}
 
 	rw_wunlock(&vlabel_rules_lock);
@@ -610,9 +595,6 @@ vlabel_rules_list(struct vlabel_rule_list_arg *list_arg)
 	if (kbuf != NULL)
 		free(kbuf, M_TEMP);
 
-	VLABEL_DPRINTF("rules_list: returned %u/%u rules",
-	    copied, list_arg->vrl_total);
-
 	return (error);
 }
 
@@ -687,10 +669,6 @@ vlabel_rules_test_access(const char *subject, size_t subject_len,
 
 out:
 	rw_runlock(&vlabel_rules_lock);
-
-	VLABEL_DPRINTF("test_access: subj='%s' obj='%s' op=0x%x -> %s",
-	    subject ? subject : "(null)", object ? object : "(null)",
-	    operation, *result == 0 ? "ALLOW" : "DENY");
 
 	free(converted, M_TEMP);
 	free(obj_label, M_TEMP);

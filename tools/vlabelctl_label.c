@@ -62,6 +62,16 @@ parse_operation(const char *opstr)
 		return VLABEL_OP_CREATE;
 	if (strcasecmp(opstr, "lookup") == 0)
 		return VLABEL_OP_LOOKUP;
+	/* File/directory manipulation operations */
+	if (strcasecmp(opstr, "link") == 0)
+		return VLABEL_OP_LINK;
+	if (strcasecmp(opstr, "rename") == 0)
+		return VLABEL_OP_RENAME;
+	if (strcasecmp(opstr, "unlink") == 0)
+		return VLABEL_OP_UNLINK;
+	if (strcasecmp(opstr, "chdir") == 0)
+		return VLABEL_OP_CHDIR;
+	/* Socket operations */
 	if (strcasecmp(opstr, "connect") == 0)
 		return VLABEL_OP_CONNECT;
 	if (strcasecmp(opstr, "bind") == 0)
