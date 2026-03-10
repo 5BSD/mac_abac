@@ -1,0 +1,261 @@
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.\" Copyright (c) 2026 vLabel Project
+.\" All rights reserved.
+.\"
+.Dd March 9, 2026
+.Dt MAC_VLABEL 4
+.Os
+.Sh NAME
+.Nm mac_vlabel
+.Nd "flexible label-based Mandatory Access Control policy"
+.Sh SYNOPSIS
+To compile the policy into a static kernel:
+.Bd -ragged -offset indent
+.Cd "options MAC"
+.Cd "options MAC_VLABEL"
+.Ed
+.Pp
+To load the policy as a kernel module at boot:
+.Bd -literal -offset indent
+mac_vlabel_load="YES"
+.Ed
+.Pp
+in
+.Xr loader.conf 5 .
+.Sh DESCRIPTION
+The
+.Nm
+policy implements flexible, label-based Mandatory Access Control (MAC)
+for
+.Fx .
+Unlike fixed policies like
+.Xr mac_biba 4
+or
+.Xr mac_mls 4 ,
+.Nm
+allows administrators to define arbitrary label attributes and custom
+access control rules.
+.Pp
+Labels are key-value pairs stored in the
+.Dq system:vlabel
+extended attribute on files and inherited by processes.
+Rules define access decisions based on pattern matching against subject
+(process) and object (file/process) labels.
+.Ss Design Philosophy
+The
+.Nm
+policy follows a Type Enforcement model similar to SELinux domains, but with
+a simpler, more flexible approach:
+.Bl -bullet
+.It
+Labels are arbitrary key=value pairs, not predefined types
+.It
+Rules are first-match ordered, like
+.Xr pf 4
+.It
+No compile-time policy \(em rules are loaded dynamically
+.It
+Integrates with FreeBSD security primitives (jails, Capsicum)
+.El
+.Ss Enforcement Modes
+.Bl -tag -width "permissive"
+.It Cm disabled
+No access checks.
+Labels are still read and stored, but not enforced.
+.It Cm permissive
+Access checks are performed and logged, but denials are not enforced.
+Useful for policy development.
+.It Cm enforcing
+Full enforcement of access control decisions.
+.El
+.Ss Labels
+Each file can have a label stored in the
+.Dq system:vlabel
+extended attribute.
+Labels consist of key=value pairs in newline-separated format:
+.Bd -literal -offset indent
+type=app
+domain=web
+name=nginx
+.Ed
+.Pp
+Process labels are inherited from the parent process at fork, and can
+be changed via exec transition rules.
+.Pp
+Files and processes without explicit labels receive a default label of
+.Dq type=unlabeled .
+.Ss Rules
+Rules are evaluated in order (first match wins).
+Each rule specifies:
+.Bl -bullet -compact
+.It
+Action: allow, deny, or transition
+.It
+Operations: which system calls to check
+.It
+Subject pattern: match the calling process label
+.It
+Object pattern: match the target object label
+.It
+Context constraints (optional): check process attributes (UID, jail, etc.)
+.It
+New label (transition rules only): label assigned after exec
+.El
+.Pp
+If no rule matches, the default policy applies (configurable as allow or deny).
+.Ss Context Constraints
+Rules can include constraints on process attributes beyond labels:
+.Bl -bullet -compact
+.It
+UID/GID checks
+.It
+Jail membership (host, any jail, specific jail)
+.It
+Capsicum capability mode
+.It
+Controlling terminal presence
+.El
+.Pp
+Subject context applies to the calling process.
+Object context applies to the target process (for debug/signal/sched operations).
+.Sh SYSCTLS
+.Bl -tag -width indent
+.It Va security.mac.vlabel.enabled
+Enable/disable the policy module (0 or 1).
+.It Va security.mac.vlabel.mode
+Current enforcement mode (0=disabled, 1=permissive, 2=enforcing).
+.It Va security.mac.vlabel.default_policy
+Default when no rule matches (0=allow, 1=deny).
+.It Va security.mac.vlabel.checks
+Total access checks performed.
+.It Va security.mac.vlabel.allowed
+Access checks that returned allow.
+.It Va security.mac.vlabel.denied
+Access checks that returned deny.
+.It Va security.mac.vlabel.rule_count
+Number of active rules.
+.It Va security.mac.vlabel.labels_allocated
+Total labels allocated (debugging).
+.It Va security.mac.vlabel.labels_freed
+Total labels freed (debugging).
+.It Va security.mac.vlabel.parse_errors
+Label parsing errors encountered.
+.El
+.Sh LIMITS
+.Bl -column "Maximum label length" "4096 bytes" -offset indent
+.It Sy Limit Ta Sy Value
+.It Maximum label length Ta 4,096 bytes
+.It Maximum key length Ta 64 bytes
+.It Maximum value length Ta 256 bytes
+.It Maximum pairs per label Ta 16
+.It Maximum pairs per rule pattern Ta 8
+.It Maximum rules Ta 1,024 (current), 4,096+ (planned)
+.El
+.Sh IMPLEMENTATION NOTES
+.Ss Memory Usage
+Each rule currently uses approximately 19KB due to fixed-size embedded
+arrays.
+A refactoring effort is underway to reduce this to approximately 1.6KB
+per rule, enabling support for 4,000+ rules.
+.Ss Extended Attributes
+Labels are stored in the
+.Dq system:vlabel
+namespace.
+The filesystem must support extended attributes.
+For UFS, ensure
+.Cm multilabel
+is set in
+.Xr tunefs 8 .
+ZFS supports extended attributes natively.
+.Ss DTrace Probes
+The module provides SDT probes for tracing:
+.Bl -tag -width "vlabel:rules:rule:remove" -compact
+.It Li vlabel:rules:check:entry
+Access check started.
+.It Li vlabel:rules:check:allow
+Access allowed.
+.It Li vlabel:rules:check:deny
+Access denied.
+.It Li vlabel:rules:rule:match
+Rule matched.
+.It Li vlabel:rules:rule:nomatch
+No rule matched, using default.
+.It Li vlabel:rules:rule:add
+Rule added.
+.It Li vlabel:rules:rule:remove
+Rule removed.
+.It Li vlabel:label:extattr:read
+Label read from extended attribute.
+.It Li vlabel:label:extattr:default
+Default label assigned.
+.El
+.Sh FILES
+.Bl -tag -width "/etc/vlabel/policy.conf"
+.It Pa /etc/vlabel/policy.conf
+Default policy configuration file.
+.It Pa /usr/local/sbin/vlabelctl
+Administration utility.
+.El
+.Sh EXAMPLES
+Basic setup to protect against untrusted executables:
+.Bd -literal -offset indent
+# Load the module
+kldload mac_vlabel
+
+# Set default deny policy
+vlabelctl default deny
+
+# Allow execution of trusted binaries
+vlabelctl rule add allow exec '*' -> type=trusted
+vlabelctl rule add allow exec '*' -> type=system
+
+# Allow everything else except exec
+vlabelctl rule add allow read,write,stat,open '*' -> '*'
+
+# Enable enforcement
+vlabelctl mode enforcing
+
+# Label trusted binaries
+find /bin /sbin /usr/bin /usr/sbin -type f -exec \\
+    setextattr system vlabel "type=system" {} \\;
+.Ed
+.Sh SEE ALSO
+.Xr mac 4 ,
+.Xr mac_biba 4 ,
+.Xr mac_mls 4 ,
+.Xr vlabel.conf 5 ,
+.Xr vlabelctl 8
+.Sh HISTORY
+The
+.Nm
+module first appeared in
+.Fx 15.0 .
+.Sh AUTHORS
+.An "The vLabel project" .
+.Sh CAVEATS
+.Nm
+cannot be unloaded once loaded.
+This is by design, as labels may be attached to vnodes and credentials
+that persist across the module lifecycle.
+.Pp
+The module must be loaded at boot time via
+.Xr loader.conf 5
+or compiled into the kernel.
+Loading after boot with
+.Xr kldload 8
+works but is not recommended for production.
+.Sh SECURITY CONSIDERATIONS
+.Bl -bullet
+.It
+Rules are root-only.
+Only processes with uid 0 can add, remove, or modify rules.
+.It
+Labels on files require write access to extended attributes.
+Consider protecting critical files with filesystem permissions.
+.It
+Default policy of "allow" is permissive.
+For high-security environments, use "deny" as default.
+.It
+Permissive mode should only be used for policy development, not production.
+.El

@@ -52,14 +52,28 @@
  * Patterns (in rules) use comma-separated format for command-line convenience:
  *   "key1=val1,key2=val2"
  *
- * VLABEL_MAX_LABEL_LEN: Soft limit for labels stored in extattrs.
- *   - Extended attributes have filesystem-specific limits
- *   - UFS/ZFS typically support 64KB+ but we use a reasonable default
- *   - This is NOT a hard limit for syscall structures (those use variable length)
+ * VLABEL_MAX_LABEL_LEN (4096 bytes):
+ *   Soft limit for labels stored in extended attributes. Extended attributes
+ *   have filesystem-specific limits (UFS/ZFS support 64KB+), but 4KB is
+ *   sufficient for any realistic label. Larger labels would indicate policy
+ *   design issues.
  *
- * VLABEL_MAX_PAIRS: Maximum number of key=value pairs per label.
- *   - Kernel parsing limit for in-memory label structures
- *   - Keep reasonable to avoid excessive memory per label
+ * VLABEL_MAX_KEY_LEN (64 bytes):
+ *   Maximum key name length. Keys are typically short identifiers like
+ *   "type", "domain", "sensitivity". 64 bytes provides ample headroom.
+ *
+ * VLABEL_MAX_VALUE_LEN (256 bytes):
+ *   Maximum value length. Values like application names, domains, or
+ *   classification levels rarely exceed 64 bytes, but 256 allows for
+ *   descriptive values and future flexibility.
+ *
+ * VLABEL_MAX_PAIRS (16):
+ *   Maximum key=value pairs per label. Analysis of real policies shows
+ *   most labels use 1-6 pairs. 16 provides headroom for complex labels
+ *   while keeping struct vlabel_label under 10KB.
+ *
+ *   Memory impact: sizeof(vlabel_label) = 4096 + 8 + 16*320 = ~9.2KB
+ *   This is acceptable because labels are cached per-vnode/cred in UMA zones.
  */
 #define VLABEL_MAX_LABEL_LEN		4096	/* Soft limit for extattr labels */
 #define VLABEL_MAX_KEY_LEN		64	/* Max key length */
@@ -69,10 +83,25 @@
 /*
  * Rule constraints (system-wide limits)
  *
- * VLABEL_MAX_RULES: Maximum number of rules loaded in the kernel.
- *   - This is the total rule capacity system-wide
- *   - Rules are evaluated in order (first match wins)
- *   - Each rule has subject and object patterns (each up to 32 pairs)
+ * VLABEL_MAX_RULES (1024, planned: 4096+):
+ *   Maximum rules loaded in the kernel. Rules are evaluated in order
+ *   (first-match semantics like pf). Current limit is conservative due
+ *   to memory usage (~19KB per rule with embedded patterns).
+ *
+ *   Memory impact at 1024 rules: ~19MB
+ *   Memory impact at 4096 rules: ~76MB (current struct)
+ *
+ *   A planned refactoring (see REFACTOR_RULES.md) will reduce per-rule
+ *   memory to ~1.6KB by:
+ *   - Reducing pattern pairs from 16 to 8 (covers all realistic cases)
+ *   - Using smaller key/value sizes in patterns (32/64 vs 64/256)
+ *   - Allocating transition labels separately (only for TRANSITION rules)
+ *
+ *   After refactoring: 4096 rules = ~6.3MB, 16384 rules = ~25MB
+ *
+ * WARNING: vlabel_rules_load() currently uses a stack array of size
+ * VLABEL_MAX_RULES for atomic rollback. Values above ~1024 will cause
+ * kernel stack overflow. This must be fixed before increasing the limit.
  */
 #define VLABEL_MAX_RULES		1024	/* Max rules in kernel */
 

@@ -75,20 +75,26 @@ vLabel is a FreeBSD Mandatory Access Control Framework (MACF) policy module. Thi
 ### vlabel_label.c - Label Management
 
 - UMA zone for label allocation (`vlabel_label_zone`)
-- Label parsing: `"key=val,key=val"` → struct
+- Label parsing: `"key=val\nkey=val\n"` → struct
 - Label matching against patterns
 - Hash computation for fast comparison
 
 ```c
 struct vlabel_label {
-    char    *vl_raw;      // Original string
-    uint32_t vl_hash;     // Quick comparison
-    char    *vl_type;     // Parsed type= value
-    char    *vl_domain;   // Parsed domain= value
-    char    *vl_name;     // Parsed name= value
-    char    *vl_level;    // Parsed level= value
+    char             vl_raw[VLABEL_MAX_LABEL_LEN];  // Original string (4KB)
+    uint32_t         vl_hash;                        // Quick comparison
+    uint32_t         vl_npairs;                      // Number of valid pairs
+    struct vlabel_pair vl_pairs[VLABEL_MAX_PAIRS];  // Parsed key=value (16 max)
+};
+
+struct vlabel_pair {
+    char vp_key[VLABEL_MAX_KEY_LEN];     // 64 bytes
+    char vp_value[VLABEL_MAX_VALUE_LEN]; // 256 bytes
 };
 ```
+
+**Note:** Labels use arbitrary key=value pairs. The old type/domain/name/level
+fields are removed in favor of flexible pairs.
 
 ### vlabel_rules.c - Rule Engine
 
@@ -97,18 +103,28 @@ struct vlabel_label {
 - Pattern matching with wildcards
 - Context constraint checking (jail, capsicum, uid)
 - Transition rule handling
+- Rules appended at end (never reordered on removal)
 
 ```c
 struct vlabel_rule {
-    uint32_t         vr_id;
-    uint8_t          vr_action;     // ALLOW/DENY/TRANSITION
-    uint32_t         vr_operations; // Bitmask
-    struct vlabel_pattern vr_subject;
-    struct vlabel_pattern vr_object;
-    struct vlabel_context vr_context;
-    char             vr_newlabel[256];
+    uint32_t              vr_id;           // Unique identifier
+    uint8_t               vr_action;       // ALLOW/DENY/TRANSITION
+    uint32_t              vr_operations;   // Operation bitmask
+    struct vlabel_pattern vr_subject;      // Subject pattern (~5KB)
+    struct vlabel_pattern vr_object;       // Object pattern (~5KB)
+    struct vlabel_context vr_subj_context; // Subject constraints (24B)
+    struct vlabel_context vr_obj_context;  // Object constraints (24B)
+    struct vlabel_label   vr_newlabel;     // For transitions (~9KB)
 };
+// Current size: ~19KB per rule (see Memory Analysis below)
 ```
+
+### vlabel_match.c - Pattern Matching
+
+Separated from vlabel_label.c for clarity:
+- `vlabel_pattern_match()` - Check label against pattern
+- `vlabel_context_matches()` - Check process context constraints
+- `vlabel_rule_matches()` - Full rule evaluation
 
 ### vlabel_syscall() - Syscall Interface
 
@@ -471,3 +487,93 @@ dtrace -n 'vlabel:::mode-change {
 **Label Probes**: `extattr-read`, `extattr-default`
 - Fired when labels are read from filesystem or defaults assigned
 - Use for understanding label propagation
+
+## Memory Analysis
+
+### Current Structure Sizes (v1)
+
+| Structure | Size | Notes |
+|-----------|------|-------|
+| `vlabel_pair` | 320 bytes | 64 key + 256 value |
+| `vlabel_label` | ~9,224 bytes | 4096 raw + 8 meta + 16×320 pairs |
+| `vlabel_pattern` | ~5,128 bytes | 8 meta + 16×320 pairs |
+| `vlabel_context` | 24 bytes | Flags + uid/gid/jail |
+| `vlabel_rule` | **~19,528 bytes** | Subject + object + newlabel + contexts |
+
+### Memory Usage at Scale (Current)
+
+| Rules | Memory |
+|-------|--------|
+| 100 | 1.9 MB |
+| 1,024 | 19.4 MB |
+| 4,096 | 77.8 MB |
+| 16,384 | 311 MB |
+
+### The Problem
+
+Most rules use 1-4 key=value pairs per pattern, but every rule allocates
+space for 16 pairs × 320 bytes = 5KB per pattern. A typical rule like
+`allow exec type=app -> *` uses ~20 bytes of actual data but allocates ~19KB.
+
+### Planned Optimization (v2)
+
+Separate limits for rules vs file labels:
+- File labels: Keep 16 pairs (complex labels need this)
+- Rule patterns: Reduce to 8 pairs (covers all realistic cases)
+- Smaller pair sizes for rules: 32-byte key + 64-byte value = 96 bytes
+
+**Target structure sizes:**
+
+| Structure | Size | Notes |
+|-----------|------|-------|
+| `vlabel_rule_pair` | 96 bytes | 32 key + 64 value |
+| `vlabel_rule_pattern` | 776 bytes | 8 meta + 8×96 pairs |
+| `vlabel_rule` (non-transition) | **~1,612 bytes** | 12x smaller |
+| `vlabel_rule` (transition) | ~10,836 bytes | +9KB for newlabel |
+
+**Target memory usage:**
+
+| Rules | Current | Target | Savings |
+|-------|---------|--------|---------|
+| 1,024 | 19 MB | 1.6 MB | 12x |
+| 4,096 | 76 MB | 6.3 MB | 12x |
+| 16,384 | 304 MB | 25 MB | 12x |
+
+### Parsing Flow (Current vs Planned)
+
+**Current (v1):**
+```
+vlabelctl: parse "type=app" → vlabel_rule_io (fixed arrays)
+    ↓
+Kernel: parse again → vlabel_pattern (fixed arrays)
+    ↓
+Store in rule
+```
+
+**Planned (v2):**
+```
+vlabelctl: parse "type=app" → vlabel_rule_pattern_arg (binary)
+    ↓
+Kernel: validate, copy directly → vlabel_rule_pattern
+    ↓
+Store in rule (no kernel parsing)
+```
+
+Benefits:
+- No string parsing in kernel
+- Better error messages in userland
+- Smaller attack surface
+- Simpler kernel code
+
+## System Limits
+
+| Limit | Current | Planned | Rationale |
+|-------|---------|---------|-----------|
+| Max rules | 1,024 | 4,096+ | Memory optimization enables more |
+| Max pairs per label | 16 | 16 | Complex file labels need this |
+| Max pairs per pattern | 16 | 8 | Analysis shows 1-4 typical |
+| Max key length | 64 | 64 (labels), 32 (patterns) | Keys are short identifiers |
+| Max value length | 256 | 256 (labels), 64 (patterns) | Values rarely exceed 64 |
+| Max label length | 4,096 | 4,096 | Soft limit for extattrs |
+
+See `REFACTOR_RULES.md` for detailed implementation plan.
