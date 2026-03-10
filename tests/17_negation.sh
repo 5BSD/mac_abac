@@ -305,6 +305,135 @@ else
 fi
 
 # ===========================================
+# Part 5b: Multi-Key Subject Negation
+# ===========================================
+echo ""
+info "=== Multi-Key Subject Negation ==="
+
+run_test
+info "Test: Negated multi-key subject pattern"
+"$VLABELCTL" rule clear >/dev/null
+# Deny if subject does NOT have both type=system AND domain=kernel
+"$VLABELCTL" rule add "deny exec !type=system,domain=kernel -> *" >/dev/null
+"$VLABELCTL" rule add "allow exec * -> *" >/dev/null
+
+# Subject with only type=system (missing domain=kernel) - negation matches, DENY
+OUTPUT=$("$VLABELCTL" test exec "type=system" "type=any" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "DENY"; then
+	pass "partial subject match causes deny"
+else
+	fail "partial subject match causes deny (got: $OUTPUT)"
+fi
+
+# Subject with both type=system,domain=kernel - negation doesn't match, ALLOW
+OUTPUT=$("$VLABELCTL" test exec "type=system,domain=kernel" "type=any" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "ALLOW"; then
+	pass "full subject match allows"
+else
+	fail "full subject match allows (got: $OUTPUT)"
+fi
+
+# Subject with neither key - negation matches, DENY
+OUTPUT=$("$VLABELCTL" test exec "type=user" "type=any" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "DENY"; then
+	pass "no subject match causes deny"
+else
+	fail "no subject match causes deny (got: $OUTPUT)"
+fi
+
+# ===========================================
+# Part 5c: Multiple Operations with Negation
+# ===========================================
+echo ""
+info "=== Multiple Operations + Negation ==="
+
+run_test
+info "Test: Multiple ops with negated subject pattern"
+"$VLABELCTL" rule clear >/dev/null
+# Deny read AND write for subjects NOT matching type=system,domain=test
+"$VLABELCTL" rule add "deny read,write !type=system,domain=test -> *" >/dev/null
+"$VLABELCTL" rule add "allow read,write,exec * -> *" >/dev/null
+
+# Non-matching subject trying to read - DENY
+OUTPUT=$("$VLABELCTL" test read "type=user" "type=any" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "DENY"; then
+	pass "read denied for non-matching subject"
+else
+	fail "read denied for non-matching subject (got: $OUTPUT)"
+fi
+
+# Non-matching subject trying to write - DENY
+OUTPUT=$("$VLABELCTL" test write "type=user" "type=any" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "DENY"; then
+	pass "write denied for non-matching subject"
+else
+	fail "write denied for non-matching subject (got: $OUTPUT)"
+fi
+
+# Non-matching subject trying to exec - ALLOW (not in the deny rule)
+OUTPUT=$("$VLABELCTL" test exec "type=user" "type=any" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "ALLOW"; then
+	pass "exec allowed for non-matching subject"
+else
+	fail "exec allowed for non-matching subject (got: $OUTPUT)"
+fi
+
+# Matching subject can read - ALLOW
+OUTPUT=$("$VLABELCTL" test read "type=system,domain=test" "type=any" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "ALLOW"; then
+	pass "read allowed for matching subject"
+else
+	fail "read allowed for matching subject (got: $OUTPUT)"
+fi
+
+# Matching subject can write - ALLOW
+OUTPUT=$("$VLABELCTL" test write "type=system,domain=test" "type=any" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "ALLOW"; then
+	pass "write allowed for matching subject"
+else
+	fail "write allowed for matching subject (got: $OUTPUT)"
+fi
+
+run_test
+info "Test: Multiple ops with negated object pattern"
+"$VLABELCTL" rule clear >/dev/null
+# Deny read AND write to objects NOT matching type=public
+"$VLABELCTL" rule add "deny read,write * -> !type=public" >/dev/null
+"$VLABELCTL" rule add "allow read,write,exec * -> *" >/dev/null
+
+# Reading non-public object - DENY
+OUTPUT=$("$VLABELCTL" test read "type=user" "type=secret" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "DENY"; then
+	pass "read denied for non-public object"
+else
+	fail "read denied for non-public object (got: $OUTPUT)"
+fi
+
+# Writing non-public object - DENY
+OUTPUT=$("$VLABELCTL" test write "type=user" "type=secret" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "DENY"; then
+	pass "write denied for non-public object"
+else
+	fail "write denied for non-public object (got: $OUTPUT)"
+fi
+
+# Reading public object - ALLOW
+OUTPUT=$("$VLABELCTL" test read "type=user" "type=public" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "ALLOW"; then
+	pass "read allowed for public object"
+else
+	fail "read allowed for public object (got: $OUTPUT)"
+fi
+
+# Exec non-public object - ALLOW (not in the deny rule)
+OUTPUT=$("$VLABELCTL" test exec "type=user" "type=secret" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "ALLOW"; then
+	pass "exec allowed for non-public object"
+else
+	fail "exec allowed for non-public object (got: $OUTPUT)"
+fi
+
+# ===========================================
 # Part 6: Edge Cases
 # ===========================================
 echo ""
