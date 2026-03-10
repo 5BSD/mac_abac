@@ -13,7 +13,7 @@
 .PATH: ${.CURDIR}
 
 KMOD=	mac_vlabel
-SRCS=	mac_vlabel.c vlabel_cred.c vlabel_vnode.c vlabel_proc.c vlabel_socket.c
+SRCS=	mac_vlabel.c vlabel_cred.c vlabel_vnode.c vlabel_proc.c vlabel_socket.c vlabel_pipe.c
 SRCS+=	vlabel_label.c vlabel_match.c vlabel_rules.c vlabel_syscall.c
 SRCS+=	mac_vlabel.h vnode_if.h
 

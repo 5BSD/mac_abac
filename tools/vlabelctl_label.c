@@ -54,6 +54,8 @@ parse_operation(const char *opstr)
 		return VLABEL_OP_SIGNAL;
 	if (strcasecmp(opstr, "sched") == 0)
 		return VLABEL_OP_SCHED;
+	if (strcasecmp(opstr, "stat") == 0)
+		return VLABEL_OP_STAT;
 	if (strcasecmp(opstr, "readdir") == 0)
 		return VLABEL_OP_READDIR;
 	if (strcasecmp(opstr, "create") == 0)

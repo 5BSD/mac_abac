@@ -439,6 +439,20 @@ ZFS doesn't support `vnode_create_extattr`. Files are created without labels.
 
 ## Testing Strategy
 
+### IMPORTANT: Vnode Label Caching
+
+The MAC framework caches vnode labels in memory. When creating test files:
+
+1. **Create files with `echo "data" > file`** - NOT `touch` or `cp`
+2. **Label immediately with `vlabelctl label set`** - which calls VLABEL_SYS_REFRESH
+3. **Test immediately** - while the vnode is still valid
+
+The `vlabelctl label set` command:
+1. Writes the label to `system:vlabel` extended attribute
+2. Opens the file and calls VLABEL_SYS_REFRESH to update that vnode's label
+
+If another process opens the file later, it may get a stale cached vnode.
+
 ### Per-object-type tests:
 
 ```sh
@@ -455,3 +469,153 @@ vlabelctl label set /tmp/test.fifo "type=ipc,domain=app"
 # Create shm, check label inheritance
 # Verify cross-domain access denied
 ```
+
+---
+
+## Implementation Status
+
+### Completed Phases
+
+| Phase | Status | Test File |
+|-------|--------|-----------|
+| Phase 1: Core file ops | ✅ DONE | 12_file_ops.sh |
+| Phase 2: Label protection | ✅ DONE | 18_label_protection.sh |
+| Phase 5: Sockets | ✅ DONE | 19_socket.sh |
+
+### Remaining Phases
+
+#### Phase 4: Pipes (Next)
+
+**Files to create:**
+- `kernel/vlabel_pipe.c` - Pipe lifecycle and checks
+
+**Hooks to implement:**
+```c
+/* Pipe lifecycle */
+mpo_pipe_init_label        → vlabel_pipe_init_label
+mpo_pipe_create            → vlabel_pipe_create (inherit creator's label)
+mpo_pipe_copy_label        → vlabel_pipe_copy_label
+mpo_pipe_destroy_label     → vlabel_pipe_destroy_label
+
+/* Pipe checks */
+mpo_pipe_check_read        → vlabel_pipe_check_read (VLABEL_OP_READ)
+mpo_pipe_check_write       → vlabel_pipe_check_write (VLABEL_OP_WRITE)
+mpo_pipe_check_stat        → vlabel_pipe_check_stat (VLABEL_OP_STAT)
+mpo_pipe_check_ioctl       → vlabel_pipe_check_ioctl (always allow)
+mpo_pipe_check_poll        → vlabel_pipe_check_poll (always allow)
+```
+
+**Operations to add:**
+- None needed - uses existing READ/WRITE/STAT
+
+**Test: 20_pipe.sh**
+- Test rule parsing for pipe operations (via `vlabelctl test`)
+- Cannot directly label anonymous pipes - they inherit creator label
+- Test that pipe checks use process credential vs pipe label
+
+#### Phase 5: POSIX shm/sem
+
+**Files to create:**
+- `kernel/vlabel_posixshm.c` - POSIX shared memory
+- `kernel/vlabel_posixsem.c` - POSIX semaphores (optional)
+
+**Hooks to implement:**
+```c
+/* POSIX shm lifecycle */
+mpo_posixshm_init_label
+mpo_posixshm_create        → Inherit creator's label
+mpo_posixshm_destroy_label
+
+/* POSIX shm checks */
+mpo_posixshm_check_create  → VLABEL_OP_CREATE
+mpo_posixshm_check_open    → VLABEL_OP_OPEN
+mpo_posixshm_check_mmap    → VLABEL_OP_MMAP
+mpo_posixshm_check_read    → VLABEL_OP_READ
+mpo_posixshm_check_write   → VLABEL_OP_WRITE
+mpo_posixshm_check_truncate→ VLABEL_OP_WRITE
+mpo_posixshm_check_stat    → VLABEL_OP_STAT
+mpo_posixshm_check_unlink  → VLABEL_OP_UNLINK
+mpo_posixshm_check_setmode → VLABEL_OP_SETATTR
+mpo_posixshm_check_setowner→ VLABEL_OP_SETATTR
+```
+
+**New operation needed:**
+- VLABEL_OP_SETATTR (if not already defined)
+
+**Test: 21_posixshm.sh**
+- Rule parsing for shm operations
+- Test via `vlabelctl test` command
+
+#### Phase 6: Directory & metadata ops
+
+**Add to existing vlabel_vnode.c:**
+```c
+mpo_vnode_check_lookup     → VLABEL_OP_LOOKUP
+mpo_vnode_check_readdir    → VLABEL_OP_READDIR
+mpo_vnode_check_create     → VLABEL_OP_CREATE
+mpo_vnode_check_unlink     → VLABEL_OP_UNLINK
+mpo_vnode_check_link       → VLABEL_OP_LINK
+mpo_vnode_check_rename_from→ VLABEL_OP_RENAME
+mpo_vnode_check_rename_to  → VLABEL_OP_RENAME
+mpo_vnode_check_chdir      → VLABEL_OP_CHDIR
+mpo_vnode_check_chroot     → VLABEL_OP_CHDIR
+mpo_vnode_check_stat       → VLABEL_OP_STAT
+mpo_vnode_check_setmode    → VLABEL_OP_SETATTR
+mpo_vnode_check_setowner   → VLABEL_OP_SETATTR
+mpo_vnode_check_setflags   → VLABEL_OP_SETATTR
+mpo_vnode_check_setutimes  → VLABEL_OP_SETATTR
+```
+
+**Test: 22_directory_ops.sh**
+- Test directory labeling and access control
+- Use `mkdir` to create directories, then label with vlabelctl
+
+#### Phase 7: System ops (kld, reboot, sysctl)
+
+**Files to create:**
+- `kernel/vlabel_system.c` - System-level checks
+
+**Hooks to implement:**
+```c
+mpo_kld_check_load         → Check vnode label of module file
+mpo_system_check_reboot    → Require specific label
+mpo_system_check_sysctl    → Protect sensitive sysctls
+```
+
+**New operations:**
+- VLABEL_OP_KLDLOAD
+- VLABEL_OP_REBOOT
+- VLABEL_OP_SYSCTL
+
+**Test: 23_system_ops.sh**
+- Test system operation rules via `vlabelctl test`
+
+---
+
+## Cleanup Tasks (After All Phases Complete)
+
+### Remove Debug Logging
+- Remove `VLABEL_DPRINTF` macro and all usages (~96 occurrences)
+- DTrace is the only debugging mechanism
+- No compile-time debug flags needed
+
+### DTrace Scripts
+Create robust, purpose-specific DTrace scripts in `scripts/dtrace/`:
+
+1. **vlabel_trace_all.d** - Comprehensive tracing of all probes
+2. **vlabel_denials.d** - Only show denied access attempts
+3. **vlabel_rules.d** - Rule matching and evaluation
+4. **vlabel_labels.d** - Label lifecycle (alloc/free/parse)
+5. **vlabel_sockets.d** - Socket-specific operations
+6. **vlabel_pipes.d** - Pipe-specific operations
+7. **vlabel_files.d** - File/vnode operations
+8. **vlabel_procs.d** - Process label transitions
+9. **vlabel_stats.d** - Periodic statistics aggregation
+10. **vlabel_latency.d** - Performance/latency measurement
+
+Each script should:
+- Have clear header comments explaining purpose
+- Filter noise appropriately
+- Format output readably
+- Include timestamp options
+- Support filtering by label pattern (where possible)

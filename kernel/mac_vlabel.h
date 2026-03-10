@@ -765,6 +765,27 @@ int vlabel_socket_check_stat(struct ucred *cred, struct socket *so,
 int vlabel_socket_check_visible(struct ucred *cred, struct socket *so,
     struct label *solabel);
 
+/*
+ * Function prototypes - vlabel_pipe.c
+ */
+void vlabel_pipe_init_label(struct label *label);
+void vlabel_pipe_destroy_label(struct label *label);
+void vlabel_pipe_copy_label(struct label *src, struct label *dest);
+void vlabel_pipe_create(struct ucred *cred, struct pipepair *pp,
+    struct label *pplabel);
+int vlabel_pipe_check_ioctl(struct ucred *cred, struct pipepair *pp,
+    struct label *pplabel, unsigned long cmd, void *data);
+int vlabel_pipe_check_poll(struct ucred *cred, struct pipepair *pp,
+    struct label *pplabel);
+int vlabel_pipe_check_read(struct ucred *cred, struct pipepair *pp,
+    struct label *pplabel);
+int vlabel_pipe_check_relabel(struct ucred *cred, struct pipepair *pp,
+    struct label *pplabel, struct label *newlabel);
+int vlabel_pipe_check_stat(struct ucred *cred, struct pipepair *pp,
+    struct label *pplabel);
+int vlabel_pipe_check_write(struct ucred *cred, struct pipepair *pp,
+    struct label *pplabel);
+
 #endif /* _KERNEL */
 
 #endif /* !_SECURITY_MAC_VLABEL_H_ */
