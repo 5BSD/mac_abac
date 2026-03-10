@@ -16,10 +16,15 @@ TESTS_PASSED=0
 TESTS_FAILED=0
 TESTS_SKIPPED=0
 
+# Quiet mode - set VLABEL_QUIET=1 to only show failures and summary
+VLABEL_QUIET="${VLABEL_QUIET:-0}"
+
 # Pass a test
 pass() {
-	printf "${GREEN}PASS${NC}: %s\n" "$1"
 	TESTS_PASSED=$((TESTS_PASSED + 1))
+	if [ "$VLABEL_QUIET" != "1" ]; then
+		printf "${GREEN}PASS${NC}: %s\n" "$1"
+	fi
 }
 
 # Fail a test
@@ -30,13 +35,17 @@ fail() {
 
 # Skip a test
 skip() {
-	printf "${YELLOW}SKIP${NC}: %s\n" "$1"
 	TESTS_SKIPPED=$((TESTS_SKIPPED + 1))
+	if [ "$VLABEL_QUIET" != "1" ]; then
+		printf "${YELLOW}SKIP${NC}: %s\n" "$1"
+	fi
 }
 
 # Info message
 info() {
-	printf "INFO: %s\n" "$1"
+	if [ "$VLABEL_QUIET" != "1" ]; then
+		printf "INFO: %s\n" "$1"
+	fi
 }
 
 # Warning message

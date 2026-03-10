@@ -171,6 +171,8 @@ parse_operations(const char *word, uint32_t *ops)
 			*ops |= VLABEL_OP_SEND;
 		else if (strcasecmp(tok, "receive") == 0)
 			*ops |= VLABEL_OP_RECEIVE;
+		else if (strcasecmp(tok, "deliver") == 0)
+			*ops |= VLABEL_OP_DELIVER;
 		else if (strcasecmp(tok, "all") == 0 || strcmp(tok, "*") == 0)
 			*ops |= VLABEL_OP_ALL;
 		else

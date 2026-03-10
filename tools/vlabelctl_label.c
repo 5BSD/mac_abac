@@ -84,6 +84,8 @@ parse_operation(const char *opstr)
 		return VLABEL_OP_SEND;
 	if (strcasecmp(opstr, "receive") == 0)
 		return VLABEL_OP_RECEIVE;
+	if (strcasecmp(opstr, "deliver") == 0)
+		return VLABEL_OP_DELIVER;
 	if (strcasecmp(opstr, "all") == 0)
 		return VLABEL_OP_ALL;
 

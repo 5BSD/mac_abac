@@ -150,6 +150,8 @@ ops_to_string(uint32_t ops, char *buf, size_t buflen)
 		strlcat(buf, "send,", buflen);
 	if (ops & VLABEL_OP_RECEIVE)
 		strlcat(buf, "receive,", buflen);
+	if (ops & VLABEL_OP_DELIVER)
+		strlcat(buf, "deliver,", buflen);
 
 	/* Remove trailing comma */
 	len = strlen(buf);
@@ -446,6 +448,7 @@ cmd_limits(int argc __unused, char *argv[] __unused)
 	printf("    %-12s  0x%08x  %s\n", "accept",     VLABEL_OP_ACCEPT,     "socket accept");
 	printf("    %-12s  0x%08x  %s\n", "send",       VLABEL_OP_SEND,       "socket send");
 	printf("    %-12s  0x%08x  %s\n", "receive",    VLABEL_OP_RECEIVE,    "socket receive");
+	printf("    %-12s  0x%08x  %s\n", "deliver",    VLABEL_OP_DELIVER,    "packet delivery to socket");
 	printf("    %-12s  0x%08x  %s\n", "all",        VLABEL_OP_ALL,        "all operations");
 	printf("\n");
 	printf("  Rule Syntax:\n");

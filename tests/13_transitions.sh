@@ -270,7 +270,8 @@ fi
 
 run_test
 info "Test: Transition with jail context"
-if "$VLABELCTL" rule add "transition exec * -> type=app => type=jailed ctx:jailed=true" >/dev/null 2>&1; then
+# Note: valid jail values are: jail=host, jail=any, jail=N (specific jail ID)
+if "$VLABELCTL" rule add "transition exec * ctx:jail=any -> type=app => type=jailed" >/dev/null 2>&1; then
 	pass "transition with jail context"
 else
 	fail "transition with jail context"

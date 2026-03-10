@@ -452,30 +452,32 @@ echo "$OUTPUT"
 
 ERRORS=0
 
-if echo "$OUTPUT" | grep -q "ctx:.*uid=0"; then
-	pass "ctx:uid displayed"
+# Note: vlabelctl displays "obj_context:" and "subj_context:" not "ctx:"
+if echo "$OUTPUT" | grep -q "uid=0"; then
+	pass "uid constraint displayed"
 else
-	fail "ctx:uid not displayed"
+	fail "uid constraint not displayed"
 	ERRORS=$((ERRORS + 1))
 fi
 
-if echo "$OUTPUT" | grep -q "ctx:.*jail=host"; then
-	pass "ctx:jail displayed"
+if echo "$OUTPUT" | grep -q "jail=host"; then
+	pass "jail=host constraint displayed"
 else
-	fail "ctx:jail not displayed"
+	fail "jail=host constraint not displayed"
 	ERRORS=$((ERRORS + 1))
 fi
 
-if echo "$OUTPUT" | grep -q "ctx:.*sandboxed=true"; then
-	pass "ctx:sandboxed displayed"
+if echo "$OUTPUT" | grep -q "sandboxed=true"; then
+	pass "sandboxed=true constraint displayed"
 else
-	fail "ctx:sandboxed not displayed"
+	fail "sandboxed=true constraint not displayed"
 	ERRORS=$((ERRORS + 1))
 fi
 
-# Now checks that both subject and object contexts are displayed
-if echo "$OUTPUT" | grep -q "ctx:.*jail=any" && echo "$OUTPUT" | grep -q "ctx:.*jail=host"; then
-	pass "Both contexts displayed on same rule"
+# Check that both subject and object contexts are displayed on the same rule
+# Rule 3 has subj_context:jail=any and obj_context:jail=host
+if echo "$OUTPUT" | grep -q "subj_context:.*jail=any" && echo "$OUTPUT" | grep -q "obj_context:.*jail=host"; then
+	pass "Both subj_context and obj_context displayed on same rule"
 else
 	fail "Both contexts not displayed correctly"
 	ERRORS=$((ERRORS + 1))

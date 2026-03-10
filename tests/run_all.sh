@@ -3,13 +3,29 @@
 # Run all vLabel tests
 #
 # Usage:
-#   ./run_all.sh [module_path] [vlabelctl_path]
+#   ./run_all.sh [-q] [module_path] [vlabelctl_path]
+#
+# Options:
+#   -q    Quiet mode - only show failures and summary
 #
 
 set -e
 
 SCRIPT_DIR=$(dirname "$0")
 cd "$SCRIPT_DIR"
+
+# Parse options
+QUIET_MODE=0
+while getopts "q" opt; do
+    case $opt in
+        q) QUIET_MODE=1 ;;
+        *) echo "Usage: $0 [-q] [module_path] [vlabelctl_path]"; exit 1 ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+# Export for test_helpers.sh
+export VLABEL_QUIET="$QUIET_MODE"
 
 # Default paths - check VM locations first, then local build
 if [ -n "$1" ]; then
@@ -41,11 +57,13 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-echo ""
-printf "${BLUE}============================================${NC}\n"
-printf "${BLUE}     vLabel MAC Module Test Suite${NC}\n"
-printf "${BLUE}============================================${NC}\n"
-echo ""
+if [ "$QUIET_MODE" != "1" ]; then
+    echo ""
+    printf "${BLUE}============================================${NC}\n"
+    printf "${BLUE}     vLabel MAC Module Test Suite${NC}\n"
+    printf "${BLUE}============================================${NC}\n"
+    echo ""
+fi
 
 TOTAL_TESTS=0
 PASSED_TESTS=0
@@ -56,16 +74,20 @@ run_test_script() {
     SCRIPT="$2"
     shift 2
 
-    echo ""
-    printf "${YELLOW}>>> Running: $NAME${NC}\n"
-    echo ""
-
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
+    if [ "$QUIET_MODE" != "1" ]; then
+        echo ""
+        printf "${YELLOW}>>> Running: $NAME${NC}\n"
+        echo ""
+    fi
 
     if [ -x "$SCRIPT" ]; then
         if "$SCRIPT" "$@"; then
             PASSED_TESTS=$((PASSED_TESTS + 1))
-            printf "${GREEN}<<< $NAME: PASSED${NC}\n"
+            if [ "$QUIET_MODE" != "1" ]; then
+                printf "${GREEN}<<< $NAME: PASSED${NC}\n"
+            fi
         else
             FAILED_TESTS=$((FAILED_TESTS + 1))
             printf "${RED}<<< $NAME: FAILED${NC}\n"
@@ -85,9 +107,11 @@ chmod +x *.sh 2>/dev/null || true
 # - Reloading after unload corrupts kernel state (UMA zone conflicts)
 #
 # For development, reboot between module updates instead of unload/reload.
-echo ""
-printf "${YELLOW}>>> Skipping: Module Load/Unload (unloading not supported)${NC}\n"
-echo "    Module can load after boot, but cannot unload; reboot to update"
+if [ "$QUIET_MODE" != "1" ]; then
+    echo ""
+    printf "${YELLOW}>>> Skipping: Module Load/Unload (unloading not supported)${NC}\n"
+    echo "    Module can load after boot, but cannot unload; reboot to update"
+fi
 
 # Ensure module is loaded
 if ! kldstat -q -m mac_vlabel 2>/dev/null; then
@@ -116,11 +140,13 @@ run_test_script "Pipe Operations" ./20_pipe.sh "$VLABELCTL"
 run_test_script "POSIX Shared Memory" ./21_posixshm.sh "$VLABELCTL"
 run_test_script "Directory & Metadata" ./22_directory.sh "$VLABELCTL"
 run_test_script "System Operations" ./23_system.sh "$VLABELCTL"
+run_test_script "Vnode Extra Hooks" ./24_vnode_extra.sh "$VLABELCTL"
+run_test_script "Kenv Operations" ./25_kenv.sh "$VLABELCTL"
 
 # DTrace test - only run if dtrace is available
 if which dtrace >/dev/null 2>&1; then
     run_test_script "DTrace Probes" ./11_dtrace.sh "$VLABELCTL"
-else
+elif [ "$QUIET_MODE" != "1" ]; then
     echo ""
     printf "${YELLOW}>>> Skipping: DTrace Probes (dtrace not available)${NC}\n"
 fi

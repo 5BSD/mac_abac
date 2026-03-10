@@ -96,6 +96,7 @@ static const struct {
 	{ "accept",	VLABEL_OP_ACCEPT },
 	{ "send",	VLABEL_OP_SEND },
 	{ "receive",	VLABEL_OP_RECEIVE },
+	{ "deliver",	VLABEL_OP_DELIVER },
 	{ "all",	VLABEL_OP_ALL },
 	{ "*",		VLABEL_OP_ALL },
 	{ NULL,		0 }

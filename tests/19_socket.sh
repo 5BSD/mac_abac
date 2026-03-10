@@ -251,13 +251,50 @@ else
 fi
 
 # ===========================================
+# Test deliver operation (packet delivery to socket)
+# ===========================================
+echo ""
+info "=== Deliver Operation (Packet Delivery) ==="
+
+"$VLABELCTL" rule clear >/dev/null
+"$VLABELCTL" rule add "deny deliver type=external -> type=internal" >/dev/null
+"$VLABELCTL" rule add "allow deliver * -> *" >/dev/null
+"$VLABELCTL" default allow >/dev/null
+
+run_test
+info "Test: deliver operation recognized in rules"
+if "$VLABELCTL" rule add "deny deliver type=untrusted -> *" >/dev/null 2>&1; then
+	pass "deliver operation accepted"
+else
+	fail "deliver operation should be accepted"
+fi
+
+run_test
+info "Test: deliver denied for external->internal"
+OUTPUT=$("$VLABELCTL" test deliver "type=external" "type=internal" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "DENY"; then
+	pass "deliver denied for external->internal"
+else
+	fail "deliver should be denied for external->internal (got: $OUTPUT)"
+fi
+
+run_test
+info "Test: deliver allowed for trusted sources"
+OUTPUT=$("$VLABELCTL" test deliver "type=trusted" "type=internal" 2>&1 || true)
+if echo "$OUTPUT" | grep -q "ALLOW"; then
+	pass "deliver allowed for trusted->internal"
+else
+	fail "deliver should be allowed for trusted->internal (got: $OUTPUT)"
+fi
+
+# ===========================================
 # Test rule listing shows socket ops
 # ===========================================
 echo ""
 info "=== Rule Display ==="
 
 "$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny connect,bind,listen,send,receive type=sandbox -> *" >/dev/null
+"$VLABELCTL" rule add "deny connect,bind,listen,send,receive,deliver type=sandbox -> *" >/dev/null
 
 run_test
 info "Test: Rule list shows socket operations"
@@ -266,6 +303,15 @@ if echo "$OUTPUT" | grep -q "connect" && echo "$OUTPUT" | grep -q "bind"; then
 	pass "socket operations displayed in rule list"
 else
 	fail "socket operations should be in rule list (got: $OUTPUT)"
+fi
+
+run_test
+info "Test: Rule list shows deliver operation"
+OUTPUT=$("$VLABELCTL" rule list 2>&1)
+if echo "$OUTPUT" | grep -q "deliver"; then
+	pass "deliver operation displayed in rule list"
+else
+	fail "deliver operation should be in rule list (got: $OUTPUT)"
 fi
 
 # ===========================================
