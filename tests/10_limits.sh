@@ -216,6 +216,44 @@ else
     fail "complex patterns"
 fi
 
+# ===========================================
+# Test: Context fields with label patterns
+# ===========================================
+info ""
+info "=== Context + Pattern Combination Tests ==="
+
+run_test
+info "Test: Rule with all context fields + complex patterns"
+# Context fields are separate from pattern key=value pairs
+# This tests that using many context fields doesn't hit pair limits
+PATTERN_WITH_CTX="type=app,domain=secure,tier=prod,env=test"
+if "$VLABELCTL" rule add "deny debug $PATTERN_WITH_CTX -> $PATTERN_WITH_CTX subj_context:uid=0,jail=host,has_tty=true obj_context:sandboxed=true,jail=any" >/dev/null 2>&1; then
+    pass "all context fields + complex patterns accepted"
+    "$VLABELCTL" rule clear >/dev/null 2>&1
+else
+    fail "all context fields + complex patterns"
+fi
+
+run_test
+info "Test: Max pattern pairs (8) with all context fields"
+# Rule patterns limited to 8 pairs, but context is separate
+PATTERN_8="k1=v1,k2=v2,k3=v3,k4=v4,k5=v5,k6=v6,k7=v7,k8=v8"
+if "$VLABELCTL" rule add "deny signal $PATTERN_8 -> $PATTERN_8 subj_context:uid=0,gid=0,jail=host obj_context:sandboxed=true" >/dev/null 2>&1; then
+    pass "8 pattern pairs + all contexts accepted"
+    "$VLABELCTL" rule clear >/dev/null 2>&1
+else
+    fail "8 pattern pairs + all contexts"
+fi
+
+run_test
+info "Test: Rule with both subj_context and obj_context"
+if "$VLABELCTL" rule add "deny sched type=a -> type=b subj_context:jail=any obj_context:jail=host" >/dev/null 2>&1; then
+    pass "dual context constraints accepted"
+    "$VLABELCTL" rule clear >/dev/null 2>&1
+else
+    fail "dual context constraints"
+fi
+
 run_test
 info "Test: Transition rule with complex newlabel"
 COMPLEX_NEWLABEL="type=elevated,domain=system,privileges=admin,audit=required,timestamp=now"

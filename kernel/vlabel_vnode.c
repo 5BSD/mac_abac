@@ -235,10 +235,33 @@ int
 vlabel_vnode_check_access(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, accmode_t accmode)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	/* STUB: Always allows - see note above */
-	return (0);
+
+	/* Get subject label from credential */
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	/* Get object label from vnode */
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Evaluate rules */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_ACCESS, NULL);
+
+	/* In permissive mode, log but allow */
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
@@ -384,18 +407,66 @@ int
 vlabel_vnode_check_mmap(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, int prot, int flags)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	/* Get subject label from credential */
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	/* Get object label from vnode */
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Evaluate rules */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_MMAP, NULL);
+
+	/* In permissive mode, log but allow */
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
 vlabel_vnode_check_open(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, accmode_t accmode)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	/* Get subject label from credential */
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	/* Get object label from vnode */
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Evaluate rules */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_OPEN, NULL);
+
+	/* In permissive mode, log but allow */
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
@@ -411,9 +482,33 @@ int
 vlabel_vnode_check_read(struct ucred *active_cred, struct ucred *file_cred,
     struct vnode *vp, struct label *vplabel)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	/* Get subject label from credential */
+	if (active_cred == NULL || active_cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(active_cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	/* Get object label from vnode */
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Evaluate rules */
+	error = vlabel_rules_check(active_cred, subj, obj, VLABEL_OP_READ, NULL);
+
+	/* In permissive mode, log but allow */
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
@@ -429,9 +524,33 @@ int
 vlabel_vnode_check_readlink(struct ucred *cred, struct vnode *vp,
     struct label *vplabel)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	/* Get subject label from credential */
+	if (cred == NULL || cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	/* Get object label from vnode */
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Evaluate rules - use READ since readlink is reading symlink target */
+	error = vlabel_rules_check(cred, subj, obj, VLABEL_OP_READ, NULL);
+
+	/* In permissive mode, log but allow */
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 int
@@ -549,9 +668,33 @@ int
 vlabel_vnode_check_write(struct ucred *active_cred, struct ucred *file_cred,
     struct vnode *vp, struct label *vplabel)
 {
+	struct vlabel_label *subj, *obj;
+	int error;
 
 	VLABEL_CHECK_ENABLED();
-	return (0);
+
+	/* Get subject label from credential */
+	if (active_cred == NULL || active_cred->cr_label == NULL)
+		return (0);
+	subj = SLOT(active_cred->cr_label);
+	if (subj == NULL)
+		subj = &vlabel_default_subject;
+
+	/* Get object label from vnode */
+	if (vplabel == NULL)
+		return (0);
+	obj = SLOT(vplabel);
+	if (obj == NULL)
+		obj = &vlabel_default_object;
+
+	/* Evaluate rules */
+	error = vlabel_rules_check(active_cred, subj, obj, VLABEL_OP_WRITE, NULL);
+
+	/* In permissive mode, log but allow */
+	if (error != 0 && vlabel_mode == VLABEL_MODE_PERMISSIVE)
+		return (0);
+
+	return (error);
 }
 
 /*

@@ -108,12 +108,28 @@ ops_to_string(uint32_t ops, char *buf, size_t buflen)
 		strlcat(buf, "read,", buflen);
 	if (ops & VLABEL_OP_WRITE)
 		strlcat(buf, "write,", buflen);
+	if (ops & VLABEL_OP_OPEN)
+		strlcat(buf, "open,", buflen);
+	if (ops & VLABEL_OP_ACCESS)
+		strlcat(buf, "access,", buflen);
+	if (ops & VLABEL_OP_MMAP)
+		strlcat(buf, "mmap,", buflen);
 	if (ops & VLABEL_OP_DEBUG)
 		strlcat(buf, "debug,", buflen);
 	if (ops & VLABEL_OP_SIGNAL)
 		strlcat(buf, "signal,", buflen);
 	if (ops & VLABEL_OP_SCHED)
 		strlcat(buf, "sched,", buflen);
+	if (ops & VLABEL_OP_READDIR)
+		strlcat(buf, "readdir,", buflen);
+	if (ops & VLABEL_OP_CREATE)
+		strlcat(buf, "create,", buflen);
+	if (ops & VLABEL_OP_SETEXTATTR)
+		strlcat(buf, "setextattr,", buflen);
+	if (ops & VLABEL_OP_GETEXTATTR)
+		strlcat(buf, "getextattr,", buflen);
+	if (ops & VLABEL_OP_LOOKUP)
+		strlcat(buf, "lookup,", buflen);
 
 	/* Remove trailing comma */
 	len = strlen(buf);
