@@ -130,6 +130,18 @@ ops_to_string(uint32_t ops, char *buf, size_t buflen)
 		strlcat(buf, "getextattr,", buflen);
 	if (ops & VLABEL_OP_LOOKUP)
 		strlcat(buf, "lookup,", buflen);
+	if (ops & VLABEL_OP_CONNECT)
+		strlcat(buf, "connect,", buflen);
+	if (ops & VLABEL_OP_BIND)
+		strlcat(buf, "bind,", buflen);
+	if (ops & VLABEL_OP_LISTEN)
+		strlcat(buf, "listen,", buflen);
+	if (ops & VLABEL_OP_ACCEPT)
+		strlcat(buf, "accept,", buflen);
+	if (ops & VLABEL_OP_SEND)
+		strlcat(buf, "send,", buflen);
+	if (ops & VLABEL_OP_RECEIVE)
+		strlcat(buf, "receive,", buflen);
 
 	/* Remove trailing comma */
 	len = strlen(buf);
@@ -404,9 +416,20 @@ cmd_limits(int argc __unused, char *argv[] __unused)
 	printf("    %-12s  0x%08x  %s\n", "exec",       VLABEL_OP_EXEC,       "execute file");
 	printf("    %-12s  0x%08x  %s\n", "read",       VLABEL_OP_READ,       "read file contents");
 	printf("    %-12s  0x%08x  %s\n", "write",      VLABEL_OP_WRITE,      "write file contents");
+	printf("    %-12s  0x%08x  %s\n", "open",       VLABEL_OP_OPEN,       "open file");
+	printf("    %-12s  0x%08x  %s\n", "mmap",       VLABEL_OP_MMAP,       "memory map file");
+	printf("    %-12s  0x%08x  %s\n", "access",     VLABEL_OP_ACCESS,     "access() check");
+	printf("    %-12s  0x%08x  %s\n", "setextattr", VLABEL_OP_SETEXTATTR, "set extended attr");
+	printf("    %-12s  0x%08x  %s\n", "getextattr", VLABEL_OP_GETEXTATTR, "get extended attr");
 	printf("    %-12s  0x%08x  %s\n", "debug",      VLABEL_OP_DEBUG,      "ptrace/procfs debug");
 	printf("    %-12s  0x%08x  %s\n", "signal",     VLABEL_OP_SIGNAL,     "send signal");
 	printf("    %-12s  0x%08x  %s\n", "sched",      VLABEL_OP_SCHED,      "scheduler control");
+	printf("    %-12s  0x%08x  %s\n", "connect",    VLABEL_OP_CONNECT,    "socket connect");
+	printf("    %-12s  0x%08x  %s\n", "bind",       VLABEL_OP_BIND,       "socket bind");
+	printf("    %-12s  0x%08x  %s\n", "listen",     VLABEL_OP_LISTEN,     "socket listen");
+	printf("    %-12s  0x%08x  %s\n", "accept",     VLABEL_OP_ACCEPT,     "socket accept");
+	printf("    %-12s  0x%08x  %s\n", "send",       VLABEL_OP_SEND,       "socket send");
+	printf("    %-12s  0x%08x  %s\n", "receive",    VLABEL_OP_RECEIVE,    "socket receive");
 	printf("    %-12s  0x%08x  %s\n", "all",        VLABEL_OP_ALL,        "all operations");
 	printf("\n");
 	printf("  Rule Syntax:\n");

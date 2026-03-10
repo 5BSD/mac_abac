@@ -60,6 +60,18 @@ parse_operation(const char *opstr)
 		return VLABEL_OP_CREATE;
 	if (strcasecmp(opstr, "lookup") == 0)
 		return VLABEL_OP_LOOKUP;
+	if (strcasecmp(opstr, "connect") == 0)
+		return VLABEL_OP_CONNECT;
+	if (strcasecmp(opstr, "bind") == 0)
+		return VLABEL_OP_BIND;
+	if (strcasecmp(opstr, "listen") == 0)
+		return VLABEL_OP_LISTEN;
+	if (strcasecmp(opstr, "accept") == 0)
+		return VLABEL_OP_ACCEPT;
+	if (strcasecmp(opstr, "send") == 0)
+		return VLABEL_OP_SEND;
+	if (strcasecmp(opstr, "receive") == 0)
+		return VLABEL_OP_RECEIVE;
 	if (strcasecmp(opstr, "all") == 0)
 		return VLABEL_OP_ALL;
 

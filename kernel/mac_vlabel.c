@@ -269,6 +269,24 @@ static struct mac_policy_ops vlabel_ops = {
 	.mpo_proc_check_sched = vlabel_proc_check_sched,
 	.mpo_proc_check_signal = vlabel_proc_check_signal,
 
+	/* Socket label lifecycle */
+	.mpo_socket_init_label = vlabel_socket_init_label,
+	.mpo_socket_destroy_label = vlabel_socket_destroy_label,
+	.mpo_socket_copy_label = vlabel_socket_copy_label,
+	.mpo_socket_create = vlabel_socket_create,
+	.mpo_socket_newconn = vlabel_socket_newconn,
+
+	/* Socket checks */
+	.mpo_socket_check_accept = vlabel_socket_check_accept,
+	.mpo_socket_check_bind = vlabel_socket_check_bind,
+	.mpo_socket_check_connect = vlabel_socket_check_connect,
+	.mpo_socket_check_create = vlabel_socket_check_create,
+	.mpo_socket_check_listen = vlabel_socket_check_listen,
+	.mpo_socket_check_receive = vlabel_socket_check_receive,
+	.mpo_socket_check_send = vlabel_socket_check_send,
+	.mpo_socket_check_stat = vlabel_socket_check_stat,
+	.mpo_socket_check_visible = vlabel_socket_check_visible,
+
 	/* Privilege grant */
 	.mpo_priv_grant = vlabel_priv_grant,
 };

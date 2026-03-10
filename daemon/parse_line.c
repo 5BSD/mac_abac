@@ -163,6 +163,18 @@ parse_operations(const char *word, uint32_t *ops)
 			*ops |= VLABEL_OP_SIGNAL;
 		else if (strcasecmp(tok, "sched") == 0)
 			*ops |= VLABEL_OP_SCHED;
+		else if (strcasecmp(tok, "connect") == 0)
+			*ops |= VLABEL_OP_CONNECT;
+		else if (strcasecmp(tok, "bind") == 0)
+			*ops |= VLABEL_OP_BIND;
+		else if (strcasecmp(tok, "listen") == 0)
+			*ops |= VLABEL_OP_LISTEN;
+		else if (strcasecmp(tok, "accept") == 0)
+			*ops |= VLABEL_OP_ACCEPT;
+		else if (strcasecmp(tok, "send") == 0)
+			*ops |= VLABEL_OP_SEND;
+		else if (strcasecmp(tok, "receive") == 0)
+			*ops |= VLABEL_OP_RECEIVE;
 		else if (strcasecmp(tok, "all") == 0 || strcmp(tok, "*") == 0)
 			*ops |= VLABEL_OP_ALL;
 		else

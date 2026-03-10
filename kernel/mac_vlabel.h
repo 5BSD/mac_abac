@@ -132,7 +132,13 @@
 #define VLABEL_OP_DEBUG			0x00010000	/* ptrace/procfs debug */
 #define VLABEL_OP_SIGNAL		0x00020000	/* kill/signal */
 #define VLABEL_OP_SCHED			0x00040000	/* scheduler operations */
-#define VLABEL_OP_ALL			0x0007FFFF
+#define VLABEL_OP_CONNECT		0x00080000	/* socket connect */
+#define VLABEL_OP_BIND			0x00100000	/* socket bind */
+#define VLABEL_OP_LISTEN		0x00200000	/* socket listen */
+#define VLABEL_OP_ACCEPT		0x00400000	/* socket accept */
+#define VLABEL_OP_SEND			0x00800000	/* socket send */
+#define VLABEL_OP_RECEIVE		0x01000000	/* socket receive */
+#define VLABEL_OP_ALL			0x01FFFFFF
 
 /*
  * Rule actions
@@ -729,6 +735,35 @@ int vlabel_proc_check_debug(struct ucred *cred, struct proc *p);
 int vlabel_proc_check_sched(struct ucred *cred, struct proc *p);
 int vlabel_proc_check_signal(struct ucred *cred, struct proc *p, int signum);
 int vlabel_priv_grant(struct ucred *cred, int priv);
+
+/*
+ * Function prototypes - vlabel_socket.c
+ */
+int vlabel_socket_init_label(struct label *label, int flag);
+void vlabel_socket_destroy_label(struct label *label);
+void vlabel_socket_copy_label(struct label *src, struct label *dest);
+void vlabel_socket_create(struct ucred *cred, struct socket *so,
+    struct label *solabel);
+void vlabel_socket_newconn(struct socket *oldso, struct label *oldsolabel,
+    struct socket *newso, struct label *newsolabel);
+int vlabel_socket_check_accept(struct ucred *cred, struct socket *so,
+    struct label *solabel);
+int vlabel_socket_check_bind(struct ucred *cred, struct socket *so,
+    struct label *solabel, struct sockaddr *sa);
+int vlabel_socket_check_connect(struct ucred *cred, struct socket *so,
+    struct label *solabel, struct sockaddr *sa);
+int vlabel_socket_check_create(struct ucred *cred, int domain, int type,
+    int protocol);
+int vlabel_socket_check_listen(struct ucred *cred, struct socket *so,
+    struct label *solabel);
+int vlabel_socket_check_receive(struct ucred *cred, struct socket *so,
+    struct label *solabel);
+int vlabel_socket_check_send(struct ucred *cred, struct socket *so,
+    struct label *solabel);
+int vlabel_socket_check_stat(struct ucred *cred, struct socket *so,
+    struct label *solabel);
+int vlabel_socket_check_visible(struct ucred *cred, struct socket *so,
+    struct label *solabel);
 
 #endif /* _KERNEL */
 
