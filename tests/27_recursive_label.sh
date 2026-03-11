@@ -18,7 +18,7 @@ SCRIPT_DIR=$(dirname "$0")
 . "$SCRIPT_DIR/lib/test_helpers.sh"
 
 # Configuration
-MAC_ABAC_CTL="${1:-${MAC_ABAC_CTL:-../tools/mac_abac_ctl}}"
+MAC_ABAC_CTL="${1:-$(find_mac_abac_ctl)}"
 
 # Use ZFS-backed directory for extended attributes support
 # /tmp may be tmpfs which doesn't support extattrs

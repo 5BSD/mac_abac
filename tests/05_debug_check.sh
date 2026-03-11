@@ -28,7 +28,7 @@
 set -e
 
 # Configuration - accept path from command line or environment
-MAC_ABAC_CTL="${1:-${MAC_ABAC_CTL:-../tools/mac_abac_ctl}}"
+MAC_ABAC_CTL="${1:-$(find_mac_abac_ctl)}"
 MODULE_NAME="mac_abac"
 TEST_DIR="/tmp/abac_debug_test.$$"
 

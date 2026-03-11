@@ -29,7 +29,7 @@
 set -e
 
 # Configuration
-MAC_ABAC_CTL="${1:-../tools/mac_abac_ctl}"
+MAC_ABAC_CTL="${1:-$(find_mac_abac_ctl)}"
 MODULE_NAME="mac_abac"
 
 # Colors for output

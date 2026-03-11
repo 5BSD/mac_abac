@@ -20,14 +20,8 @@ set -e
 SCRIPT_DIR=$(dirname "$0")
 . "$SCRIPT_DIR/lib/test_helpers.sh"
 
-# Configuration
-if [ -n "$1" ]; then
-	MAC_ABAC_CTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
-	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
-else
-	MAC_ABAC_CTL="./tools/mac_abac_ctl"
-fi
+# Configuration - find mac_abac_ctl
+MAC_ABAC_CTL="${1:-$(find_mac_abac_ctl)}"
 
 MODULE_NAME="mac_abac"
 # Use /root instead of /tmp - tmpfs doesn't support system extended attributes

@@ -165,9 +165,25 @@ require_module() {
 	fi
 }
 
+# Find mac_abac_ctl - check installed locations first, then local build
+find_mac_abac_ctl() {
+	if [ -n "$MAC_ABAC_CTL" ] && [ -x "$MAC_ABAC_CTL" ]; then
+		echo "$MAC_ABAC_CTL"
+	elif [ -x "/usr/local/sbin/mac_abac_ctl" ]; then
+		echo "/usr/local/sbin/mac_abac_ctl"
+	elif [ -x "/usr/local/bin/mac_abac_ctl" ]; then
+		echo "/usr/local/bin/mac_abac_ctl"
+	elif [ -x "../tools/mac_abac_ctl" ]; then
+		echo "../tools/mac_abac_ctl"
+	else
+		echo "mac_abac_ctl"
+	fi
+}
+
 # Check if mac_abac_ctl exists
 require_mac_abac_ctl() {
-	local mac_abac_ctl="${MAC_ABAC_CTL:-../tools/mac_abac_ctl}"
+	local mac_abac_ctl
+	mac_abac_ctl=$(find_mac_abac_ctl)
 	if [ ! -x "$mac_abac_ctl" ]; then
 		echo "mac_abac_ctl not found or not executable: $mac_abac_ctl"
 		exit 1

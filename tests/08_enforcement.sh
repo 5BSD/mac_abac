@@ -21,18 +21,8 @@ set -e
 SCRIPT_DIR=$(dirname "$0")
 . "$SCRIPT_DIR/lib/test_helpers.sh"
 
-# Configuration - check installed locations first, then local build
-if [ -n "$1" ]; then
-	MAC_ABAC_CTL="$1"
-elif [ -x "/usr/local/sbin/mac_abac_ctl" ]; then
-	MAC_ABAC_CTL="/usr/local/sbin/mac_abac_ctl"
-elif [ -x "/usr/local/bin/mac_abac_ctl" ]; then
-	MAC_ABAC_CTL="/usr/local/bin/mac_abac_ctl"
-elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
-	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
-else
-	MAC_ABAC_CTL="mac_abac_ctl"
-fi
+# Configuration - find mac_abac_ctl
+MAC_ABAC_CTL="${1:-$(find_mac_abac_ctl)}"
 MODULE_NAME="mac_abac"
 # Use /root instead of /tmp - tmpfs may not support system extended attributes
 # and the kernel needs to read extattrs for label association

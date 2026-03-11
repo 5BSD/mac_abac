@@ -46,8 +46,12 @@ elif [ -x "/usr/local/sbin/mac_abac_ctl" ]; then
     MAC_ABAC_CTL="/usr/local/sbin/mac_abac_ctl"
 elif [ -x "/usr/local/bin/mac_abac_ctl" ]; then
     MAC_ABAC_CTL="/usr/local/bin/mac_abac_ctl"
-else
+elif [ -x "../tools/mac_abac_ctl" ]; then
     MAC_ABAC_CTL="../tools/mac_abac_ctl"
+else
+    echo "ERROR: mac_abac_ctl not found"
+    echo "Install to /usr/local/sbin/ or run from project root"
+    exit 1
 fi
 
 # Colors
