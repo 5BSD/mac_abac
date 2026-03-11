@@ -120,6 +120,7 @@ if ! kldstat -q -m mac_vlabel 2>/dev/null; then
 fi
 
 run_test_script "vlabelctl Commands" ./02_vlabelctl.sh "$VLABELCTL"
+run_test_script "Sysctl Tunables" ./03_tunables.sh "$VLABELCTL"
 run_test_script "Label Format" ./03_label_format.sh "$VLABELCTL"
 run_test_script "Default Policy" ./04_default_policy.sh "$VLABELCTL"
 run_test_script "Debug/Signal/Sched" ./05_debug_check.sh "$VLABELCTL"
@@ -142,6 +143,8 @@ run_test_script "Directory & Metadata" ./22_directory.sh "$VLABELCTL"
 run_test_script "System Operations" ./23_system.sh "$VLABELCTL"
 run_test_script "Vnode Extra Hooks" ./24_vnode_extra.sh "$VLABELCTL"
 run_test_script "Kenv Operations" ./25_kenv.sh "$VLABELCTL"
+run_test_script "Atomic Setlabel" ./26_atomic_setlabel.sh "$VLABELCTL"
+run_test_script "Recursive Labeling" ./27_recursive_label.sh "$VLABELCTL"
 
 # DTrace test - only run if dtrace is available
 if which dtrace >/dev/null 2>&1; then

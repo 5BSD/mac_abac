@@ -16,6 +16,7 @@
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <fts.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +26,42 @@
 
 #include "../kernel/mac_vlabel.h"
 #include "vlabelctl.h"
+
+/*
+ * Set label atomically on a single file.
+ * Returns 0 on success, -1 on error (with errno set).
+ */
+static int
+setlabel_atomic(const char *path, const char *label_newline_fmt)
+{
+	struct vlabel_setlabel_arg *setlabel_arg;
+	size_t label_len, total_len;
+	int fd, ret;
+
+	label_len = strlen(label_newline_fmt) + 1;
+	total_len = sizeof(struct vlabel_setlabel_arg) + label_len;
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0)
+		return (-1);
+
+	setlabel_arg = calloc(1, total_len);
+	if (setlabel_arg == NULL) {
+		close(fd);
+		return (-1);
+	}
+
+	setlabel_arg->vsl_fd = fd;
+	setlabel_arg->vsl_label_len = label_len;
+	memcpy((char *)setlabel_arg + sizeof(struct vlabel_setlabel_arg),
+	    label_newline_fmt, label_len);
+
+	ret = mac_syscall(VLABEL_POLICY_NAME, VLABEL_SYS_SETLABEL, setlabel_arg);
+	free(setlabel_arg);
+	close(fd);
+
+	return (ret);
+}
 
 /*
  * Parse operation name to bitmask
@@ -258,6 +295,114 @@ cmd_label(int argc, char *argv[])
 			err(EX_OSERR, "REFRESH");
 
 		printf("label refreshed for %s\n", argv[1]);
+
+	} else if (strcmp(argv[0], "setrecursive") == 0) {
+		/*
+		 * Recursively set labels on a directory tree.
+		 * Usage: label setrecursive <path> <label> [options]
+		 *
+		 * Options:
+		 *   -v  verbose (print each file)
+		 *   -d  directories only
+		 *   -f  files only
+		 */
+		FTS *ftsp;
+		FTSENT *p;
+		char *paths[2];
+		char *converted;
+		int verbose = 0;
+		int dirs_only = 0;
+		int files_only = 0;
+		int labeled = 0;
+		int errors = 0;
+		int i;
+
+		if (argc < 3)
+			errx(EX_USAGE, "label setrecursive requires path and label");
+
+		/* Parse options after path and label */
+		for (i = 3; i < argc; i++) {
+			if (strcmp(argv[i], "-v") == 0)
+				verbose = 1;
+			else if (strcmp(argv[i], "-d") == 0)
+				dirs_only = 1;
+			else if (strcmp(argv[i], "-f") == 0)
+				files_only = 1;
+			else
+				errx(EX_USAGE, "unknown option: %s", argv[i]);
+		}
+
+		if (dirs_only && files_only)
+			errx(EX_USAGE, "-d and -f are mutually exclusive");
+
+		/* Convert label format */
+		converted = convert_label_format(argv[2]);
+		if (converted == NULL)
+			errx(EX_OSERR, "failed to convert label format");
+
+		/* Set up fts */
+		paths[0] = argv[1];
+		paths[1] = NULL;
+
+		ftsp = fts_open(paths, FTS_PHYSICAL | FTS_NOCHDIR, NULL);
+		if (ftsp == NULL) {
+			free(converted);
+			err(EX_OSERR, "fts_open");
+		}
+
+		while ((p = fts_read(ftsp)) != NULL) {
+			switch (p->fts_info) {
+			case FTS_D:		/* Directory (preorder) */
+				if (files_only)
+					continue;
+				break;
+			case FTS_F:		/* Regular file */
+				if (dirs_only)
+					continue;
+				break;
+			case FTS_SL:		/* Symbolic link */
+			case FTS_SLNONE:	/* Symbolic link (no target) */
+				/* Skip symlinks - can't set extattr on them */
+				continue;
+			case FTS_DP:		/* Directory (postorder) */
+				/* Skip - we labeled in preorder */
+				continue;
+			case FTS_DNR:		/* Unreadable directory */
+			case FTS_ERR:		/* Error */
+			case FTS_NS:		/* No stat info */
+				warnx("%s: %s", p->fts_path, strerror(p->fts_errno));
+				errors++;
+				continue;
+			default:
+				/* Other types (block, char, fifo, socket) */
+				if (dirs_only)
+					continue;
+				break;
+			}
+
+			/* Set label atomically */
+			if (setlabel_atomic(p->fts_accpath, converted) < 0) {
+				warn("%s", p->fts_path);
+				errors++;
+			} else {
+				labeled++;
+				if (verbose)
+					printf("%s\n", p->fts_path);
+			}
+		}
+
+		if (errno != 0)
+			warn("fts_read");
+
+		fts_close(ftsp);
+		free(converted);
+
+		printf("labeled %d items", labeled);
+		if (errors > 0)
+			printf(" (%d errors)", errors);
+		printf("\n");
+
+		return (errors > 0 ? 1 : 0);
 
 	} else {
 		errx(EX_USAGE, "unknown label command: %s", argv[0]);

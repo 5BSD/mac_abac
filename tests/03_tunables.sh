@@ -23,7 +23,7 @@ SCRIPT_DIR=$(dirname "$0")
 . "$SCRIPT_DIR/lib/test_helpers.sh"
 
 # Configuration
-VLABELCTL="${VLABELCTL:-../tools/vlabelctl}"
+VLABELCTL="${1:-${VLABELCTL:-../tools/vlabelctl}}"
 TEST_FILE="/tmp/vlabel_tunable_test_$$"
 
 # Prerequisites
