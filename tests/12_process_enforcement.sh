@@ -343,10 +343,10 @@ info "=== Enforcing Mode Verification ==="
 run_test
 info "Test: Can enter enforcing mode with allow-all rule"
 # Use sysctl directly for safety
-sysctl security.mac.mac_abac.mode=2 >/dev/null 2>&1
-MODE=$(sysctl -n security.mac.mac_abac.mode)
+sysctl security.mac.abac.mode=2 >/dev/null 2>&1
+MODE=$(sysctl -n security.mac.abac.mode)
 # Immediately restore
-sysctl security.mac.mac_abac.mode=1 >/dev/null 2>&1
+sysctl security.mac.abac.mode=1 >/dev/null 2>&1
 
 if [ "$MODE" = "2" ]; then
 	pass "enforcing mode can be entered"

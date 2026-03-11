@@ -27,9 +27,13 @@ shift $((OPTIND - 1))
 # Export for test_helpers.sh
 export ABAC_QUIET="$QUIET_MODE"
 
-# Default paths - check VM locations first, then local build
+# Default paths - check installed locations first, then local build
 if [ -n "$1" ]; then
     MODULE_PATH="$1"
+elif [ -f "/boot/kernel/mac_abac.ko" ]; then
+    MODULE_PATH="/boot/kernel/mac_abac.ko"
+elif [ -f "/boot/modules/mac_abac.ko" ]; then
+    MODULE_PATH="/boot/modules/mac_abac.ko"
 elif [ -f "/root/mac_abac.ko" ]; then
     MODULE_PATH="/root/mac_abac.ko"
 else
@@ -38,6 +42,8 @@ fi
 
 if [ -n "$2" ]; then
     MAC_ABAC_CTL="$2"
+elif [ -x "/usr/local/sbin/mac_abac_ctl" ]; then
+    MAC_ABAC_CTL="/usr/local/sbin/mac_abac_ctl"
 elif [ -x "/usr/local/bin/mac_abac_ctl" ]; then
     MAC_ABAC_CTL="/usr/local/bin/mac_abac_ctl"
 else
