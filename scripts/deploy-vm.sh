@@ -1,24 +1,31 @@
 #!/bin/sh
 #
-# Deploy vLabelMACF to test VM
+# Deploy vLabelMACF to bhyve test VM
 #
-# Usage: ./deploy-vm.sh [vm-address]
-#
-# Default VM: 192.168.7.134
+# Usage: ./deploy-vm.sh <vm-ip>
 #
 # This script:
 # 1. Builds the kernel module and tools
-# 2. Copies mac_vlabel.ko to /boot/modules (first in module search path)
+# 2. Copies mac_vlabel.ko to /boot/modules
 # 3. Copies vlabelctl to /usr/local/sbin
-# 4. Optionally reloads the module
+# 4. Copies tests to /root/vlabel-tests
+#
+# Note: Module requires VM reboot to load.
 #
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-VM="${1:-192.168.7.134}"
 VM_USER="root"
+
+# Require VM IP as argument
+if [ -z "$1" ]; then
+    echo "Usage: $0 <bhyve-vm-ip>"
+    echo "Example: $0 192.168.7.134"
+    exit 1
+fi
+VM="$1"
 
 # Colors
 RED='\033[0;31m'

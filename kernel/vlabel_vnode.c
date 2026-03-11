@@ -98,8 +98,9 @@ vlabel_vnode_read_extattr(struct vnode *vp, struct label *vplabel)
 	}
 
 	/*
-	 * Allocate buffer on heap - VLABEL_MAX_LABEL_LEN (12KB) is too
-	 * large for the kernel stack (typically 4-8KB).
+	 * Allocate buffer on heap - VLABEL_MAX_LABEL_LEN (4KB) is allocated
+	 * on the heap for consistency with other label operations and to
+	 * reduce kernel stack pressure.
 	 *
 	 * M_WAITOK guarantees success (kernel will sleep until memory
 	 * is available, or panic if impossible).
@@ -1314,7 +1315,7 @@ vlabel_vnode_setlabel_extattr(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, struct label *intlabel)
 {
 	struct vlabel_label *newlabel;
-	char buf[VLABEL_MAX_LABEL_LEN];
+	char *buf;
 	int error, len;
 
 	VLABEL_CHECK_ENABLED();
@@ -1326,14 +1327,24 @@ vlabel_vnode_setlabel_extattr(struct ucred *cred, struct vnode *vp,
 	if (newlabel == NULL)
 		return (EINVAL);
 
+	/*
+	 * Allocate buffer on heap for consistency with other label
+	 * operations and to reduce kernel stack pressure.
+	 */
+	buf = malloc(VLABEL_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
+
 	/* Serialize label to string format */
-	len = vlabel_label_to_string(newlabel, buf, sizeof(buf));
-	if (len < 0)
+	len = vlabel_label_to_string(newlabel, buf, VLABEL_MAX_LABEL_LEN);
+	if (len < 0) {
+		free(buf, M_TEMP);
 		return (EINVAL);
+	}
 
 	/* Write to extended attribute */
 	error = vn_extattr_set(vp, UIO_SYSSPACE, VLABEL_EXTATTR_NAMESPACE,
 	    vlabel_extattr_name, len, buf, curthread);
+
+	free(buf, M_TEMP);
 
 	if (error == 0 && vplabel != NULL) {
 		/* Update in-memory label */

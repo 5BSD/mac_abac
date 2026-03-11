@@ -158,6 +158,19 @@ fi
 # Run scripts/deploy-test.sh to set up the test environment properly
 run_test_script "Enforcement" ./08_enforcement.sh "$VLABELCTL"
 
+# Sets test
+if [ -x ./28_sets.sh ]; then
+    run_test_script "Label Sets" ./28_sets.sh "$VLABELCTL"
+fi
+
+# SysV IPC tests
+run_test_script "SysV Message Queues" ./31_sysv_msgq.sh "$VLABELCTL"
+run_test_script "SysV Semaphores" ./32_sysv_sem.sh "$VLABELCTL"
+
+# Sanity and stress tests
+run_test_script "Sanity Checks" ./29_sanity.sh "$VLABELCTL"
+run_test_script "Stress Tests" ./30_stress.sh "$VLABELCTL"
+
 # Summary
 echo ""
 printf "${BLUE}============================================${NC}\n"
