@@ -269,6 +269,32 @@ usage(void)
 	    "      Test if an operation would be allowed\n"
 	    "      Example: vlabelctl test exec \"type=user\" \"type=untrusted\"\n"
 	    "\n"
+	    "  set enable <N> | <start>-<end> | all\n"
+	    "      Enable rule set(s)\n"
+	    "\n"
+	    "  set disable <N> | <start>-<end> | all\n"
+	    "      Disable rule set(s)\n"
+	    "\n"
+	    "  set swap <A> <B>\n"
+	    "      Swap two sets atomically\n"
+	    "\n"
+	    "  set move <from> <to>\n"
+	    "      Move all rules from one set to another\n"
+	    "\n"
+	    "  set clear <N>\n"
+	    "      Clear all rules in set\n"
+	    "\n"
+	    "  set list [<start>-<end>]\n"
+	    "      Show set status and rule counts\n"
+	    "\n"
+	    "  lock\n"
+	    "      Lock the policy (cannot be modified until reboot)\n"
+	    "\n"
+	    "  log [level]\n"
+	    "      Get or set the audit log level\n"
+	    "      Levels: none (0), error (1), admin (2), deny (3), all (4)\n"
+	    "      Default: admin (log policy changes, not access checks)\n"
+	    "\n"
 	    "Note: Audit events are logged via FreeBSD's standard audit subsystem.\n"
 	    "Use 'praudit' and 'auditreduce' to view MAC policy decisions.\n"
 	);
@@ -389,8 +415,8 @@ cmd_status(int argc __unused, char *argv[] __unused)
 {
 	struct vlabel_stats stats;
 	struct vlabel_rule_list_arg list_arg;
-	int mode, defpol;
-	const char *modestr, *defpolstr;
+	int mode, defpol, locked, loglevel;
+	const char *modestr, *defpolstr, *logstr;
 
 	/* Get mode */
 	if (vlabel_syscall(VLABEL_SYS_GETMODE, &mode) < 0)
@@ -417,6 +443,35 @@ cmd_status(int argc __unused, char *argv[] __unused)
 
 	defpolstr = (defpol == 0) ? "allow" : "deny";
 
+	/* Get locked state */
+	if (vlabel_syscall(VLABEL_SYS_GETLOCKED, &locked) < 0)
+		err(EX_OSERR, "GETLOCKED");
+
+	/* Get log level */
+	if (vlabel_syscall(VLABEL_SYS_GETLOGLEVEL, &loglevel) < 0)
+		err(EX_OSERR, "GETLOGLEVEL");
+
+	switch (loglevel) {
+	case VLABEL_LOG_NONE:
+		logstr = "none";
+		break;
+	case VLABEL_LOG_ERROR:
+		logstr = "error";
+		break;
+	case VLABEL_LOG_ADMIN:
+		logstr = "admin";
+		break;
+	case VLABEL_LOG_DENY:
+		logstr = "deny";
+		break;
+	case VLABEL_LOG_ALL:
+		logstr = "all";
+		break;
+	default:
+		logstr = "unknown";
+		break;
+	}
+
 	/* Get stats */
 	if (vlabel_syscall(VLABEL_SYS_GETSTATS, &stats) < 0)
 		err(EX_OSERR, "GETSTATS");
@@ -430,6 +485,8 @@ cmd_status(int argc __unused, char *argv[] __unused)
 	printf("vLabel Status:\n");
 	printf("  Mode:             %s\n", modestr);
 	printf("  Default policy:   %s\n", defpolstr);
+	printf("  Locked:           %s\n", locked ? "yes (until reboot)" : "no");
+	printf("  Log level:        %s\n", logstr);
 	printf("  Active rules:     %u\n", list_arg.vrl_total);
 	printf("\n");
 	printf("Statistics:\n");
@@ -443,9 +500,96 @@ cmd_status(int argc __unused, char *argv[] __unused)
 	}
 
 	printf("\n");
-	printf("Note: Audit events are logged via FreeBSD's standard audit\n");
-	printf("subsystem. Use 'praudit' and 'auditreduce' to view decisions.\n");
+	printf("Note: Audit events are logged to kernel message buffer (dmesg)\n");
+	printf("at the configured log level. Use 'sysctl security.mac.vlabel'\n");
+	printf("to view current settings.\n");
 
+	return (0);
+}
+
+/*
+ * lock - lock the policy until reboot
+ */
+int
+cmd_lock(int argc __unused, char *argv[] __unused)
+{
+	int locked;
+
+	/* Check if already locked */
+	if (vlabel_syscall(VLABEL_SYS_GETLOCKED, &locked) < 0)
+		err(EX_OSERR, "GETLOCKED");
+
+	if (locked) {
+		printf("Policy is already locked\n");
+		return (0);
+	}
+
+	/* Lock the policy */
+	if (vlabel_syscall(VLABEL_SYS_LOCK, NULL) < 0)
+		err(EX_OSERR, "LOCK");
+
+	printf("Policy locked until reboot\n");
+	printf("WARNING: No further rule or mode changes will be permitted\n");
+	return (0);
+}
+
+/*
+ * log [level] - get or set audit log level
+ */
+int
+cmd_log(int argc, char *argv[])
+{
+	int level;
+	const char *levelstr;
+
+	if (argc == 0) {
+		/* Get log level */
+		if (vlabel_syscall(VLABEL_SYS_GETLOGLEVEL, &level) < 0)
+			err(EX_OSERR, "GETLOGLEVEL");
+
+		switch (level) {
+		case VLABEL_LOG_NONE:
+			levelstr = "none";
+			break;
+		case VLABEL_LOG_ERROR:
+			levelstr = "error";
+			break;
+		case VLABEL_LOG_ADMIN:
+			levelstr = "admin";
+			break;
+		case VLABEL_LOG_DENY:
+			levelstr = "deny";
+			break;
+		case VLABEL_LOG_ALL:
+			levelstr = "all";
+			break;
+		default:
+			levelstr = "unknown";
+			break;
+		}
+		printf("%s (%d)\n", levelstr, level);
+		return (0);
+	}
+
+	/* Set log level */
+	if (strcmp(argv[0], "none") == 0 || strcmp(argv[0], "0") == 0)
+		level = VLABEL_LOG_NONE;
+	else if (strcmp(argv[0], "error") == 0 || strcmp(argv[0], "1") == 0)
+		level = VLABEL_LOG_ERROR;
+	else if (strcmp(argv[0], "admin") == 0 || strcmp(argv[0], "2") == 0)
+		level = VLABEL_LOG_ADMIN;
+	else if (strcmp(argv[0], "deny") == 0 || strcmp(argv[0], "3") == 0)
+		level = VLABEL_LOG_DENY;
+	else if (strcmp(argv[0], "all") == 0 || strcmp(argv[0], "4") == 0)
+		level = VLABEL_LOG_ALL;
+	else
+		errx(EX_USAGE, "invalid log level: %s (use none/error/admin/deny/all or 0-4)",
+		    argv[0]);
+
+	if (vlabel_syscall(VLABEL_SYS_SETLOGLEVEL, &level) < 0)
+		err(EX_OSERR, "SETLOGLEVEL");
+
+	printf("log level set to %s (%d)\n", argv[0], level);
 	return (0);
 }
 
@@ -530,10 +674,16 @@ main(int argc, char *argv[])
 		return (cmd_limits(argc - 1, argv + 1));
 	else if (strcmp(argv[0], "rule") == 0)
 		return (cmd_rule(argc - 1, argv + 1));
+	else if (strcmp(argv[0], "set") == 0)
+		return (cmd_set(argc - 1, argv + 1));
 	else if (strcmp(argv[0], "label") == 0)
 		return (cmd_label(argc - 1, argv + 1));
 	else if (strcmp(argv[0], "test") == 0)
 		return (cmd_test(argc - 1, argv + 1));
+	else if (strcmp(argv[0], "lock") == 0)
+		return (cmd_lock(argc - 1, argv + 1));
+	else if (strcmp(argv[0], "log") == 0)
+		return (cmd_log(argc - 1, argv + 1));
 	else if (strcmp(argv[0], "help") == 0 || strcmp(argv[0], "-h") == 0)
 		usage();
 	else

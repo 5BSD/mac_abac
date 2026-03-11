@@ -141,6 +141,13 @@ Total labels allocated (debugging).
 Total labels freed (debugging).
 .It Va security.mac.vlabel.parse_errors
 Label parsing errors encountered.
+.It Va security.mac.vlabel.locked
+Policy lock status (0=unlocked, 1=locked until reboot).
+Once locked, policy cannot be modified.
+This sysctl is read-only.
+.It Va security.mac.vlabel.log_level
+Audit log level (0=none, 1=error, 2=admin, 3=deny, 4=all).
+Default is 2 (admin), which logs policy changes.
 .El
 .Sh LIMITS
 .Bl -column "Maximum label length" "4096 bytes" -offset indent
@@ -258,4 +265,15 @@ Default policy of "allow" is permissive.
 For high-security environments, use "deny" as default.
 .It
 Permissive mode should only be used for policy development, not production.
+.It
+Use
+.Cm vlabelctl lock
+in production to prevent runtime policy modifications.
+Once locked, the policy cannot be changed until reboot.
+.It
+Admin actions are logged to the kernel message buffer when
+.Va security.mac.vlabel.log_level
+is 2 (admin) or higher.
+Review logs with
+.Xr dmesg 8 .
 .El

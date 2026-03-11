@@ -81,6 +81,7 @@ vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data)
 
 	/* Fill in basic fields */
 	newrule->vr_action = arg->vr_action;
+	newrule->vr_set = arg->vr_set;
 	newrule->vr_operations = arg->vr_operations;
 	newrule->vr_newlabel = NULL;
 
@@ -169,6 +170,7 @@ vlabel_rule_add_from_arg(struct vlabel_rule_arg *arg, const char *data)
 	vlabel_rules[i] = newrule;
 	vlabel_rule_count++;
 	vlabel_rule_end++;
+	vlabel_rebuild_active_sets();
 	/* Return assigned ID to caller */
 	arg->vr_id = newrule->vr_id;
 	rw_wunlock(&vlabel_rules_lock);
@@ -209,6 +211,7 @@ vlabel_rule_add_locked(struct vlabel_rule_arg *arg, const char *data)
 	}
 
 	newrule->vr_action = arg->vr_action;
+	newrule->vr_set = arg->vr_set;
 	newrule->vr_operations = arg->vr_operations;
 	newrule->vr_newlabel = NULL;
 
@@ -412,6 +415,7 @@ vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 		}
 		vlabel_rule_count = old_count;
 		vlabel_rule_end = old_end;
+		vlabel_rebuild_active_sets();
 	} else {
 		/* Success: free old rules */
 		for (i = 0; i < VLABEL_MAX_RULES; i++) {
@@ -421,6 +425,7 @@ vlabel_rules_load(struct vlabel_rule_load_arg *load_arg)
 				free(old_rules[i], M_TEMP);
 			}
 		}
+		vlabel_rebuild_active_sets();
 	}
 
 	rw_wunlock(&vlabel_rules_lock);
@@ -497,6 +502,7 @@ vlabel_rule_serialize(const struct vlabel_rule *rule, char *buf, size_t buflen)
 	memset(out, 0, sizeof(*out));
 	out->vr_id = rule->vr_id;
 	out->vr_action = rule->vr_action;
+	out->vr_set = rule->vr_set;
 	out->vr_operations = rule->vr_operations;
 	out->vr_subject_flags = rule->vr_subject.vrp_flags;
 	out->vr_object_flags = rule->vr_object.vrp_flags;

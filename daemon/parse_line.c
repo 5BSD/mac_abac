@@ -9,11 +9,14 @@
  * Parses vLabel rules in a simple line-based format for CLI use.
  *
  * Format:
- *   action operations subject [ctx:...] -> object [ctx:...] [=> newlabel]
+ *   action operations subject [ctx:...] -> object [ctx:...] [=> newlabel] [set N]
  *
  * Context placement determines what it applies to:
  *   - ctx: BEFORE '->' applies to subject (caller)
  *   - ctx: AFTER '->' applies to object (target)
+ *
+ * Set syntax (optional, defaults to 0):
+ *   set N              - assign rule to set N (0-65535)
  *
  * Examples:
  *   deny exec * -> type=untrusted
@@ -22,6 +25,8 @@
  *   deny debug * ctx:uid=0 -> * ctx:sandboxed=true
  *   deny signal type=user ctx:uid=1000 -> type=system ctx:uid=0
  *   transition exec type=user -> type=setuid,name=su => type=admin
+ *   deny exec * -> type=untrusted set 1
+ *   allow read domain=app -> domain=app set 100
  *
  * Pattern format:
  *   *                  - match anything
@@ -467,6 +472,25 @@ vlabeld_parse_line(const char *line, struct vlabel_rule_io *rule)
 				return (-1);
 			}
 			strlcpy(rule->vr_newlabel, word, sizeof(rule->vr_newlabel));
+
+		} else if (strcasecmp(word, "set") == 0) {
+			/* Rule set number */
+			char *endptr;
+			long set_val;
+
+			p = parse_word(p, word, sizeof(word));
+			if (word[0] == '\0') {
+				fprintf(stderr, "missing set number after 'set'\n");
+				return (-1);
+			}
+			errno = 0;
+			set_val = strtol(word, &endptr, 10);
+			if (errno != 0 || *endptr != '\0' ||
+			    set_val < 0 || set_val >= VLABEL_MAX_SETS) {
+				fprintf(stderr, "invalid set number: %s\n", word);
+				return (-1);
+			}
+			rule->vr_set = (uint16_t)set_val;
 
 		} else {
 			/* Unknown token */

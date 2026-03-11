@@ -111,6 +111,22 @@
 #define VLABEL_RULE_VALUE_LEN		64	/* Max value length in rules */
 
 /*
+ * Rule set constraints (IPFW-style)
+ *
+ * Rules are organized into sets (0-65535). Sets are evaluated in order:
+ * set 0 first, then set 1, etc. This allows layered policies where
+ * lower-numbered sets have higher priority.
+ *
+ * Sets can be enabled/disabled without removing rules, useful for:
+ * - Temporarily disabling application-specific policies
+ * - Hot-reloading policies via set swap
+ * - Maintenance mode
+ */
+#define VLABEL_MAX_SETS			65536	/* 2^16 sets */
+#define VLABEL_SET_DEFAULT		0	/* Default set for new rules */
+#define VLABEL_SET_BITMAP_SIZE		(VLABEL_MAX_SETS / 8)  /* 8KB */
+
+/*
  * Operations bitmask for rule matching
  */
 #define VLABEL_OP_EXEC			0x00000001
@@ -223,7 +239,8 @@ struct vlabel_context_io {
 struct vlabel_rule_io {
 	uint32_t		vr_id;
 	uint8_t			vr_action;
-	uint8_t			vr_padding[3];
+	uint8_t			vr_padding;
+	uint16_t		vr_set;		/* Rule set (0-65535) */
 	uint32_t		vr_operations;
 	struct vlabel_pattern_io vr_subject;
 	struct vlabel_pattern_io vr_object;
@@ -254,6 +271,36 @@ struct vlabel_rule_io {
 #define VLABEL_SYS_TEST		20	/* arg: struct vlabel_test_arg* (in/out) */
 #define VLABEL_SYS_REFRESH	21	/* arg: int* (in: file descriptor) */
 #define VLABEL_SYS_SETLABEL	22	/* arg: struct vlabel_setlabel_arg* (in) */
+
+/* Rule set operations (IPFW-style) */
+#define VLABEL_SYS_SET_ENABLE	23	/* arg: struct vlabel_set_range* */
+#define VLABEL_SYS_SET_DISABLE	24	/* arg: struct vlabel_set_range* */
+#define VLABEL_SYS_SET_SWAP	25	/* arg: uint16_t[2] {set_a, set_b} */
+#define VLABEL_SYS_SET_MOVE	26	/* arg: uint16_t[2] {from, to} */
+#define VLABEL_SYS_SET_CLEAR	27	/* arg: uint16_t* (set number) */
+#define VLABEL_SYS_SET_LIST	28	/* arg: struct vlabel_set_list_arg* */
+
+/* Locked mode - prevents policy changes until reboot */
+#define VLABEL_SYS_LOCK		30	/* arg: NULL - one-way lock */
+#define VLABEL_SYS_GETLOCKED	31	/* arg: int* (out: 1=locked, 0=unlocked) */
+
+/* Logging operations */
+#define VLABEL_SYS_GETLOGLEVEL	32	/* arg: int* (out) */
+#define VLABEL_SYS_SETLOGLEVEL	33	/* arg: int* (in) */
+
+/*
+ * Log levels for vlabel audit/logging
+ *
+ * These control what gets logged to the kernel message buffer (dmesg)
+ * and syslog. Higher levels include all lower levels.
+ *
+ * Default: VLABEL_LOG_ADMIN (log admin actions, not access checks)
+ */
+#define VLABEL_LOG_NONE		0	/* No logging */
+#define VLABEL_LOG_ERROR	1	/* Errors only */
+#define VLABEL_LOG_ADMIN	2	/* Admin actions (rule/mode changes) */
+#define VLABEL_LOG_DENY		3	/* + Access denials */
+#define VLABEL_LOG_ALL		4	/* + All access checks (verbose) */
 
 /*
  * Context constraints for rules (shared between kernel and userland)
@@ -311,7 +358,8 @@ struct vlabel_context_arg {
 struct vlabel_rule_arg {
 	uint32_t		vr_id;		/* Out: assigned rule ID */
 	uint8_t			vr_action;	/* ALLOW/DENY/TRANSITION */
-	uint8_t			vr_reserved[3];
+	uint8_t			vr_reserved;
+	uint16_t		vr_set;		/* Rule set (0-65535) */
 	uint32_t		vr_operations;	/* Operation bitmask */
 	uint32_t		vr_subject_flags; /* VLABEL_MATCH_NEGATE, etc */
 	uint32_t		vr_object_flags;
@@ -332,7 +380,8 @@ struct vlabel_rule_arg {
 struct vlabel_rule_out {
 	uint32_t		vr_id;		/* Rule ID */
 	uint8_t			vr_action;
-	uint8_t			vr_reserved[3];
+	uint8_t			vr_reserved;
+	uint16_t		vr_set;		/* Rule set (0-65535) */
 	uint32_t		vr_operations;
 	uint32_t		vr_subject_flags;
 	uint32_t		vr_object_flags;
@@ -416,6 +465,27 @@ struct vlabel_setlabel_arg {
 	uint16_t	vsl_label_len;		/* Length including null */
 	uint16_t	vsl_reserved;
 	/* Variable data follows: label string */
+};
+
+/*
+ * Rule set operations (IPFW-style)
+ */
+struct vlabel_set_range {
+	uint16_t	vsr_start;		/* First set in range */
+	uint16_t	vsr_end;		/* Last set in range (inclusive) */
+};
+
+/*
+ * Rule set list argument - query set status
+ *
+ * Results are paginated: each call returns up to 256 sets.
+ * Call multiple times with increasing vsl_start to query all 65536 sets.
+ */
+struct vlabel_set_list_arg {
+	uint16_t	vsl_start;		/* In: first set to query */
+	uint16_t	vsl_count;		/* In: how many sets (max 256) */
+	uint32_t	vsl_rule_counts[256];	/* Out: rules per set */
+	uint8_t		vsl_enabled[32];	/* Out: enabled bitmap (256 bits) */
 };
 
 #ifdef _KERNEL
@@ -538,7 +608,8 @@ struct vlabel_context {
 struct vlabel_rule {
 	uint32_t		  vr_id;	   /* Rule identifier */
 	uint8_t			  vr_action;	   /* ALLOW, DENY, or TRANSITION */
-	uint8_t			  vr_reserved[3];
+	uint8_t			  vr_reserved;
+	uint16_t		  vr_set;	   /* Rule set (0-65535) */
 	uint32_t		  vr_operations;   /* Bitmask of operations */
 	struct vlabel_rule_pattern vr_subject;	   /* Subject (process) pattern */
 	struct vlabel_rule_pattern vr_object;	   /* Object (file) pattern */
@@ -643,6 +714,26 @@ int vlabel_rules_get_transition(struct ucred *cred, struct vlabel_label *subj,
 int vlabel_rule_remove(uint32_t id);
 void vlabel_rules_clear(void);
 void vlabel_rules_get_stats(struct vlabel_stats *stats);
+
+/* Set management functions */
+void vlabel_set_enable_range(uint16_t start, uint16_t end);
+void vlabel_set_disable_range(uint16_t start, uint16_t end);
+int vlabel_set_swap(uint16_t set_a, uint16_t set_b);
+int vlabel_set_move(uint16_t from_set, uint16_t to_set);
+void vlabel_set_clear(uint16_t set);
+void vlabel_set_get_info(struct vlabel_set_list_arg *arg);
+void vlabel_rebuild_active_sets(void);
+
+/* Set enabled bitmap (8KB for 65536 sets) */
+extern uint8_t vlabel_set_enabled[VLABEL_SET_BITMAP_SIZE];
+
+/* Bitmap helper macros */
+#define VLABEL_SET_IS_ENABLED(set) \
+	(vlabel_set_enabled[(set) / 8] & (1 << ((set) % 8)))
+#define VLABEL_SET_ENABLE(set) \
+	(vlabel_set_enabled[(set) / 8] |= (1 << ((set) % 8)))
+#define VLABEL_SET_DISABLE(set) \
+	(vlabel_set_enabled[(set) / 8] &= ~(1 << ((set) % 8)))
 
 /*
  * Function prototypes - vlabel_syscall.c

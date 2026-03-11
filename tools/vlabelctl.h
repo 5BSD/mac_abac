@@ -40,4 +40,7 @@ int cmd_rule(int argc, char *argv[]);
 int cmd_label(int argc, char *argv[]);
 int cmd_test(int argc, char *argv[]);
 
+/* vlabelctl_set.c */
+int cmd_set(int argc, char *argv[]);
+
 #endif /* VLABELCTL_H */

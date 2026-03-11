@@ -48,6 +48,7 @@ struct ucl_load_ctx {
 	size_t	 bufused;
 	int	 count;
 	int	 errors;
+	int	 set_override;	/* -1 = use parsed value, >= 0 = override */
 };
 
 /*
@@ -69,6 +70,13 @@ int
 vlabeld_set_mode(int mode __unused)
 {
 	/* vlabelctl doesn't use mode from UCL files - use 'vlabelctl mode' */
+	return (0);
+}
+
+int
+vlabeld_set_default_policy(int policy __unused)
+{
+	/* vlabelctl doesn't use default policy from UCL files - use 'vlabelctl default' */
 	return (0);
 }
 
@@ -101,9 +109,10 @@ is_ucl_file(const char *path)
  *
  * The daemon's vlabeld_parse_line() returns vlabel_rule_io (userland format).
  * We convert it to vlabel_rule_arg (kernel mac_syscall format).
+ * If set_override >= 0, use that set instead of the parsed value.
  */
 static int
-build_rule_arg(const char *rule_str, char **bufp, size_t *lenp)
+build_rule_arg_with_set(const char *rule_str, char **bufp, size_t *lenp, int set_override)
 {
 	struct vlabel_rule_io rule_io;
 	struct vlabel_rule_arg *arg;
@@ -130,6 +139,7 @@ build_rule_arg(const char *rule_str, char **bufp, size_t *lenp)
 
 	arg = (struct vlabel_rule_arg *)buf;
 	arg->vr_action = rule_io.vr_action;
+	arg->vr_set = (set_override >= 0) ? (uint16_t)set_override : rule_io.vr_set;
 	arg->vr_operations = rule_io.vr_operations;
 	arg->vr_subject_flags = rule_io.vr_subject.vp_flags;
 	arg->vr_object_flags = rule_io.vr_object.vp_flags;
@@ -166,11 +176,21 @@ build_rule_arg(const char *rule_str, char **bufp, size_t *lenp)
 }
 
 /*
- * Build rule_arg buffer from vlabel_rule_io
- * Used by UCL callback to convert parsed rules to kernel format.
+ * Build a rule_arg buffer from parsed rule (default set = use parsed value)
  */
 static int
-build_rule_arg_from_io(struct vlabel_rule_io *rule_io, char **bufp, size_t *lenp)
+build_rule_arg(const char *rule_str, char **bufp, size_t *lenp)
+{
+	return build_rule_arg_with_set(rule_str, bufp, lenp, -1);
+}
+
+/*
+ * Build rule_arg buffer from vlabel_rule_io
+ * Used by UCL callback to convert parsed rules to kernel format.
+ * If set_override >= 0, use that set instead of the parsed value.
+ */
+static int
+build_rule_arg_from_io_with_set(struct vlabel_rule_io *rule_io, char **bufp, size_t *lenp, int set_override)
 {
 	struct vlabel_rule_arg *arg;
 	char *buf, *data;
@@ -190,6 +210,7 @@ build_rule_arg_from_io(struct vlabel_rule_io *rule_io, char **bufp, size_t *lenp
 
 	arg = (struct vlabel_rule_arg *)buf;
 	arg->vr_action = rule_io->vr_action;
+	arg->vr_set = (set_override >= 0) ? (uint16_t)set_override : rule_io->vr_set;
 	arg->vr_operations = rule_io->vr_operations;
 	arg->vr_subject_flags = rule_io->vr_subject.vp_flags;
 	arg->vr_object_flags = rule_io->vr_object.vp_flags;
@@ -235,7 +256,7 @@ ucl_rule_callback(struct vlabel_rule_io *rule, void *ctx)
 	char *rule_buf;
 	size_t rule_len;
 
-	if (build_rule_arg_from_io(rule, &rule_buf, &rule_len) < 0) {
+	if (build_rule_arg_from_io_with_set(rule, &rule_buf, &rule_len, lctx->set_override) < 0) {
 		lctx->errors++;
 		return (-1);
 	}
@@ -269,14 +290,16 @@ ucl_rule_callback(struct vlabel_rule_io *rule, void *ctx)
 
 /*
  * Load rules from UCL/JSON file
+ * If set_override >= 0, all rules go to that set regardless of file contents.
  */
 static int
-load_ucl_rules(const char *path)
+load_ucl_rules(const char *path, int set_override)
 {
 	struct ucl_load_ctx ctx;
 	struct vlabel_rule_load_arg load_arg;
 
 	memset(&ctx, 0, sizeof(ctx));
+	ctx.set_override = set_override;
 
 	if (vlabeld_parse_ucl_with_callback(path, false, ucl_rule_callback, &ctx) < 0) {
 		free(ctx.buf);
@@ -326,11 +349,33 @@ cmd_rule(int argc, char *argv[])
 		char *buf;
 		size_t len;
 		struct vlabel_rule_arg *arg;
+		int set_override = -1;
+		int rule_idx = 1;
 
-		if (argc < 2)
+		/* Parse options */
+		while (rule_idx < argc && argv[rule_idx][0] == '-') {
+			if (strcmp(argv[rule_idx], "-s") == 0) {
+				char *endptr;
+				unsigned long val;
+				if (rule_idx + 1 >= argc)
+					errx(EX_USAGE, "-s requires a set number");
+				errno = 0;
+				val = strtoul(argv[rule_idx + 1], &endptr, 10);
+				if (errno != 0 || *endptr != '\0' ||
+				    val >= VLABEL_MAX_SETS)
+					errx(EX_USAGE, "invalid set number: %s",
+					    argv[rule_idx + 1]);
+				set_override = (int)val;
+				rule_idx += 2;
+			} else {
+				errx(EX_USAGE, "unknown option: %s", argv[rule_idx]);
+			}
+		}
+
+		if (rule_idx >= argc)
 			errx(EX_USAGE, "rule add requires a rule string");
 
-		ret = build_rule_arg(argv[1], &buf, &len);
+		ret = build_rule_arg_with_set(argv[rule_idx], &buf, &len, set_override);
 		if (ret < 0)
 			errx(EX_DATAERR, "invalid rule syntax");
 		if (ret > 0)
@@ -342,7 +387,7 @@ cmd_rule(int argc, char *argv[])
 		}
 
 		arg = (struct vlabel_rule_arg *)buf;
-		printf("rule %u added\n", arg->vr_id);
+		printf("rule %u added (set %u)\n", arg->vr_id, arg->vr_set);
 		free(buf);
 
 	} else if (strcmp(argv[0], "append") == 0) {
@@ -460,6 +505,8 @@ cmd_rule(int argc, char *argv[])
 		 *
 		 * On success: old rules are cleared, new rules loaded
 		 * On failure: old rules remain unchanged
+		 *
+		 * Use -s <set> to load all rules into a specific set.
 		 */
 		FILE *fp;
 		char line[VLABEL_MAX_RULE_LINE];
@@ -469,6 +516,9 @@ cmd_rule(int argc, char *argv[])
 		int lineno = 0;
 		int rule_count = 0;
 		int errors = 0;
+		int set_override = -1;
+		int file_idx = 1;
+		const char *filepath;
 
 		/* Dynamic buffer for packed rules */
 		char *load_buf = NULL;
@@ -477,18 +527,55 @@ cmd_rule(int argc, char *argv[])
 
 		struct vlabel_rule_load_arg load_arg;
 
-		if (argc < 2)
+		/* Parse options */
+		while (file_idx < argc && argv[file_idx][0] == '-') {
+			if (strcmp(argv[file_idx], "-s") == 0) {
+				char *endptr;
+				unsigned long val;
+				if (file_idx + 1 >= argc)
+					errx(EX_USAGE, "-s requires a set number");
+				errno = 0;
+				val = strtoul(argv[file_idx + 1], &endptr, 10);
+				if (errno != 0 || *endptr != '\0' ||
+				    val >= VLABEL_MAX_SETS)
+					errx(EX_USAGE, "invalid set number: %s",
+					    argv[file_idx + 1]);
+				set_override = (int)val;
+				file_idx += 2;
+			} else {
+				errx(EX_USAGE, "unknown option: %s", argv[file_idx]);
+			}
+		}
+
+		if (file_idx >= argc)
 			errx(EX_USAGE, "rule load requires a file path");
 
+		filepath = argv[file_idx];
+
+		/* Check for trailing -s option (allow both orders) */
+		if (file_idx + 1 < argc && strcmp(argv[file_idx + 1], "-s") == 0) {
+			char *endptr;
+			unsigned long val;
+			if (file_idx + 2 >= argc)
+				errx(EX_USAGE, "-s requires a set number");
+			errno = 0;
+			val = strtoul(argv[file_idx + 2], &endptr, 10);
+			if (errno != 0 || *endptr != '\0' ||
+			    val >= VLABEL_MAX_SETS)
+				errx(EX_USAGE, "invalid set number: %s",
+				    argv[file_idx + 2]);
+			set_override = (int)val;
+		}
+
 		/* Check file format and dispatch to appropriate loader */
-		if (is_ucl_file(argv[1])) {
-			return load_ucl_rules(argv[1]);
+		if (is_ucl_file(filepath)) {
+			return load_ucl_rules(filepath, set_override);
 		}
 
 		/* Line format parsing */
-		fp = fopen(argv[1], "r");
+		fp = fopen(filepath, "r");
 		if (fp == NULL)
-			err(EX_NOINPUT, "open %s", argv[1]);
+			err(EX_NOINPUT, "open %s", filepath);
 
 		/* First pass: parse all rules into buffer */
 		while (fgets(line, sizeof(line), fp) != NULL) {
@@ -517,10 +604,10 @@ cmd_rule(int argc, char *argv[])
 				continue;
 
 			/* Parse rule */
-			ret = build_rule_arg(start, &rule_buf, &rule_len);
+			ret = build_rule_arg_with_set(start, &rule_buf, &rule_len, set_override);
 			if (ret < 0) {
 				warnx("%s:%d: invalid rule syntax: %s",
-				    argv[1], lineno, start);
+				    filepath, lineno, start);
 				errors++;
 				continue;
 			}
@@ -574,7 +661,11 @@ cmd_rule(int argc, char *argv[])
 
 		free(load_buf);
 
-		printf("loaded %u rules (atomic)\n", load_arg.vrl_loaded);
+		if (set_override >= 0)
+			printf("loaded %u rules to set %d (atomic)\n",
+			    load_arg.vrl_loaded, set_override);
+		else
+			printf("loaded %u rules (atomic)\n", load_arg.vrl_loaded);
 		return (0);
 
 	} else if (strcmp(argv[0], "list") == 0) {
@@ -637,8 +728,10 @@ cmd_rule(int argc, char *argv[])
 				break;
 			}
 
-			printf("  [%u] %s %s %s%s -> %s%s",
-			    out->vr_id,
+			printf("  [%u", out->vr_id);
+			if (out->vr_set != 0)
+				printf(" set %u", out->vr_set);
+			printf("] %s %s %s%s -> %s%s",
 			    action_str,
 			    ops_to_string(out->vr_operations, opsbuf, sizeof(opsbuf)),
 			    (out->vr_subject_flags & VLABEL_MATCH_NEGATE) ? "!" : "",

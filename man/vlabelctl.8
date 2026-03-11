@@ -47,6 +47,37 @@
 .Cm rule validate
 .Ar file
 .Nm
+.Cm rule add
+.Op Fl s Ar set
+.Ar rule
+.Nm
+.Cm rule load
+.Op Fl s Ar set
+.Ar file
+.Nm
+.Cm set enable
+.Ar num | start Ns - Ns Ar end | No all
+.Nm
+.Cm set disable
+.Ar num | start Ns - Ns Ar end | No all
+.Nm
+.Cm set swap
+.Ar set_a set_b
+.Nm
+.Cm set move
+.Ar from_set to_set
+.Nm
+.Cm set clear
+.Ar num
+.Nm
+.Cm set list
+.Op Ar start Ns - Ns Ar end
+.Nm
+.Cm lock
+.Nm
+.Cm log
+.Op Cm none | error | admin | deny | all
+.Nm
 .Cm label get
 .Ar path
 .Nm
@@ -139,6 +170,82 @@ to the existing rule set.
 Check
 .Ar file
 syntax without loading rules.
+.El
+.Ss Rule Sets
+Rules are organized into sets numbered 0-65535.
+During rule evaluation, sets are checked in ascending order (set 0 first, then 1, etc.).
+Within each set, rules are evaluated in the order they were added.
+The first matching rule wins.
+.Pp
+Sets can be enabled or disabled without removing rules.
+Disabled sets are skipped during evaluation.
+.Bl -tag -width indent
+.It Cm set enable Ar num | start Ns - Ns Ar end | No all
+Enable rule set(s).
+Rules in disabled sets are not evaluated.
+.It Cm set disable Ar num | start Ns - Ns Ar end | No all
+Disable rule set(s).
+.It Cm set swap Ar set_a set_b
+Atomically swap two sets.
+Useful for hot-reloading policies without a window where no rules are active.
+.It Cm set move Ar from_set to_set
+Move all rules from one set to another.
+.It Cm set clear Ar num
+Remove all rules in the specified set.
+.It Cm set list Op Ar start Ns - Ns Ar end
+Show set status and rule counts.
+Default range is 0-31.
+.El
+.Pp
+The
+.Fl s
+option on
+.Cm rule add
+and
+.Cm rule load
+specifies the target set.
+If not specified, rules go to set 0.
+The
+.Fl s
+option overrides any
+.Cm set
+field in the rule file.
+.Pp
+In line format rules, append
+.Cm set Ar N
+to specify the set:
+.Bd -literal -offset indent
+allow exec * -> * set 5
+.Ed
+.Ss Policy Protection
+.Bl -tag -width indent
+.It Cm lock
+Lock the policy, preventing all rule and mode changes until the system
+is rebooted.
+This provides tamper resistance for production deployments.
+Once locked, the following operations are denied with
+.Er EPERM :
+mode changes, default policy changes, rule add/remove/clear/load,
+and set enable/disable/swap/move/clear.
+.Pp
+The lock is one-way and cannot be undone without rebooting.
+.It Cm log Op Cm none | error | admin | deny | all
+Get or set the audit log level.
+Admin actions are logged to the kernel message buffer
+.Pq see Xr dmesg 8 .
+.Bl -tag -width "admin" -compact
+.It Cm none
+No logging.
+.It Cm error
+Log errors only.
+.It Cm admin
+Log policy changes (rule add/remove, mode changes).
+This is the default.
+.It Cm deny
+Also log access denials.
+.It Cm all
+Log all access checks (very verbose, use for debugging).
+.El
 .El
 .Ss Label Management
 .Bl -tag -width indent
@@ -313,6 +420,51 @@ vlabelctl label set /usr/local/bin/nginx type=app,domain=web,name=nginx
 Test if an operation would be allowed:
 .Bd -literal -offset indent
 vlabelctl test exec domain=user type=trusted
+.Ed
+.Ss Rule Sets
+Load base policy to set 0 (default):
+.Bd -literal -offset indent
+vlabelctl rule load /etc/vlabel/base.conf
+.Ed
+.Pp
+Load application rules to set 100:
+.Bd -literal -offset indent
+vlabelctl rule load /etc/vlabel/webapp.conf -s 100
+.Ed
+.Pp
+Temporarily disable application rules:
+.Bd -literal -offset indent
+vlabelctl set disable 100
+.Ed
+.Pp
+Hot-reload policy without downtime:
+.Bd -literal -offset indent
+vlabelctl rule load /etc/vlabel/new_base.conf -s 50000
+vlabelctl set swap 0 50000
+vlabelctl set clear 50000
+.Ed
+.Pp
+View set status:
+.Bd -literal -offset indent
+vlabelctl set list
+vlabelctl set list 0-100
+.Ed
+.Ss Policy Protection
+Enable verbose logging for debugging:
+.Bd -literal -offset indent
+vlabelctl log all
+.Ed
+.Pp
+Lock the policy for production:
+.Bd -literal -offset indent
+vlabelctl rule load /etc/vlabel/production.conf
+vlabelctl mode enforcing
+vlabelctl lock
+.Ed
+.Pp
+View current status including locked state:
+.Bd -literal -offset indent
+vlabelctl status
 .Ed
 .Sh DIAGNOSTICS
 .Ex -std

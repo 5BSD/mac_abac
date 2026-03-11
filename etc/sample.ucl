@@ -12,15 +12,27 @@
 #   - Optional commas and quotes for simple keys
 #   - Include directives: .include "other.ucl"
 #   - Variable expansion: ${VAR}
+#
+# Rule Sets:
+#   Rules are organized into sets (0-65535). Sets are evaluated in order:
+#   set 0 first, then set 1, etc. The first matching rule wins. Sets can
+#   be enabled/disabled without removing rules, useful for hot-reloading.
+#   If 'set' is omitted, rules go to set 0 by default.
+#
+#   Common patterns:
+#     - Set 0: Base security policy (always active)
+#     - Sets 100-199: Application sandboxes
+#     - Sets 1000+: Temporary/debug rules
 
 # Enforcement mode: disabled, permissive, enforcing
 mode = "permissive";
 
-# Rules are evaluated in order (first match wins)
+# Rules are evaluated in set order (set 0 first), then by rule order within set
 rules = [
     {
-        # Block execution of untrusted binaries
+        # Block execution of untrusted binaries (set 0 - base policy)
         id = 1;
+        set = 0;
         action = "deny";
         operations = ["exec"];
         object = { type = "untrusted"; };
@@ -28,7 +40,9 @@ rules = [
 
     {
         # Web domain isolation - processes can only access their domain
+        # (set 100 - can be disabled without affecting base policy)
         id = 10;
+        set = 100;
         action = "allow";
         operations = ["read", "write", "open", "stat", "mmap"];
         subject = { domain = "web"; };
@@ -36,8 +50,9 @@ rules = [
     },
 
     {
-        # Database domain isolation
+        # Database domain isolation (set 100)
         id = 11;
+        set = 100;
         action = "allow";
         operations = ["read", "write", "open", "stat"];
         subject = { domain = "database"; };

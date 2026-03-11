@@ -35,6 +35,7 @@
 #include <sys/rwlock.h>
 #include <sys/sbuf.h>
 #include <sys/sysctl.h>
+#include <sys/syslog.h>
 #include <sys/ucred.h>
 #include <sys/vnode.h>
 #include <sys/extattr.h>
@@ -163,6 +164,23 @@ uint64_t vlabel_labels_read;
 uint64_t vlabel_labels_default;
 
 /*
+ * Policy protection - locked mode
+ *
+ * Once locked, the policy cannot be modified until reboot.
+ * This provides tamper resistance for production deployments.
+ * The lock is one-way and resets only on module reload (reboot).
+ */
+int vlabel_locked = 0;
+
+/*
+ * Audit log level
+ *
+ * Controls what gets logged to the kernel message buffer.
+ * Default: VLABEL_LOG_ADMIN (log policy changes, not access checks)
+ */
+int vlabel_log_level = VLABEL_LOG_ADMIN;
+
+/*
  * SYSCTL tree: security.mac.vlabel.*
  */
 SYSCTL_DECL(_security_mac);
@@ -184,6 +202,13 @@ SYSCTL_UQUAD(_security_mac_vlabel, OID_AUTO, labels_default, CTLFLAG_RD,
 SYSCTL_STRING(_security_mac_vlabel, OID_AUTO, extattr_name, CTLFLAG_RW,
     vlabel_extattr_name, sizeof(vlabel_extattr_name),
     "Extended attribute name for labels (default: vlabel)");
+
+SYSCTL_INT(_security_mac_vlabel, OID_AUTO, locked, CTLFLAG_RD,
+    &vlabel_locked, 0, "Policy locked (1=locked until reboot, 0=unlocked)");
+
+SYSCTL_INT(_security_mac_vlabel, OID_AUTO, log_level, CTLFLAG_RW,
+    &vlabel_log_level, 0,
+    "Audit log level (0=none, 1=error, 2=admin, 3=deny, 4=all)");
 
 /*
  * Policy lifecycle
@@ -489,6 +514,12 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 		break;
 
 	case VLABEL_SYS_SETMODE:
+		if (vlabel_locked) {
+			error = EPERM;
+			if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+				log(LOG_WARNING, "vlabel: SETMODE denied - policy locked\n");
+			break;
+		}
 		error = copyin(arg, &val, sizeof(int));
 		if (error)
 			break;
@@ -497,6 +528,9 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 			break;
 		}
 		SDT_PROBE2(vlabel, policy, mode, change, vlabel_mode, val);
+		if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+			log(LOG_NOTICE, "vlabel: mode changed %d -> %d by pid %d uid %d\n",
+			    vlabel_mode, val, td->td_proc->p_pid, td->td_ucred->cr_uid);
 		vlabel_mode = val;
 		break;
 
@@ -510,13 +544,28 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 		break;
 
 	case VLABEL_SYS_SETDEFPOL:
+		if (vlabel_locked) {
+			error = EPERM;
+			if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+				log(LOG_WARNING, "vlabel: SETDEFPOL denied - policy locked\n");
+			break;
+		}
 		error = copyin(arg, &val, sizeof(int));
 		if (error)
 			break;
+		if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+			log(LOG_NOTICE, "vlabel: default policy changed %d -> %d by pid %d uid %d\n",
+			    vlabel_default_policy, val, td->td_proc->p_pid, td->td_ucred->cr_uid);
 		vlabel_default_policy = val;
 		break;
 
 	case VLABEL_SYS_RULE_ADD:
+		if (vlabel_locked) {
+			error = EPERM;
+			if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+				log(LOG_WARNING, "vlabel: RULE_ADD denied - policy locked\n");
+			break;
+		}
 		/* Copyin the header */
 		error = copyin(arg, &rule_arg, sizeof(rule_arg));
 		if (error)
@@ -549,17 +598,39 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 		if (error == 0) {
 			/* Copyout the updated arg with assigned rule ID */
 			error = copyout(&rule_arg, arg, sizeof(rule_arg));
+			if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+				log(LOG_NOTICE, "vlabel: rule %u added (set %u) by pid %d uid %d\n",
+				    rule_arg.vr_id, rule_arg.vr_set,
+				    td->td_proc->p_pid, td->td_ucred->cr_uid);
 		}
 		break;
 
 	case VLABEL_SYS_RULE_REMOVE:
+		if (vlabel_locked) {
+			error = EPERM;
+			if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+				log(LOG_WARNING, "vlabel: RULE_REMOVE denied - policy locked\n");
+			break;
+		}
 		error = copyin(arg, &rule_id, sizeof(uint32_t));
 		if (error)
 			break;
 		error = vlabel_rule_remove(rule_id);
+		if (error == 0 && vlabel_log_level >= VLABEL_LOG_ADMIN)
+			log(LOG_NOTICE, "vlabel: rule %u removed by pid %d uid %d\n",
+			    rule_id, td->td_proc->p_pid, td->td_ucred->cr_uid);
 		break;
 
 	case VLABEL_SYS_RULE_CLEAR:
+		if (vlabel_locked) {
+			error = EPERM;
+			if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+				log(LOG_WARNING, "vlabel: RULE_CLEAR denied - policy locked\n");
+			break;
+		}
+		if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+			log(LOG_NOTICE, "vlabel: all rules cleared by pid %d uid %d\n",
+			    td->td_proc->p_pid, td->td_ucred->cr_uid);
 		vlabel_rules_clear();
 		error = 0;
 		break;
@@ -568,12 +639,22 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 		{
 			struct vlabel_rule_load_arg load_arg;
 
+			if (vlabel_locked) {
+				error = EPERM;
+				if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+					log(LOG_WARNING, "vlabel: RULE_LOAD denied - policy locked\n");
+				break;
+			}
 			error = copyin(arg, &load_arg, sizeof(load_arg));
 			if (error)
 				break;
 			error = vlabel_rules_load(&load_arg);
-			if (error == 0)
+			if (error == 0) {
 				error = copyout(&load_arg, arg, sizeof(load_arg));
+				if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+					log(LOG_NOTICE, "vlabel: %u rules loaded by pid %d uid %d\n",
+					    load_arg.vrl_count, td->td_proc->p_pid, td->td_ucred->cr_uid);
+			}
 		}
 		break;
 
@@ -746,6 +827,167 @@ vlabel_syscall(struct thread *td, int call, void *arg)
 			fdrop(fp, td);
 			free(label_buf, M_TEMP);
 		}
+		break;
+
+	case VLABEL_SYS_SET_ENABLE:
+		{
+			struct vlabel_set_range range;
+
+			if (vlabel_locked) {
+				error = EPERM;
+				if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+					log(LOG_WARNING, "vlabel: SET_ENABLE denied - policy locked\n");
+				break;
+			}
+			error = copyin(arg, &range, sizeof(range));
+			if (error)
+				break;
+			if (range.vsr_end < range.vsr_start) {
+				error = EINVAL;
+				break;
+			}
+			vlabel_set_enable_range(range.vsr_start, range.vsr_end);
+			if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+				log(LOG_NOTICE, "vlabel: sets %u-%u enabled by pid %d uid %d\n",
+				    range.vsr_start, range.vsr_end,
+				    td->td_proc->p_pid, td->td_ucred->cr_uid);
+			error = 0;
+		}
+		break;
+
+	case VLABEL_SYS_SET_DISABLE:
+		{
+			struct vlabel_set_range range;
+
+			if (vlabel_locked) {
+				error = EPERM;
+				if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+					log(LOG_WARNING, "vlabel: SET_DISABLE denied - policy locked\n");
+				break;
+			}
+			error = copyin(arg, &range, sizeof(range));
+			if (error)
+				break;
+			if (range.vsr_end < range.vsr_start) {
+				error = EINVAL;
+				break;
+			}
+			vlabel_set_disable_range(range.vsr_start, range.vsr_end);
+			if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+				log(LOG_NOTICE, "vlabel: sets %u-%u disabled by pid %d uid %d\n",
+				    range.vsr_start, range.vsr_end,
+				    td->td_proc->p_pid, td->td_ucred->cr_uid);
+			error = 0;
+		}
+		break;
+
+	case VLABEL_SYS_SET_SWAP:
+		{
+			uint16_t sets[2];
+
+			if (vlabel_locked) {
+				error = EPERM;
+				if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+					log(LOG_WARNING, "vlabel: SET_SWAP denied - policy locked\n");
+				break;
+			}
+			error = copyin(arg, sets, sizeof(sets));
+			if (error)
+				break;
+			error = vlabel_set_swap(sets[0], sets[1]);
+			if (error == 0 && vlabel_log_level >= VLABEL_LOG_ADMIN)
+				log(LOG_NOTICE, "vlabel: sets %u <-> %u swapped by pid %d uid %d\n",
+				    sets[0], sets[1], td->td_proc->p_pid, td->td_ucred->cr_uid);
+		}
+		break;
+
+	case VLABEL_SYS_SET_MOVE:
+		{
+			uint16_t sets[2];
+
+			if (vlabel_locked) {
+				error = EPERM;
+				if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+					log(LOG_WARNING, "vlabel: SET_MOVE denied - policy locked\n");
+				break;
+			}
+			error = copyin(arg, sets, sizeof(sets));
+			if (error)
+				break;
+			error = vlabel_set_move(sets[0], sets[1]);
+			if (error == 0 && vlabel_log_level >= VLABEL_LOG_ADMIN)
+				log(LOG_NOTICE, "vlabel: set %u -> %u moved by pid %d uid %d\n",
+				    sets[0], sets[1], td->td_proc->p_pid, td->td_ucred->cr_uid);
+		}
+		break;
+
+	case VLABEL_SYS_SET_CLEAR:
+		{
+			uint16_t set;
+
+			if (vlabel_locked) {
+				error = EPERM;
+				if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+					log(LOG_WARNING, "vlabel: SET_CLEAR denied - policy locked\n");
+				break;
+			}
+			error = copyin(arg, &set, sizeof(set));
+			if (error)
+				break;
+			vlabel_set_clear(set);
+			if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+				log(LOG_NOTICE, "vlabel: set %u cleared by pid %d uid %d\n",
+				    set, td->td_proc->p_pid, td->td_ucred->cr_uid);
+			error = 0;
+		}
+		break;
+
+	case VLABEL_SYS_SET_LIST:
+		{
+			struct vlabel_set_list_arg set_list_arg;
+
+			error = copyin(arg, &set_list_arg, sizeof(set_list_arg));
+			if (error)
+				break;
+			vlabel_set_get_info(&set_list_arg);
+			error = copyout(&set_list_arg, arg, sizeof(set_list_arg));
+		}
+		break;
+
+	case VLABEL_SYS_LOCK:
+		/* One-way lock - once locked, stays locked until reboot */
+		if (vlabel_locked) {
+			/* Already locked, treat as success */
+			error = 0;
+		} else {
+			vlabel_locked = 1;
+			if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+				log(LOG_NOTICE, "vlabel: policy LOCKED by pid %d uid %d\n",
+				    td->td_proc->p_pid, td->td_ucred->cr_uid);
+			error = 0;
+		}
+		break;
+
+	case VLABEL_SYS_GETLOCKED:
+		error = copyout(&vlabel_locked, arg, sizeof(int));
+		break;
+
+	case VLABEL_SYS_GETLOGLEVEL:
+		error = copyout(&vlabel_log_level, arg, sizeof(int));
+		break;
+
+	case VLABEL_SYS_SETLOGLEVEL:
+		error = copyin(arg, &val, sizeof(int));
+		if (error)
+			break;
+		if (val < VLABEL_LOG_NONE || val > VLABEL_LOG_ALL) {
+			error = EINVAL;
+			break;
+		}
+		if (vlabel_log_level >= VLABEL_LOG_ADMIN)
+			log(LOG_NOTICE, "vlabel: log level changed %d -> %d by pid %d uid %d\n",
+			    vlabel_log_level, val, td->td_proc->p_pid, td->td_ucred->cr_uid);
+		vlabel_log_level = val;
 		break;
 
 	default:

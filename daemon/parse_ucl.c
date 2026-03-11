@@ -395,6 +395,20 @@ parse_rule(const ucl_object_t *obj, struct vlabel_rule_io *rule)
 	}
 	rule->vr_id = ucl_object_toint(val);
 
+	/* set (optional, defaults to 0) */
+	val = ucl_object_lookup(obj, "set");
+	if (val != NULL && ucl_object_type(val) == UCL_INT) {
+		int64_t set_val = ucl_object_toint(val);
+		if (set_val < 0 || set_val >= VLABEL_MAX_SETS) {
+			vlabeld_log(LOG_ERR, "rule %u: invalid set %jd",
+			    rule->vr_id, (intmax_t)set_val);
+			return (-1);
+		}
+		rule->vr_set = (uint16_t)set_val;
+	} else {
+		rule->vr_set = VLABEL_SET_DEFAULT;
+	}
+
 	/* action (required) */
 	val = ucl_object_lookup(obj, "action");
 	if (parse_action(val, &rule->vr_action) < 0) {

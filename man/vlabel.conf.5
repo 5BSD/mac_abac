@@ -49,6 +49,10 @@ array is an object with the following keys:
 .It Cm id
 Optional numeric rule identifier for reference.
 If omitted, IDs are assigned automatically.
+.It Cm set
+Optional rule set number (0-65535).
+Rules in lower-numbered sets are evaluated first.
+If omitted, defaults to 0.
 .It Cm action
 Required.
 One of:
@@ -274,6 +278,53 @@ rules = [
         obj_ctx = { sandboxed = true; };
     }
 ];
+.Ed
+.Ss Rule Sets
+Organize policies using rule sets:
+.Bd -literal -offset indent
+# Rule sets allow grouping rules for bulk enable/disable.
+# Sets are evaluated in order: set 0 first, then 1, then 2, etc.
+# Default set is 0 if not specified.
+
+rules = [
+    # Base policy (set 0) - always evaluated first
+    {
+        id = 1;
+        set = 0;
+        action = "deny";
+        operations = ["exec"];
+        object = { type = "untrusted"; };
+    },
+
+    # Web application sandbox (set 100)
+    {
+        id = 100;
+        set = 100;
+        action = "allow";
+        operations = ["read", "write"];
+        subject = { domain = "webapp"; };
+        object = { domain = "webapp"; };
+    },
+
+    # Database sandbox (set 200)
+    {
+        id = 200;
+        set = 200;
+        action = "allow";
+        operations = ["read", "write"];
+        subject = { domain = "database"; };
+        object = { domain = "database"; };
+    }
+];
+.Ed
+.Pp
+In line format rules, append
+.Cm set Ar N
+to specify the set:
+.Bd -literal -offset indent
+allow exec * -> type=trusted set 0
+allow read,write domain=webapp -> domain=webapp set 100
+allow read,write domain=database -> domain=database set 200
 .Ed
 .Sh SEE ALSO
 .Xr mac_vlabel 4 ,
