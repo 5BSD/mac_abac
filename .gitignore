@@ -12,6 +12,10 @@ kernel/opt_global.h
 kernel/export_syms
 .depend*
 
+# Binaries
+daemon/mac_abacd
+tools/mac_abac_ctl
+
 # Local scripts (contain IP addresses, etc.)
 scripts/deploy-test.sh
 scripts/setup-boot-test.sh
@@ -21,13 +25,6 @@ test-output.log
 
 # Claude
 .claude/
-kernel/mac_abac.ko
-kernel/mac_abac.o
-# Sticking with C for now.
-swift/.build/build.db
-swift/.build/debug
-swift/.build/
 
-daemon/abacd
-tools/abacctl
-tools/abacctl
+# Swift (not currently used)
+swift/.build/
