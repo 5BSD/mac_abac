@@ -507,10 +507,52 @@ parse_mode(const ucl_object_t *obj)
 }
 
 /*
- * Main UCL parsing function
+ * Parse default_policy setting
  */
-int
-vlabeld_parse_ucl(const char *path, bool verbose)
+static int
+parse_default_policy(const ucl_object_t *obj)
+{
+	const char *str;
+	int policy;
+
+	if (obj == NULL || ucl_object_type(obj) != UCL_STRING)
+		return (0);
+
+	str = ucl_object_tostring(obj);
+	if (strcasecmp(str, "allow") == 0)
+		policy = 0;
+	else if (strcasecmp(str, "deny") == 0)
+		policy = 1;
+	else {
+		vlabeld_log(LOG_ERR, "invalid default_policy: %s", str);
+		return (-1);
+	}
+
+	log_verbose("setting default_policy to %s (%d)", str, policy);
+
+	return vlabeld_set_default_policy(policy);
+}
+
+/*
+ * Parse append setting - if true, don't clear existing rules
+ */
+static bool
+parse_append(const ucl_object_t *obj)
+{
+	if (obj == NULL)
+		return (false);
+
+	if (ucl_object_type(obj) == UCL_BOOLEAN)
+		return ucl_object_toboolean(obj);
+
+	return (false);
+}
+
+/*
+ * Internal UCL parsing function with append mode support
+ */
+static int
+parse_ucl_internal(const char *path, bool verbose, bool *append_mode)
 {
 	struct ucl_parser *parser;
 	ucl_object_t *root;
@@ -519,6 +561,8 @@ vlabeld_parse_ucl(const char *path, bool verbose)
 	int error = 0;
 
 	verbose_mode = verbose;
+	if (append_mode != NULL)
+		*append_mode = false;
 
 	log_verbose("parsing UCL file: %s", path);
 
@@ -546,9 +590,19 @@ vlabeld_parse_ucl(const char *path, bool verbose)
 		return (-1);
 	}
 
+	/* Parse append flag first - determines if we should clear rules */
+	obj = ucl_object_lookup(root, "append");
+	if (append_mode != NULL)
+		*append_mode = parse_append(obj);
+
 	/* Parse mode */
 	obj = ucl_object_lookup(root, "mode");
 	if (parse_mode(obj) < 0)
+		error = -1;
+
+	/* Parse default_policy */
+	obj = ucl_object_lookup(root, "default_policy");
+	if (parse_default_policy(obj) < 0)
 		error = -1;
 
 	/* Note: audit is now handled by FreeBSD's standard audit subsystem */
@@ -561,6 +615,24 @@ vlabeld_parse_ucl(const char *path, bool verbose)
 	ucl_object_unref(root);
 
 	return (error);
+}
+
+/*
+ * Main UCL parsing function (legacy interface)
+ */
+int
+vlabeld_parse_ucl(const char *path, bool verbose)
+{
+	return parse_ucl_internal(path, verbose, NULL);
+}
+
+/*
+ * UCL parsing with append mode check
+ */
+int
+vlabeld_parse_ucl_check_append(const char *path, bool verbose, bool *append_mode)
+{
+	return parse_ucl_internal(path, verbose, append_mode);
 }
 
 /*

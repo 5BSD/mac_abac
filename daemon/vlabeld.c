@@ -37,6 +37,7 @@
 static struct vlabeld_config config;
 static volatile sig_atomic_t reload_pending = 0;
 static volatile sig_atomic_t shutdown_pending = 0;
+static volatile sig_atomic_t status_pending = 0;
 static struct pidfh *pfh = NULL;
 
 /* Forward declarations */
@@ -95,7 +96,17 @@ usage(void)
 	    "  -f          Run in foreground (don't daemonize)\n"
 	    "  -p pidfile  PID file path (default: %s)\n"
 	    "  -t          Test configuration and exit\n"
-	    "  -v          Verbose output\n",
+	    "  -v          Verbose output\n"
+	    "\n"
+	    "Signals:\n"
+	    "  SIGHUP      Reload policy configuration\n"
+	    "  SIGUSR1     Log current status and statistics\n"
+	    "\n"
+	    "Configuration directives:\n"
+	    "  mode = \"enforcing\";      # disabled, permissive, or enforcing\n"
+	    "  default_policy = \"deny\"; # allow or deny (when no rule matches)\n"
+	    "  append = true;           # append rules instead of replacing\n"
+	    "  rules = [ ... ];         # rule definitions\n",
 	    VLABELD_DEFAULT_CONFIG,
 	    VLABELD_DEFAULT_PIDFILE);
 	exit(1);
@@ -111,6 +122,9 @@ signal_handler(int sig)
 	case SIGINT:
 	case SIGTERM:
 		shutdown_pending = 1;
+		break;
+	case SIGUSR1:
+		status_pending = 1;
 		break;
 	}
 }
@@ -135,6 +149,11 @@ setup_signals(void)
 	}
 	if (sigaction(SIGTERM, &sa, NULL) < 0) {
 		vlabeld_log(LOG_ERR, "sigaction(SIGTERM): %s", strerror(errno));
+		return (-1);
+	}
+
+	if (sigaction(SIGUSR1, &sa, NULL) < 0) {
+		vlabeld_log(LOG_ERR, "sigaction(SIGUSR1): %s", strerror(errno));
 		return (-1);
 	}
 
@@ -191,6 +210,90 @@ vlabeld_set_mode(int mode)
 		vlabeld_log(LOG_DEBUG, "set mode to %d", mode);
 
 	return (0);
+}
+
+/*
+ * Set default policy (allow=0, deny=1)
+ */
+int
+vlabeld_set_default_policy(int policy)
+{
+	/* In test mode, just validate */
+	if (config.test_mode) {
+		if (config.verbose)
+			vlabeld_log(LOG_DEBUG, "would set default_policy to %d", policy);
+		return (0);
+	}
+
+	if (vlabel_syscall(VLABEL_SYS_SETDEFPOL, &policy) < 0) {
+		vlabeld_log(LOG_ERR, "SETDEFPOL: %s", strerror(errno));
+		return (-1);
+	}
+
+	if (config.verbose)
+		vlabeld_log(LOG_DEBUG, "set default_policy to %d", policy);
+
+	return (0);
+}
+
+/*
+ * Log current status and statistics
+ */
+static void
+log_status(void)
+{
+	struct vlabel_stats stats;
+	struct vlabel_rule_list_arg list_arg;
+	int mode, defpol;
+	const char *modestr, *defpolstr;
+
+	/* Get mode */
+	if (vlabel_syscall(VLABEL_SYS_GETMODE, &mode) < 0) {
+		vlabeld_log(LOG_WARNING, "status: failed to get mode");
+		return;
+	}
+
+	switch (mode) {
+	case VLABEL_MODE_DISABLED:
+		modestr = "disabled";
+		break;
+	case VLABEL_MODE_PERMISSIVE:
+		modestr = "permissive";
+		break;
+	case VLABEL_MODE_ENFORCING:
+		modestr = "enforcing";
+		break;
+	default:
+		modestr = "unknown";
+		break;
+	}
+
+	/* Get default policy */
+	if (vlabel_syscall(VLABEL_SYS_GETDEFPOL, &defpol) < 0) {
+		vlabeld_log(LOG_WARNING, "status: failed to get default policy");
+		return;
+	}
+	defpolstr = (defpol == 0) ? "allow" : "deny";
+
+	/* Get stats */
+	if (vlabel_syscall(VLABEL_SYS_GETSTATS, &stats) < 0) {
+		vlabeld_log(LOG_WARNING, "status: failed to get stats");
+		return;
+	}
+
+	/* Get rule count */
+	memset(&list_arg, 0, sizeof(list_arg));
+	if (vlabel_syscall(VLABEL_SYS_RULE_LIST, &list_arg) < 0) {
+		vlabeld_log(LOG_WARNING, "status: failed to get rule count");
+		return;
+	}
+
+	vlabeld_log(LOG_INFO, "status: mode=%s default=%s rules=%u",
+	    modestr, defpolstr, list_arg.vrl_total);
+	vlabeld_log(LOG_INFO, "stats: checks=%ju allowed=%ju denied=%ju",
+	    (uintmax_t)stats.vs_checks,
+	    (uintmax_t)stats.vs_allowed,
+	    (uintmax_t)stats.vs_denied);
 }
 
 /*
@@ -292,13 +395,42 @@ static int
 load_policy(const char *path)
 {
 	int error;
+	bool append_mode = false;
 
 	vlabeld_log(LOG_INFO, "loading policy from %s", path);
 
-	/* Clear existing rules first */
+	/* Parse the file first to check append mode */
+	/* Note: We need to parse twice - once to check append, once to load rules */
+	/* This is a bit wasteful but keeps the API clean */
+
+	/* Clear existing rules unless append mode is set */
 	if (!config.test_mode) {
-		if (vlabeld_clear_rules() < 0)
-			return (-1);
+		/* Peek at the file to check for append = true */
+		struct ucl_parser *parser;
+		ucl_object_t *root;
+		const ucl_object_t *obj;
+
+		parser = ucl_parser_new(UCL_PARSER_KEY_LOWERCASE);
+		if (parser != NULL) {
+			ucl_parser_set_filevars(parser, path, true);
+			if (ucl_parser_add_file(parser, path)) {
+				root = ucl_parser_get_object(parser);
+				if (root != NULL) {
+					obj = ucl_object_lookup(root, "append");
+					if (obj != NULL && ucl_object_type(obj) == UCL_BOOLEAN)
+						append_mode = ucl_object_toboolean(obj);
+					ucl_object_unref(root);
+				}
+			}
+			ucl_parser_free(parser);
+		}
+
+		if (!append_mode) {
+			if (vlabeld_clear_rules() < 0)
+				return (-1);
+		} else {
+			vlabeld_log(LOG_INFO, "append mode: keeping existing rules");
+		}
 	}
 
 	/* Determine format and parse */
@@ -317,12 +449,22 @@ main_loop(void)
 {
 	vlabeld_log(LOG_INFO, "daemon started");
 
+	/* Log initial status after startup */
+	log_status();
+
 	while (!shutdown_pending) {
 		/* Check for pending reload */
 		if (reload_pending) {
 			reload_pending = 0;
 			vlabeld_log(LOG_INFO, "reloading policy");
 			load_policy(config.config_file);
+			log_status();
+		}
+
+		/* Check for pending status request (SIGUSR1) */
+		if (status_pending) {
+			status_pending = 0;
+			log_status();
 		}
 
 		/* Sleep - audit events are handled by FreeBSD's audit subsystem */

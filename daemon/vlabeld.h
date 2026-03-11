@@ -49,11 +49,18 @@ void vlabeld_log(int priority, const char *fmt, ...);
 int vlabeld_add_rule(struct vlabel_rule_io *rule);
 int vlabeld_clear_rules(void);
 int vlabeld_set_mode(int mode);
+int vlabeld_set_default_policy(int policy);
 
 /*
  * Policy parsing functions (parse_ucl.c)
+ *
+ * vlabeld_parse_ucl_check_append: Parse and check if append mode is set
+ *   Returns: 0 = success (no append), 1 = success (append mode), -1 = error
+ *
+ * vlabeld_parse_ucl: Parse and load rules (legacy interface)
  */
 int vlabeld_parse_ucl(const char *path, bool verbose);
+int vlabeld_parse_ucl_check_append(const char *path, bool verbose, bool *append_mode);
 
 /*
  * Line format parsing (parse_line.c)
