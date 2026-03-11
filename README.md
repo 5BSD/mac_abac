@@ -181,6 +181,10 @@ See [Architecture](docs/architecture.md) for details on the ZFS-only design.
 - `options MAC` in kernel
 - ZFS filesystem
 
+## Related Tools
+
+For bulk binary labeling, see **maclabel** in [FreeBSDKit](https://github.com/vIsNotUNIX/FreeBSDKit) (`Sources/mac-policy-cli`). It reads JSON configuration files and applies labels recursively to directories, with Capsicum sandboxing.
+
 ## License
 
 BSD-2-Clause
