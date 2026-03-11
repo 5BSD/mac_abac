@@ -21,13 +21,17 @@ set -e
 SCRIPT_DIR=$(dirname "$0")
 . "$SCRIPT_DIR/lib/test_helpers.sh"
 
-# Configuration
+# Configuration - check installed locations first, then local build
 if [ -n "$1" ]; then
 	MAC_ABAC_CTL="$1"
+elif [ -x "/usr/local/sbin/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="/usr/local/sbin/mac_abac_ctl"
+elif [ -x "/usr/local/bin/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="/usr/local/bin/mac_abac_ctl"
 elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
 	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	MAC_ABAC_CTL="./tools/mac_abac_ctl"
+	MAC_ABAC_CTL="mac_abac_ctl"
 fi
 MODULE_NAME="mac_abac"
 # Use /root instead of /tmp - tmpfs may not support system extended attributes
@@ -83,13 +87,15 @@ info "=== Setup ==="
 # warning if the label isn't being read from extattr.
 
 # Check if pre-labeled test binary exists from deploy-test.sh
-# If /root/test_untrusted exists, use that instead
+# If /root/test_untrusted exists with a valid label, use that instead
 if [ -f "/root/test_untrusted" ]; then
-	LABEL=$(getextattr -q system mac_abac "/root/test_untrusted" 2>&1)
+	LABEL=$(getextattr -q system mac_abac "/root/test_untrusted" 2>&1 || true)
 	if echo "$LABEL" | grep -q "untrusted"; then
 		info "Using pre-labeled test binary: /root/test_untrusted"
 		TEST_BIN="/root/test_untrusted"
 		USE_PRELABELED=1
+	else
+		info "Pre-labeled binary exists but has no label, will create new test binary"
 	fi
 fi
 
