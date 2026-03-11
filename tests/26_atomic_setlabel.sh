@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Test: Atomic setlabel syscall (VLABEL_SYS_SETLABEL)
+# Test: Atomic setlabel syscall (ABAC_SYS_SETLABEL)
 #
 # Tests the atomic label set operation that writes to extattr AND updates
 # the in-memory cached label in a single syscall. This is essential for
@@ -9,7 +9,7 @@
 # Prerequisites:
 # - Must be run as root
 # - Module must be loaded
-# - vlabelctl must support the 'label setatomic' command
+# - mac_abac_ctl must support the 'label setatomic' command
 #
 
 set -e
@@ -19,7 +19,7 @@ SCRIPT_DIR=$(dirname "$0")
 . "$SCRIPT_DIR/lib/test_helpers.sh"
 
 # Configuration
-VLABELCTL="${1:-${VLABELCTL:-../tools/vlabelctl}}"
+MAC_ABAC_CTL="${1:-${MAC_ABAC_CTL:-../tools/mac_abac_ctl}}"
 
 # Use ZFS-backed directory for extended attributes support
 # /tmp may be tmpfs which doesn't support extattrs
@@ -28,13 +28,13 @@ if [ -d "/root" ]; then
 else
 	TEST_BASE="/var/tmp"
 fi
-TEST_FILE="$TEST_BASE/vlabel_atomic_test_$$"
-TEST_DIR="$TEST_BASE/vlabel_atomic_testdir_$$"
+TEST_FILE="$TEST_BASE/abac_atomic_test_$$"
+TEST_DIR="$TEST_BASE/abac_atomic_testdir_$$"
 
 # Prerequisites
 require_root
 require_module
-require_vlabelctl
+require_mac_abac_ctl
 
 echo "============================================"
 echo "Atomic Setlabel Syscall Tests"
@@ -42,19 +42,19 @@ echo "============================================"
 echo ""
 
 # Save original settings
-ORIG_MODE=$("$VLABELCTL" mode)
+ORIG_MODE=$("$MAC_ABAC_CTL" mode)
 
 # Create test files
 cleanup() {
 	rm -f "$TEST_FILE" 2>/dev/null || true
 	rm -rf "$TEST_DIR" 2>/dev/null || true
-	"$VLABELCTL" mode "$ORIG_MODE" >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" mode "$ORIG_MODE" >/dev/null 2>&1 || true
 }
 
 trap cleanup EXIT
 
 # Set permissive mode for testing
-"$VLABELCTL" mode permissive >/dev/null 2>&1
+"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1
 
 # Create test file (use cat - works when echo may be blocked by MAC)
 cat > "$TEST_FILE" <<EOF
@@ -73,12 +73,12 @@ info "=== Basic Atomic Setlabel Tests ==="
 run_test
 info "Test: Atomic setlabel on regular file"
 # First verify the file has no label or default label
-INITIAL=$("$VLABELCTL" label get "$TEST_FILE" 2>&1 || echo "no label")
+INITIAL=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1 || echo "no label")
 
 # Set label atomically
-if "$VLABELCTL" label setatomic "$TEST_FILE" "type=test\ndomain=atomic" 2>&1; then
+if "$MAC_ABAC_CTL" label setatomic "$TEST_FILE" "type=test\ndomain=atomic" 2>&1; then
 	# Verify the label was set
-	OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1 || echo "failed")
+	OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1 || echo "failed")
 	if echo "$OUTPUT" | grep -q "type=test"; then
 		if echo "$OUTPUT" | grep -q "domain=atomic"; then
 			pass "atomic setlabel on regular file"
@@ -90,13 +90,13 @@ if "$VLABELCTL" label setatomic "$TEST_FILE" "type=test\ndomain=atomic" 2>&1; th
 	fi
 else
 	# If setatomic command doesn't exist yet, test the raw syscall via C test
-	skip "atomic setlabel command not implemented in vlabelctl"
+	skip "atomic setlabel command not implemented in mac_abac_ctl"
 fi
 
 run_test
 info "Test: Atomic setlabel with single key=value"
-if "$VLABELCTL" label setatomic "$TEST_FILE" "sensitivity=high" 2>/dev/null; then
-	OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1 || echo "failed")
+if "$MAC_ABAC_CTL" label setatomic "$TEST_FILE" "sensitivity=high" 2>/dev/null; then
+	OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1 || echo "failed")
 	if echo "$OUTPUT" | grep -q "sensitivity=high"; then
 		pass "atomic setlabel single pair"
 	else
@@ -109,8 +109,8 @@ fi
 run_test
 info "Test: Atomic setlabel with multiple pairs"
 COMPLEX_LABEL="type=application\ndomain=web\nsensitivity=secret\nenv=production"
-if "$VLABELCTL" label setatomic "$TEST_FILE" "$COMPLEX_LABEL" 2>/dev/null; then
-	OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1 || echo "failed")
+if "$MAC_ABAC_CTL" label setatomic "$TEST_FILE" "$COMPLEX_LABEL" 2>/dev/null; then
+	OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1 || echo "failed")
 	if echo "$OUTPUT" | grep -q "type=application" && \
 	   echo "$OUTPUT" | grep -q "domain=web" && \
 	   echo "$OUTPUT" | grep -q "sensitivity=secret"; then
@@ -130,9 +130,9 @@ info "=== Persistence Verification Tests ==="
 
 run_test
 info "Test: Label persists in extattr after atomic set"
-if "$VLABELCTL" label setatomic "$TEST_FILE" "type=persistent" 2>/dev/null; then
+if "$MAC_ABAC_CTL" label setatomic "$TEST_FILE" "type=persistent" 2>/dev/null; then
 	# Read directly from extattr to verify write-through
-	EXTATTR_VAL=$(getextattr -q system vlabel "$TEST_FILE" 2>/dev/null || echo "")
+	EXTATTR_VAL=$(getextattr -q system mac_abac "$TEST_FILE" 2>/dev/null || echo "")
 	if echo "$EXTATTR_VAL" | grep -q "persistent"; then
 		pass "atomic setlabel persists to extattr"
 	else
@@ -144,11 +144,11 @@ fi
 
 run_test
 info "Test: In-memory cache matches extattr after atomic set"
-if "$VLABELCTL" label setatomic "$TEST_FILE" "type=cached\ndomain=inmemory" 2>/dev/null; then
-	# Get via vlabelctl (reads from cache)
-	CACHED=$("$VLABELCTL" label get "$TEST_FILE" 2>&1 || echo "failed")
+if "$MAC_ABAC_CTL" label setatomic "$TEST_FILE" "type=cached\ndomain=inmemory" 2>/dev/null; then
+	# Get via mac_abac_ctl (reads from cache)
+	CACHED=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1 || echo "failed")
 	# Get directly from extattr
-	DISK=$(getextattr -q system vlabel "$TEST_FILE" 2>/dev/null || echo "")
+	DISK=$(getextattr -q system mac_abac "$TEST_FILE" 2>/dev/null || echo "")
 
 	# Both should have the same content
 	if echo "$CACHED" | grep -q "type=cached" && echo "$DISK" | grep -q "cached"; then
@@ -168,8 +168,8 @@ info "=== Edge Case Tests ==="
 
 run_test
 info "Test: Atomic setlabel with empty label clears it"
-if "$VLABELCTL" label setatomic "$TEST_FILE" "" 2>/dev/null; then
-	OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1 || echo "failed")
+if "$MAC_ABAC_CTL" label setatomic "$TEST_FILE" "" 2>/dev/null; then
+	OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1 || echo "failed")
 	# Should show default/unlabeled
 	if echo "$OUTPUT" | grep -qi "unlabeled\|no label\|default"; then
 		pass "atomic setlabel empty clears label"
@@ -183,8 +183,8 @@ fi
 
 run_test
 info "Test: Atomic setlabel on directory"
-if "$VLABELCTL" label setatomic "$TEST_DIR" "type=directory\naccess=restricted" 2>/dev/null; then
-	OUTPUT=$("$VLABELCTL" label get "$TEST_DIR" 2>&1 || echo "failed")
+if "$MAC_ABAC_CTL" label setatomic "$TEST_DIR" "type=directory\naccess=restricted" 2>/dev/null; then
+	OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_DIR" 2>&1 || echo "failed")
 	if echo "$OUTPUT" | grep -q "type=directory"; then
 		pass "atomic setlabel on directory"
 	else
@@ -197,10 +197,10 @@ fi
 run_test
 info "Test: Atomic setlabel overwrites existing label"
 # Set initial label
-"$VLABELCTL" label setatomic "$TEST_FILE" "type=initial" 2>/dev/null || true
+"$MAC_ABAC_CTL" label setatomic "$TEST_FILE" "type=initial" 2>/dev/null || true
 # Overwrite with new label
-if "$VLABELCTL" label setatomic "$TEST_FILE" "type=overwritten\nnew=yes" 2>/dev/null; then
-	OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1 || echo "failed")
+if "$MAC_ABAC_CTL" label setatomic "$TEST_FILE" "type=overwritten\nnew=yes" 2>/dev/null; then
+	OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1 || echo "failed")
 	if echo "$OUTPUT" | grep -q "type=overwritten" && \
 	   echo "$OUTPUT" | grep -q "new=yes"; then
 		# Verify old value is gone
@@ -224,7 +224,7 @@ info "=== Error Handling Tests ==="
 
 run_test
 info "Test: Atomic setlabel on nonexistent file fails"
-if "$VLABELCTL" label setatomic "/nonexistent/file/path" "type=fail" 2>/dev/null; then
+if "$MAC_ABAC_CTL" label setatomic "/nonexistent/file/path" "type=fail" 2>/dev/null; then
 	fail "atomic setlabel nonexistent should fail"
 else
 	pass "atomic setlabel nonexistent fails correctly"
@@ -234,7 +234,7 @@ run_test
 info "Test: Atomic setlabel with invalid fd fails"
 # This tests kernel error path - invalid fd should return error
 # We can't directly test this from shell, but verify command handles errors
-if ! "$VLABELCTL" label setatomic "" "type=test" 2>/dev/null; then
+if ! "$MAC_ABAC_CTL" label setatomic "" "type=test" 2>/dev/null; then
 	pass "atomic setlabel with empty path fails"
 else
 	fail "atomic setlabel with empty path should fail"
@@ -249,8 +249,8 @@ info "=== Atomic vs Two-Step Comparison ==="
 run_test
 info "Test: Multiple atomic setlabel operations are consistent"
 # Create two test files (use ZFS-backed path)
-TEST_FILE_A="$TEST_BASE/vlabel_atomic_a_$$"
-TEST_FILE_B="$TEST_BASE/vlabel_atomic_b_$$"
+TEST_FILE_A="$TEST_BASE/abac_atomic_a_$$"
+TEST_FILE_B="$TEST_BASE/abac_atomic_b_$$"
 cat > "$TEST_FILE_A" <<EOF
 test a
 EOF
@@ -261,11 +261,11 @@ EOF
 LABEL="type=comparison,value=same"
 
 # Apply same label atomically to both files
-if "$VLABELCTL" label setatomic "$TEST_FILE_A" "$LABEL" 2>/dev/null && \
-   "$VLABELCTL" label setatomic "$TEST_FILE_B" "$LABEL" 2>/dev/null; then
+if "$MAC_ABAC_CTL" label setatomic "$TEST_FILE_A" "$LABEL" 2>/dev/null && \
+   "$MAC_ABAC_CTL" label setatomic "$TEST_FILE_B" "$LABEL" 2>/dev/null; then
 
-	RESULT_A=$("$VLABELCTL" label get "$TEST_FILE_A" 2>&1 || echo "failed")
-	RESULT_B=$("$VLABELCTL" label get "$TEST_FILE_B" 2>&1 || echo "failed")
+	RESULT_A=$("$MAC_ABAC_CTL" label get "$TEST_FILE_A" 2>&1 || echo "failed")
+	RESULT_B=$("$MAC_ABAC_CTL" label get "$TEST_FILE_B" 2>&1 || echo "failed")
 
 	# Both should have the same label
 	if echo "$RESULT_A" | grep -q "type=comparison" && \

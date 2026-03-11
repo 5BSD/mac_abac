@@ -1,12 +1,12 @@
 /*-
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * Copyright (c) 2026 vLabel Project
+ * Copyright (c) 2026 ABAC Project
  * All rights reserved.
  *
  * Simple Line Format Parser
  *
- * Parses vLabel rules in a simple line-based format for CLI use.
+ * Parses ABAC rules in a simple line-based format for CLI use.
  *
  * Format:
  *   action operations subject [ctx:...] -> object [ctx:...] [=> newlabel] [set N]
@@ -58,7 +58,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "vlabeld.h"
+#include "mac_abacd.h"
 
 /* Static rule ID counter */
 static uint32_t next_rule_id = 1000;
@@ -98,15 +98,15 @@ static int
 parse_action(const char *word, uint8_t *action)
 {
 	if (strcasecmp(word, "allow") == 0) {
-		*action = VLABEL_ACTION_ALLOW;
+		*action = ABAC_ACTION_ALLOW;
 		return (0);
 	}
 	if (strcasecmp(word, "deny") == 0) {
-		*action = VLABEL_ACTION_DENY;
+		*action = ABAC_ACTION_DENY;
 		return (0);
 	}
 	if (strcasecmp(word, "transition") == 0) {
-		*action = VLABEL_ACTION_TRANSITION;
+		*action = ABAC_ACTION_TRANSITION;
 		return (0);
 	}
 	return (-1);
@@ -127,65 +127,71 @@ parse_operations(const char *word, uint32_t *ops)
 	for (tok = strtok_r(buf, ",", &p); tok != NULL;
 	     tok = strtok_r(NULL, ",", &p)) {
 		if (strcasecmp(tok, "exec") == 0)
-			*ops |= VLABEL_OP_EXEC;
+			*ops |= ABAC_OP_EXEC;
 		else if (strcasecmp(tok, "read") == 0)
-			*ops |= VLABEL_OP_READ;
+			*ops |= ABAC_OP_READ;
 		else if (strcasecmp(tok, "write") == 0)
-			*ops |= VLABEL_OP_WRITE;
+			*ops |= ABAC_OP_WRITE;
 		else if (strcasecmp(tok, "mmap") == 0)
-			*ops |= VLABEL_OP_MMAP;
+			*ops |= ABAC_OP_MMAP;
 		else if (strcasecmp(tok, "link") == 0)
-			*ops |= VLABEL_OP_LINK;
+			*ops |= ABAC_OP_LINK;
 		else if (strcasecmp(tok, "rename") == 0)
-			*ops |= VLABEL_OP_RENAME;
+			*ops |= ABAC_OP_RENAME;
 		else if (strcasecmp(tok, "unlink") == 0)
-			*ops |= VLABEL_OP_UNLINK;
+			*ops |= ABAC_OP_UNLINK;
 		else if (strcasecmp(tok, "chdir") == 0)
-			*ops |= VLABEL_OP_CHDIR;
+			*ops |= ABAC_OP_CHDIR;
 		else if (strcasecmp(tok, "stat") == 0)
-			*ops |= VLABEL_OP_STAT;
+			*ops |= ABAC_OP_STAT;
 		else if (strcasecmp(tok, "readdir") == 0)
-			*ops |= VLABEL_OP_READDIR;
+			*ops |= ABAC_OP_READDIR;
 		else if (strcasecmp(tok, "create") == 0)
-			*ops |= VLABEL_OP_CREATE;
+			*ops |= ABAC_OP_CREATE;
 		else if (strcasecmp(tok, "setextattr") == 0)
-			*ops |= VLABEL_OP_SETEXTATTR;
+			*ops |= ABAC_OP_SETEXTATTR;
 		else if (strcasecmp(tok, "getextattr") == 0)
-			*ops |= VLABEL_OP_GETEXTATTR;
+			*ops |= ABAC_OP_GETEXTATTR;
 		else if (strcasecmp(tok, "lookup") == 0)
-			*ops |= VLABEL_OP_LOOKUP;
+			*ops |= ABAC_OP_LOOKUP;
 		else if (strcasecmp(tok, "open") == 0)
-			*ops |= VLABEL_OP_OPEN;
+			*ops |= ABAC_OP_OPEN;
 		else if (strcasecmp(tok, "access") == 0)
-			*ops |= VLABEL_OP_ACCESS;
+			*ops |= ABAC_OP_ACCESS;
 		else if (strcasecmp(tok, "debug") == 0)
-			*ops |= VLABEL_OP_DEBUG;
+			*ops |= ABAC_OP_DEBUG;
 		else if (strcasecmp(tok, "signal") == 0)
-			*ops |= VLABEL_OP_SIGNAL;
+			*ops |= ABAC_OP_SIGNAL;
 		else if (strcasecmp(tok, "sched") == 0)
-			*ops |= VLABEL_OP_SCHED;
+			*ops |= ABAC_OP_SCHED;
 		else if (strcasecmp(tok, "connect") == 0)
-			*ops |= VLABEL_OP_CONNECT;
+			*ops |= ABAC_OP_CONNECT;
 		else if (strcasecmp(tok, "bind") == 0)
-			*ops |= VLABEL_OP_BIND;
+			*ops |= ABAC_OP_BIND;
 		else if (strcasecmp(tok, "listen") == 0)
-			*ops |= VLABEL_OP_LISTEN;
+			*ops |= ABAC_OP_LISTEN;
 		else if (strcasecmp(tok, "accept") == 0)
-			*ops |= VLABEL_OP_ACCEPT;
+			*ops |= ABAC_OP_ACCEPT;
 		else if (strcasecmp(tok, "send") == 0)
-			*ops |= VLABEL_OP_SEND;
+			*ops |= ABAC_OP_SEND;
 		else if (strcasecmp(tok, "receive") == 0)
-			*ops |= VLABEL_OP_RECEIVE;
+			*ops |= ABAC_OP_RECEIVE;
 		else if (strcasecmp(tok, "deliver") == 0)
-			*ops |= VLABEL_OP_DELIVER;
+			*ops |= ABAC_OP_DELIVER;
+		else if (strcasecmp(tok, "wait") == 0)
+			*ops |= ABAC_OP_WAIT;
+		else if (strcasecmp(tok, "mprotect") == 0)
+			*ops |= ABAC_OP_MPROTECT;
+		else if (strcasecmp(tok, "audit") == 0)
+			*ops |= ABAC_OP_AUDIT;
 		else if (strcasecmp(tok, "all") == 0 || strcmp(tok, "*") == 0)
-			*ops |= VLABEL_OP_ALL;
+			*ops |= ABAC_OP_ALL;
 		else
 			return (-1);
 	}
 
 	if (*ops == 0)
-		*ops = VLABEL_OP_ALL;
+		*ops = ABAC_OP_ALL;
 
 	return (0);
 }
@@ -193,7 +199,7 @@ parse_operations(const char *word, uint32_t *ops)
 /*
  * Parse a pattern: key1=val1,key2=val2 or * for wildcard
  *
- * The new vlabel_pattern_io uses a simple string field (vp_pattern)
+ * The new abac_pattern_io uses a simple string field (vp_pattern)
  * that supports arbitrary key=value pairs. The kernel parses the string.
  *
  * Pattern formats:
@@ -204,7 +210,7 @@ parse_operations(const char *word, uint32_t *ops)
  *   !pattern               - negate the match
  */
 static int
-parse_pattern(const char *word, struct vlabel_pattern_io *pattern)
+parse_pattern(const char *word, struct abac_pattern_io *pattern)
 {
 	const char *pattern_start;
 
@@ -219,7 +225,7 @@ parse_pattern(const char *word, struct vlabel_pattern_io *pattern)
 	/* Check for negation prefix */
 	pattern_start = word;
 	if (word[0] == '!') {
-		pattern->vp_flags |= VLABEL_MATCH_NEGATE;
+		pattern->vp_flags |= ABAC_MATCH_NEGATE;
 		pattern_start = word + 1;
 	}
 
@@ -244,7 +250,7 @@ parse_pattern(const char *word, struct vlabel_pattern_io *pattern)
  * context, allowing multiple ctx: tokens to be combined.
  */
 static int
-parse_context(const char *word, struct vlabel_context_io *ctx)
+parse_context(const char *word, struct abac_context_io *ctx)
 {
 	char buf[256];
 	char *p, *tok;
@@ -276,7 +282,7 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
 		*val++ = '\0';
 
 		if (strcasecmp(key, "jail") == 0) {
-			ctx->vc_flags |= VLABEL_CTX_JAIL;
+			ctx->vc_flags |= ABAC_CTX_JAIL;
 			if (strcasecmp(val, "host") == 0)
 				ctx->vc_jail_check = 0;
 			else if (strcasecmp(val, "any") == 0)
@@ -291,7 +297,7 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
 				ctx->vc_jail_check = (int)num;
 			}
 		} else if (strcasecmp(key, "sandboxed") == 0) {
-			ctx->vc_flags |= VLABEL_CTX_CAP_SANDBOXED;
+			ctx->vc_flags |= ABAC_CTX_CAP_SANDBOXED;
 			if (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0)
 				ctx->vc_cap_sandboxed = 1;
 			else if (strcasecmp(val, "false") == 0 || strcmp(val, "0") == 0)
@@ -301,7 +307,7 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
 				return (-1);
 			}
 		} else if (strcasecmp(key, "tty") == 0) {
-			ctx->vc_flags |= VLABEL_CTX_HAS_TTY;
+			ctx->vc_flags |= ABAC_CTX_HAS_TTY;
 			if (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0)
 				ctx->vc_has_tty = 1;
 			else if (strcasecmp(val, "false") == 0 || strcmp(val, "0") == 0)
@@ -311,7 +317,11 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
 				return (-1);
 			}
 		} else if (strcasecmp(key, "uid") == 0) {
-			ctx->vc_flags |= VLABEL_CTX_UID;
+			if (ctx->vc_flags & ABAC_CTX_RUID) {
+				fprintf(stderr, "uid and ruid cannot be used together (both use vc_uid field)\n");
+				return (-1);
+			}
+			ctx->vc_flags |= ABAC_CTX_UID;
 			errno = 0;
 			num = strtol(val, &endptr, 10);
 			if (errno != 0 || *endptr != '\0' || num < 0) {
@@ -320,7 +330,7 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
 			}
 			ctx->vc_uid = (uint32_t)num;
 		} else if (strcasecmp(key, "gid") == 0) {
-			ctx->vc_flags |= VLABEL_CTX_GID;
+			ctx->vc_flags |= ABAC_CTX_GID;
 			errno = 0;
 			num = strtol(val, &endptr, 10);
 			if (errno != 0 || *endptr != '\0' || num < 0) {
@@ -329,7 +339,11 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
 			}
 			ctx->vc_gid = (uint32_t)num;
 		} else if (strcasecmp(key, "ruid") == 0) {
-			ctx->vc_flags |= VLABEL_CTX_RUID;
+			if (ctx->vc_flags & ABAC_CTX_UID) {
+				fprintf(stderr, "uid and ruid cannot be used together (both use vc_uid field)\n");
+				return (-1);
+			}
+			ctx->vc_flags |= ABAC_CTX_RUID;
 			errno = 0;
 			num = strtol(val, &endptr, 10);
 			if (errno != 0 || *endptr != '\0' || num < 0) {
@@ -365,9 +379,9 @@ parse_context(const char *word, struct vlabel_context_io *ctx)
  * Returns 0 on success, -1 on parse error, 1 for empty/comment line.
  */
 int
-vlabeld_parse_line(const char *line, struct vlabel_rule_io *rule)
+mac_abacd_parse_line(const char *line, struct abac_rule_io *rule)
 {
-	char word[VLABEL_PATTERN_MAX_LEN];
+	char word[ABAC_PATTERN_MAX_LEN];
 	const char *p;
 	bool got_arrow = false;
 	bool got_object = false;
@@ -486,7 +500,7 @@ vlabeld_parse_line(const char *line, struct vlabel_rule_io *rule)
 			errno = 0;
 			set_val = strtol(word, &endptr, 10);
 			if (errno != 0 || *endptr != '\0' ||
-			    set_val < 0 || set_val >= VLABEL_MAX_SETS) {
+			    set_val < 0 || set_val >= ABAC_MAX_SETS) {
 				fprintf(stderr, "invalid set number: %s\n", word);
 				return (-1);
 			}

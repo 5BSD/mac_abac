@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# setup-vm.sh - Set up a bhyve VM for vLabel kernel module testing
+# setup-vm.sh - Set up a bhyve VM for ABAC kernel module testing
 #
 # This script automates the creation of a FreeBSD test VM using vm-bhyve.
 # Always test kernel modules in a VM to avoid crashing your host system!
@@ -17,7 +17,7 @@
 set -e
 
 # Configuration
-VM_NAME="${1:-vlabel-test}"
+VM_NAME="${1:-abac-test}"
 VM_SIZE="20G"
 VM_MEM="2G"
 VM_CPUS="2"
@@ -45,11 +45,11 @@ fi
 
 echo ""
 echo "=============================================="
-echo "  vLabel Test VM Setup Script"
+echo "  ABAC Test VM Setup Script"
 echo "=============================================="
 echo ""
 echo "This script will create a bhyve VM for testing"
-echo "the vLabel kernel module safely."
+echo "the ABAC kernel module safely."
 echo ""
 echo "Configuration:"
 echo "  VM Name:    $VM_NAME"
@@ -176,8 +176,8 @@ echo "4. Or SSH in (get IP from console or DHCP leases):"
 echo "   ${BLUE}ssh root@<vm-ip>${NC}"
 echo ""
 echo "5. Copy and test the kernel module:"
-echo "   ${BLUE}scp kernel/mac_vlabel.ko root@<vm-ip>:/root/${NC}"
-echo "   ${BLUE}ssh root@<vm-ip> 'kldload /root/mac_vlabel.ko'${NC}"
+echo "   ${BLUE}scp kernel/mac_abac.ko root@<vm-ip>:/root/${NC}"
+echo "   ${BLUE}ssh root@<vm-ip> 'kldload /root/mac_abac.ko'${NC}"
 echo ""
 echo "For more commands:"
 echo "   vm list              - List all VMs"

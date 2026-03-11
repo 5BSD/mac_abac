@@ -15,7 +15,7 @@
 # Prerequisites:
 # - Must be run as root
 # - Module must be loaded
-# - vlabelctl must be built
+# - mac_abac_ctl must be built
 #
 
 set -e
@@ -25,14 +25,14 @@ SCRIPT_DIR=$(dirname "$0")
 
 # Configuration
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
-MODULE_NAME="mac_vlabel"
-TEST_DIR="/root/vlabel_proc_test_$$"
+MODULE_NAME="mac_abac"
+TEST_DIR="/root/abac_proc_test_$$"
 
 # Check prerequisites
 require_root
@@ -45,13 +45,13 @@ fi
 # Cleanup function - ALWAYS restore safe state
 cleanup() {
 	# Restore permissive mode
-	"$VLABELCTL" mode permissive >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1 || true
 	# Restore default allow
-	"$VLABELCTL" default allow >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" default allow >/dev/null 2>&1 || true
 	# Clear test rules
-	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
 	# Kill any lingering test processes
-	pkill -f "vlabel_test_target" 2>/dev/null || true
+	pkill -f "abac_test_target" 2>/dev/null || true
 	# Remove test directory
 	rm -rf "$TEST_DIR" 2>/dev/null || true
 }
@@ -61,7 +61,7 @@ echo "============================================"
 echo "Process-to-Process Enforcement Tests"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 echo ""
 
 # Create test directory
@@ -87,15 +87,15 @@ info ""
 info "=== Test Access Simulation ==="
 
 # Clear any existing rules
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # Add test rules
-"$VLABELCTL" rule add "deny signal type=attacker -> type=protected"
-"$VLABELCTL" rule add "allow signal * -> *"
+"$MAC_ABAC_CTL" rule add "deny signal type=attacker -> type=protected"
+"$MAC_ABAC_CTL" rule add "allow signal * -> *"
 
 run_test
 info "Test: Test command shows signal denial"
-OUTPUT=$("$VLABELCTL" test signal "type=attacker" "type=protected" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test signal "type=attacker" "type=protected" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "test signal deny works"
 else
@@ -104,14 +104,14 @@ fi
 
 run_test
 info "Test: Test command shows signal allow"
-OUTPUT=$("$VLABELCTL" test signal "type=admin" "type=worker" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test signal "type=admin" "type=worker" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "test signal allow works"
 else
 	fail "test signal allow (got: $OUTPUT)"
 fi
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Test 2: Debug operation rules
@@ -120,13 +120,13 @@ info ""
 info "=== Debug Operation Rule Tests ==="
 
 # Add rules for debug operations
-"$VLABELCTL" rule add "deny debug * -> type=protected"
-"$VLABELCTL" rule add "allow debug type=debugger -> *"
-"$VLABELCTL" rule add "allow debug * -> *"
+"$MAC_ABAC_CTL" rule add "deny debug * -> type=protected"
+"$MAC_ABAC_CTL" rule add "allow debug type=debugger -> *"
+"$MAC_ABAC_CTL" rule add "allow debug * -> *"
 
 run_test
 info "Test: Debug denied to protected processes"
-OUTPUT=$("$VLABELCTL" test debug "type=random" "type=protected" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test debug "type=random" "type=protected" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "debug to protected denied"
 else
@@ -135,7 +135,7 @@ fi
 
 run_test
 info "Test: Debugger can debug any process"
-OUTPUT=$("$VLABELCTL" test debug "type=debugger" "type=protected" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test debug "type=debugger" "type=protected" 2>&1 || true)
 # Note: First matching rule wins, so deny should still apply
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "first-match rule applies (deny still wins)"
@@ -143,7 +143,7 @@ else
 	fail "first-match rule (got: $OUTPUT)"
 fi
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Test 3: Scheduler operation rules
@@ -152,12 +152,12 @@ info ""
 info "=== Scheduler Operation Rule Tests ==="
 
 # Add rules for sched operations
-"$VLABELCTL" rule add "deny sched * -> type=realtime"
-"$VLABELCTL" rule add "allow sched * -> *"
+"$MAC_ABAC_CTL" rule add "deny sched * -> type=realtime"
+"$MAC_ABAC_CTL" rule add "allow sched * -> *"
 
 run_test
 info "Test: Sched denied for realtime processes"
-OUTPUT=$("$VLABELCTL" test sched "type=user" "type=realtime" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test sched "type=user" "type=realtime" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "sched to realtime denied"
 else
@@ -166,14 +166,14 @@ fi
 
 run_test
 info "Test: Sched allowed for normal processes"
-OUTPUT=$("$VLABELCTL" test sched "type=user" "type=normal" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test sched "type=user" "type=normal" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "sched to normal allowed"
 else
 	fail "sched to normal (got: $OUTPUT)"
 fi
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Test 4: Combined process rules
@@ -182,14 +182,14 @@ info ""
 info "=== Combined Process Operation Rules ==="
 
 # Add combined rules
-"$VLABELCTL" rule add "deny debug,signal,sched * -> type=kernel"
-"$VLABELCTL" rule add "allow all * -> *"
+"$MAC_ABAC_CTL" rule add "deny debug,signal,sched * -> type=kernel"
+"$MAC_ABAC_CTL" rule add "allow all * -> *"
 
 run_test
 info "Test: All process ops denied to kernel"
 DENIED_COUNT=0
 for OP in debug signal sched; do
-	OUTPUT=$("$VLABELCTL" test $OP "type=user" "type=kernel" 2>&1 || true)
+	OUTPUT=$("$MAC_ABAC_CTL" test $OP "type=user" "type=kernel" 2>&1 || true)
 	if echo "$OUTPUT" | grep -q "DENY"; then
 		DENIED_COUNT=$((DENIED_COUNT + 1))
 	fi
@@ -200,7 +200,7 @@ else
 	fail "all process ops denied to kernel ($DENIED_COUNT/3)"
 fi
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Test 5: Context constraints with process ops
@@ -209,12 +209,12 @@ info ""
 info "=== Context Constraints ==="
 
 # Test context constraints
-"$VLABELCTL" rule add "deny debug * -> * ctx:uid=0"
-"$VLABELCTL" rule add "allow debug * -> *"
+"$MAC_ABAC_CTL" rule add "deny debug * -> * ctx:uid=0"
+"$MAC_ABAC_CTL" rule add "allow debug * -> *"
 
 run_test
 info "Test: Context constraint rule accepted"
-RULES=$("$VLABELCTL" rule list 2>&1)
+RULES=$("$MAC_ABAC_CTL" rule list 2>&1)
 if echo "$RULES" | grep -q "context"; then
 	pass "context constraint in rule list"
 else
@@ -226,7 +226,7 @@ else
 	fi
 fi
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Test 6: Stats tracking
@@ -235,23 +235,23 @@ info ""
 info "=== Stats Tracking ==="
 
 # Get initial stats
-INITIAL_STATS=$("$VLABELCTL" stats 2>&1)
+INITIAL_STATS=$("$MAC_ABAC_CTL" stats 2>&1)
 INITIAL_CHECKS=$(echo "$INITIAL_STATS" | grep "Access checks" | sed 's/[^0-9]//g')
 if [ -z "$INITIAL_CHECKS" ]; then
 	INITIAL_CHECKS=0
 fi
 
 # Add rules and run some test commands
-"$VLABELCTL" rule add "deny signal * -> type=test"
-"$VLABELCTL" rule add "allow signal * -> *"
+"$MAC_ABAC_CTL" rule add "deny signal * -> type=test"
+"$MAC_ABAC_CTL" rule add "allow signal * -> *"
 
 # Run multiple test operations
-"$VLABELCTL" test signal "type=a" "type=test" 2>/dev/null || true
-"$VLABELCTL" test signal "type=b" "type=test" 2>/dev/null || true
-"$VLABELCTL" test signal "type=c" "type=other" 2>/dev/null || true
+"$MAC_ABAC_CTL" test signal "type=a" "type=test" 2>/dev/null || true
+"$MAC_ABAC_CTL" test signal "type=b" "type=test" 2>/dev/null || true
+"$MAC_ABAC_CTL" test signal "type=c" "type=other" 2>/dev/null || true
 
 # Get new stats
-NEW_STATS=$("$VLABELCTL" stats 2>&1)
+NEW_STATS=$("$MAC_ABAC_CTL" stats 2>&1)
 NEW_CHECKS=$(echo "$NEW_STATS" | grep "Access checks" | sed 's/[^0-9]//g')
 if [ -z "$NEW_CHECKS" ]; then
 	NEW_CHECKS=0
@@ -266,7 +266,7 @@ else
 	fail "stats tracking (initial=$INITIAL_CHECKS, new=$NEW_CHECKS)"
 fi
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Test 7: Default policy interaction
@@ -275,11 +275,11 @@ info ""
 info "=== Default Policy Interaction ==="
 
 # No rules, default deny
-"$VLABELCTL" default deny
+"$MAC_ABAC_CTL" default deny
 
 run_test
 info "Test: Default deny blocks unmatched access"
-OUTPUT=$("$VLABELCTL" test signal "type=any" "type=any" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test signal "type=any" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "default deny blocks"
 else
@@ -287,11 +287,11 @@ else
 fi
 
 # No rules, default allow
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" default allow
 
 run_test
 info "Test: Default allow permits unmatched access"
-OUTPUT=$("$VLABELCTL" test signal "type=any" "type=any" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test signal "type=any" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "default allow permits"
 else
@@ -305,12 +305,12 @@ info ""
 info "=== Mode Transition Tests ==="
 
 # Save original mode
-ORIG_MODE=$("$VLABELCTL" mode)
+ORIG_MODE=$("$MAC_ABAC_CTL" mode)
 
 run_test
 info "Test: Mode can be set to permissive"
-"$VLABELCTL" mode permissive
-MODE=$("$VLABELCTL" mode)
+"$MAC_ABAC_CTL" mode permissive
+MODE=$("$MAC_ABAC_CTL" mode)
 if [ "$MODE" = "permissive" ]; then
 	pass "mode set to permissive"
 else
@@ -319,8 +319,8 @@ fi
 
 run_test
 info "Test: Mode can be set to disabled"
-"$VLABELCTL" mode disabled
-MODE=$("$VLABELCTL" mode)
+"$MAC_ABAC_CTL" mode disabled
+MODE=$("$MAC_ABAC_CTL" mode)
 if [ "$MODE" = "disabled" ]; then
 	pass "mode set to disabled"
 else
@@ -328,7 +328,7 @@ else
 fi
 
 # Restore permissive mode
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" mode permissive
 
 # ===========================================
 # Test 9: Enforcing mode verification (brief)
@@ -337,16 +337,16 @@ info ""
 info "=== Enforcing Mode Verification ==="
 
 # Add a catch-all allow rule first for safety
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "allow all * -> *"
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "allow all * -> *"
 
 run_test
 info "Test: Can enter enforcing mode with allow-all rule"
 # Use sysctl directly for safety
-sysctl security.mac.vlabel.mode=2 >/dev/null 2>&1
-MODE=$(sysctl -n security.mac.vlabel.mode)
+sysctl security.mac.mac_abac.mode=2 >/dev/null 2>&1
+MODE=$(sysctl -n security.mac.mac_abac.mode)
 # Immediately restore
-sysctl security.mac.vlabel.mode=1 >/dev/null 2>&1
+sysctl security.mac.mac_abac.mode=1 >/dev/null 2>&1
 
 if [ "$MODE" = "2" ]; then
 	pass "enforcing mode can be entered"
@@ -354,16 +354,16 @@ else
 	fail "enforcing mode (got mode=$MODE)"
 fi
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Restore safe state
 # ===========================================
 info ""
 info "=== Restore Safe State ==="
-"$VLABELCTL" mode permissive
-"$VLABELCTL" default allow
-"$VLABELCTL" rule clear
+"$MAC_ABAC_CTL" mode permissive
+"$MAC_ABAC_CTL" default allow
+"$MAC_ABAC_CTL" rule clear
 info "Restored: permissive mode, default allow, no rules"
 
 # ===========================================

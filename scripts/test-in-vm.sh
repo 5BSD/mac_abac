@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# test-in-vm.sh - Build, copy, and test vLabel module in VM
+# test-in-vm.sh - Build, copy, and test ABAC module in VM
 #
 # This script automates the build-copy-test cycle for kernel development.
 #
@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 KERNEL_DIR="${PROJECT_DIR}/kernel"
 TESTS_DIR="${PROJECT_DIR}/tests"
-MODULE_NAME="mac_vlabel.ko"
+MODULE_NAME="mac_abac.ko"
 REMOTE_PATH="/root"
 
 # Colors
@@ -48,7 +48,7 @@ TEST_SCRIPT="$2"
 
 echo ""
 echo "=============================================="
-echo "  vLabel VM Test Script"
+echo "  ABAC VM Test Script"
 echo "=============================================="
 echo ""
 
@@ -75,7 +75,7 @@ success "VM is reachable"
 
 # Step 3: Unload existing module if loaded
 info "Checking for existing module in VM..."
-ssh -o ConnectTimeout=5 "root@${VM_IP}" "kldstat -q -m mac_vlabel && kldunload mac_vlabel || true" 2>/dev/null
+ssh -o ConnectTimeout=5 "root@${VM_IP}" "kldstat -q -m mac_abac && kldunload mac_abac || true" 2>/dev/null
 success "VM ready for new module"
 
 # Step 4: Copy module to VM
@@ -106,9 +106,9 @@ else
         kldload ${REMOTE_PATH}/${MODULE_NAME}
         echo ''
         echo 'Module loaded. sysctl values:'
-        sysctl security.mac.vlabel
+        sysctl security.mac.abac
         echo ''
-        echo 'To unload: kldunload mac_vlabel'
+        echo 'To unload: kldunload mac_abac'
     "
     echo "----------------------------------------------"
 fi

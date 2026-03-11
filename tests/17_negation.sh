@@ -17,7 +17,7 @@
 # Prerequisites:
 # - Must be run as root
 # - Module must be loaded
-# - vlabelctl must be built
+# - mac_abac_ctl must be built
 #
 
 set -e
@@ -27,14 +27,14 @@ SCRIPT_DIR=$(dirname "$0")
 
 # Configuration
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
 
-MODULE_NAME="mac_vlabel"
+MODULE_NAME="mac_abac"
 
 # Check prerequisites
 require_root
@@ -46,9 +46,9 @@ fi
 
 # Cleanup function
 cleanup() {
-	"$VLABELCTL" mode permissive >/dev/null 2>&1 || true
-	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
-	"$VLABELCTL" default allow >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" default allow >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -56,7 +56,7 @@ echo "============================================"
 echo "Negation Pattern Tests"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 echo ""
 
 # ===========================================
@@ -66,8 +66,8 @@ info "=== Syntax Validation ==="
 
 run_test
 info "Test: Negated object pattern parses"
-"$VLABELCTL" rule clear >/dev/null
-if "$VLABELCTL" rule add "deny exec * -> !type=trusted" >/dev/null 2>&1; then
+"$MAC_ABAC_CTL" rule clear >/dev/null
+if "$MAC_ABAC_CTL" rule add "deny exec * -> !type=trusted" >/dev/null 2>&1; then
 	pass "negated object pattern"
 else
 	fail "negated object pattern"
@@ -75,8 +75,8 @@ fi
 
 run_test
 info "Test: Negated subject pattern parses"
-"$VLABELCTL" rule clear >/dev/null
-if "$VLABELCTL" rule add "deny exec !type=admin -> *" >/dev/null 2>&1; then
+"$MAC_ABAC_CTL" rule clear >/dev/null
+if "$MAC_ABAC_CTL" rule add "deny exec !type=admin -> *" >/dev/null 2>&1; then
 	pass "negated subject pattern"
 else
 	fail "negated subject pattern"
@@ -84,8 +84,8 @@ fi
 
 run_test
 info "Test: Both patterns negated parses"
-"$VLABELCTL" rule clear >/dev/null
-if "$VLABELCTL" rule add "deny exec !type=trusted -> !type=public" >/dev/null 2>&1; then
+"$MAC_ABAC_CTL" rule clear >/dev/null
+if "$MAC_ABAC_CTL" rule add "deny exec !type=trusted -> !type=public" >/dev/null 2>&1; then
 	pass "both patterns negated"
 else
 	fail "both patterns negated"
@@ -93,8 +93,8 @@ fi
 
 run_test
 info "Test: Negated multi-key pattern parses"
-"$VLABELCTL" rule clear >/dev/null
-if "$VLABELCTL" rule add "deny exec * -> !type=user,domain=web" >/dev/null 2>&1; then
+"$MAC_ABAC_CTL" rule clear >/dev/null
+if "$MAC_ABAC_CTL" rule add "deny exec * -> !type=user,domain=web" >/dev/null 2>&1; then
 	pass "negated multi-key pattern"
 else
 	fail "negated multi-key pattern"
@@ -102,8 +102,8 @@ fi
 
 run_test
 info "Test: Negated wildcard parses (!*)"
-"$VLABELCTL" rule clear >/dev/null
-if "$VLABELCTL" rule add "deny exec * -> !*" >/dev/null 2>&1; then
+"$MAC_ABAC_CTL" rule clear >/dev/null
+if "$MAC_ABAC_CTL" rule add "deny exec * -> !*" >/dev/null 2>&1; then
 	# !* means "NOT match anything" = match nothing = rule never triggers
 	pass "negated wildcard (!*)"
 else
@@ -118,9 +118,9 @@ info "=== Rule List Display ==="
 
 run_test
 info "Test: Negated patterns display correctly in rule list"
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny exec !type=admin -> !type=public" >/dev/null 2>&1
-OUTPUT=$("$VLABELCTL" rule list 2>&1)
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny exec !type=admin -> !type=public" >/dev/null 2>&1
+OUTPUT=$("$MAC_ABAC_CTL" rule list 2>&1)
 if echo "$OUTPUT" | grep -q "!type=admin" && echo "$OUTPUT" | grep -q "!type=public"; then
 	pass "negation displayed in rule list"
 else
@@ -128,7 +128,7 @@ else
 fi
 
 # ===========================================
-# Part 3: Test Command (vlabelctl test)
+# Part 3: Test Command (mac_abac_ctl test)
 # ===========================================
 echo ""
 info "=== Test Command Verification ==="
@@ -137,11 +137,11 @@ info "=== Test Command Verification ==="
 # Should DENY if object is NOT type=trusted (i.e., deny anything except trusted)
 run_test
 info "Test: Object negation - DENY non-trusted"
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny exec * -> !type=trusted" >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny exec * -> !type=trusted" >/dev/null
 # type=untrusted should be DENIED (it's not trusted)
-# Note: vlabelctl test returns non-zero on DENY, use || true to capture output
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=untrusted" 2>&1 || true)
+# Note: mac_abac_ctl test returns non-zero on DENY, use || true to capture output
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=untrusted" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "deny non-trusted object"
 else
@@ -151,7 +151,7 @@ fi
 run_test
 info "Test: Object negation - ALLOW trusted"
 # type=trusted should be ALLOWED (negation doesn't match)
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=trusted" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=trusted" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "allow trusted object"
 else
@@ -162,11 +162,11 @@ fi
 # Should ALLOW if subject is NOT type=restricted
 run_test
 info "Test: Subject negation - ALLOW non-restricted"
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "allow exec !type=restricted -> *" >/dev/null
-"$VLABELCTL" default deny >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "allow exec !type=restricted -> *" >/dev/null
+"$MAC_ABAC_CTL" default deny >/dev/null
 # type=user should be ALLOWED (it's not restricted)
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=any" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "allow non-restricted subject"
 else
@@ -176,7 +176,7 @@ fi
 run_test
 info "Test: Subject negation - DEFAULT for restricted"
 # type=restricted should NOT match the rule (falls through to default deny)
-OUTPUT=$("$VLABELCTL" test exec "type=restricted" "type=any" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=restricted" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "restricted subject falls to default"
 else
@@ -184,7 +184,7 @@ else
 fi
 
 # Reset default
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 # ===========================================
 # Part 4: Complex Negation Scenarios
@@ -197,10 +197,10 @@ info "=== Complex Scenarios ==="
 # Then: allow exec * -> *
 run_test
 info "Test: Positive deny before catch-all allow"
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny exec type=restricted -> type=secret" >/dev/null
-"$VLABELCTL" rule add "allow exec * -> *" >/dev/null
-OUTPUT=$("$VLABELCTL" test exec "type=restricted" "type=secret" 2>&1 || true)
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny exec type=restricted -> type=secret" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow exec * -> *" >/dev/null
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=restricted" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "positive deny works"
 else
@@ -212,17 +212,17 @@ fi
 # Default: deny
 run_test
 info "Test: Allow exception with deny default"
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "allow exec type=trusted -> type=trusted" >/dev/null
-"$VLABELCTL" default deny >/dev/null
-OUTPUT=$("$VLABELCTL" test exec "type=trusted" "type=trusted" 2>&1 || true)
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "allow exec type=trusted -> type=trusted" >/dev/null
+"$MAC_ABAC_CTL" default deny >/dev/null
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=trusted" "type=trusted" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "trusted->trusted allowed"
 else
 	fail "trusted->trusted allowed (got: $OUTPUT)"
 fi
 
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=trusted" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=trusted" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "non-trusted subject denied"
 else
@@ -230,18 +230,18 @@ else
 fi
 
 # Reset
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 # Scenario: Double negation - allow !restricted -> !secret
 # Should allow anything EXCEPT restricted subjects accessing secret objects
 run_test
 info "Test: Double negation - allow !restricted -> !secret"
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "allow exec !type=restricted -> !type=secret" >/dev/null
-"$VLABELCTL" default deny >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "allow exec !type=restricted -> !type=secret" >/dev/null
+"$MAC_ABAC_CTL" default deny >/dev/null
 
 # user -> public: both negations match, ALLOW
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=public" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=public" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "user->public allowed"
 else
@@ -249,7 +249,7 @@ else
 fi
 
 # restricted -> public: subject negation doesn't match, falls to default DENY
-OUTPUT=$("$VLABELCTL" test exec "type=restricted" "type=public" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=restricted" "type=public" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "restricted->public denied"
 else
@@ -257,7 +257,7 @@ else
 fi
 
 # user -> secret: object negation doesn't match, falls to default DENY
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "user->secret denied"
 else
@@ -265,7 +265,7 @@ else
 fi
 
 # restricted -> secret: neither negation matches, falls to default DENY
-OUTPUT=$("$VLABELCTL" test exec "type=restricted" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=restricted" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "restricted->secret denied"
 else
@@ -273,7 +273,7 @@ else
 fi
 
 # Reset
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 # ===========================================
 # Part 5: Negation with Multi-Key Patterns
@@ -283,13 +283,13 @@ info "=== Multi-Key Negation ==="
 
 run_test
 info "Test: Negated multi-key pattern"
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Deny if object does NOT have both type=trusted AND domain=system
-"$VLABELCTL" rule add "deny exec * -> !type=trusted,domain=system" >/dev/null
-"$VLABELCTL" rule add "allow exec * -> *" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny exec * -> !type=trusted,domain=system" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow exec * -> *" >/dev/null
 
 # Object with only type=trusted (missing domain=system) - negation matches, DENY
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=trusted" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=trusted" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "partial match causes deny"
 else
@@ -297,7 +297,7 @@ else
 fi
 
 # Object with both type=trusted,domain=system - negation doesn't match, ALLOW
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=trusted,domain=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=trusted,domain=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "full match allows"
 else
@@ -312,13 +312,13 @@ info "=== Multi-Key Subject Negation ==="
 
 run_test
 info "Test: Negated multi-key subject pattern"
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Deny if subject does NOT have both type=system AND domain=kernel
-"$VLABELCTL" rule add "deny exec !type=system,domain=kernel -> *" >/dev/null
-"$VLABELCTL" rule add "allow exec * -> *" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny exec !type=system,domain=kernel -> *" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow exec * -> *" >/dev/null
 
 # Subject with only type=system (missing domain=kernel) - negation matches, DENY
-OUTPUT=$("$VLABELCTL" test exec "type=system" "type=any" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=system" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "partial subject match causes deny"
 else
@@ -326,7 +326,7 @@ else
 fi
 
 # Subject with both type=system,domain=kernel - negation doesn't match, ALLOW
-OUTPUT=$("$VLABELCTL" test exec "type=system,domain=kernel" "type=any" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=system,domain=kernel" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "full subject match allows"
 else
@@ -334,7 +334,7 @@ else
 fi
 
 # Subject with neither key - negation matches, DENY
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=any" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "no subject match causes deny"
 else
@@ -349,13 +349,13 @@ info "=== Multiple Operations + Negation ==="
 
 run_test
 info "Test: Multiple ops with negated subject pattern"
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Deny read AND write for subjects NOT matching type=system,domain=test
-"$VLABELCTL" rule add "deny read,write !type=system,domain=test -> *" >/dev/null
-"$VLABELCTL" rule add "allow read,write,exec * -> *" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny read,write !type=system,domain=test -> *" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow read,write,exec * -> *" >/dev/null
 
 # Non-matching subject trying to read - DENY
-OUTPUT=$("$VLABELCTL" test read "type=user" "type=any" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=user" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "read denied for non-matching subject"
 else
@@ -363,7 +363,7 @@ else
 fi
 
 # Non-matching subject trying to write - DENY
-OUTPUT=$("$VLABELCTL" test write "type=user" "type=any" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=user" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "write denied for non-matching subject"
 else
@@ -371,7 +371,7 @@ else
 fi
 
 # Non-matching subject trying to exec - ALLOW (not in the deny rule)
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=any" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "exec allowed for non-matching subject"
 else
@@ -379,7 +379,7 @@ else
 fi
 
 # Matching subject can read - ALLOW
-OUTPUT=$("$VLABELCTL" test read "type=system,domain=test" "type=any" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=system,domain=test" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "read allowed for matching subject"
 else
@@ -387,7 +387,7 @@ else
 fi
 
 # Matching subject can write - ALLOW
-OUTPUT=$("$VLABELCTL" test write "type=system,domain=test" "type=any" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=system,domain=test" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "write allowed for matching subject"
 else
@@ -396,13 +396,13 @@ fi
 
 run_test
 info "Test: Multiple ops with negated object pattern"
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Deny read AND write to objects NOT matching type=public
-"$VLABELCTL" rule add "deny read,write * -> !type=public" >/dev/null
-"$VLABELCTL" rule add "allow read,write,exec * -> *" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny read,write * -> !type=public" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow read,write,exec * -> *" >/dev/null
 
 # Reading non-public object - DENY
-OUTPUT=$("$VLABELCTL" test read "type=user" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=user" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "read denied for non-public object"
 else
@@ -410,7 +410,7 @@ else
 fi
 
 # Writing non-public object - DENY
-OUTPUT=$("$VLABELCTL" test write "type=user" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=user" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "write denied for non-public object"
 else
@@ -418,7 +418,7 @@ else
 fi
 
 # Reading public object - ALLOW
-OUTPUT=$("$VLABELCTL" test read "type=user" "type=public" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=user" "type=public" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "read allowed for public object"
 else
@@ -426,7 +426,7 @@ else
 fi
 
 # Exec non-public object - ALLOW (not in the deny rule)
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "exec allowed for non-public object"
 else
@@ -441,13 +441,13 @@ info "=== Edge Cases ==="
 
 run_test
 info "Test: Negation of empty/unlabeled"
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Deny access to anything that is NOT type=labeled
-"$VLABELCTL" rule add "deny exec * -> !type=labeled" >/dev/null
-"$VLABELCTL" rule add "allow exec * -> *" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny exec * -> !type=labeled" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow exec * -> *" >/dev/null
 
 # Empty label (unlabeled file) - negation matches, DENY
-OUTPUT=$("$VLABELCTL" test exec "type=user" "" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "empty label causes negation match"
 else
@@ -456,13 +456,13 @@ fi
 
 run_test
 info "Test: Negated wildcard (!*) matches nothing"
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # !* means NOT(match anything) = match nothing
-"$VLABELCTL" rule add "deny exec * -> !*" >/dev/null
-"$VLABELCTL" rule add "allow exec * -> *" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny exec * -> !*" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow exec * -> *" >/dev/null
 
 # Any object should NOT trigger the deny rule (rule pattern can't match)
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=anything" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=anything" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "!* matches nothing"
 else

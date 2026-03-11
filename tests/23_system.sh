@@ -13,7 +13,7 @@
 #   - acct: process accounting (uses WRITE)
 #   - mount_stat: mount point info (uses STAT)
 #
-# Note: These are rule-based tests using vlabelctl test command.
+# Note: These are rule-based tests using mac_abac_ctl test command.
 # Actual enforcement requires process labeling.
 #
 
@@ -24,13 +24,13 @@ SCRIPT_DIR=$(dirname "$0")
 
 # Configuration
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
-MODULE_NAME="mac_vlabel"
+MODULE_NAME="mac_abac"
 
 # Check prerequisites
 require_root
@@ -42,9 +42,9 @@ fi
 
 # Cleanup function
 cleanup() {
-	"$VLABELCTL" mode permissive >/dev/null 2>&1 || true
-	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
-	"$VLABELCTL" default allow >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" default allow >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -53,7 +53,7 @@ echo "System-Level Operation Tests"
 echo "(kld/reboot/sysctl via type=system label)"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 echo ""
 
 # ===========================================
@@ -62,16 +62,16 @@ echo ""
 # ===========================================
 info "=== KLD (Kernel Module) Access ==="
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Deny untrusted processes from loading kernel modules (EXEC against system)
-"$VLABELCTL" rule add "deny exec type=untrusted -> type=system" >/dev/null
-"$VLABELCTL" rule add "allow exec type=admin -> type=system" >/dev/null
-"$VLABELCTL" rule add "allow exec * -> *" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule add "deny exec type=untrusted -> type=system" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow exec type=admin -> type=system" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow exec * -> *" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: kld denied for untrusted -> system"
-OUTPUT=$("$VLABELCTL" test exec "type=untrusted" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=untrusted" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "kld/exec denied for untrusted -> system"
 else
@@ -80,7 +80,7 @@ fi
 
 run_test
 info "Test: kld allowed for admin -> system"
-OUTPUT=$("$VLABELCTL" test exec "type=admin" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=admin" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "kld/exec allowed for admin -> system"
 else
@@ -94,15 +94,15 @@ fi
 echo ""
 info "=== Reboot Access ==="
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Only admin can reboot
-"$VLABELCTL" rule add "deny write type=user -> type=system" >/dev/null
-"$VLABELCTL" rule add "allow write type=admin -> type=system" >/dev/null
-"$VLABELCTL" default deny >/dev/null
+"$MAC_ABAC_CTL" rule add "deny write type=user -> type=system" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow write type=admin -> type=system" >/dev/null
+"$MAC_ABAC_CTL" default deny >/dev/null
 
 run_test
 info "Test: reboot denied for user -> system"
-OUTPUT=$("$VLABELCTL" test write "type=user" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=user" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "reboot/write denied for user -> system"
 else
@@ -111,7 +111,7 @@ fi
 
 run_test
 info "Test: reboot allowed for admin -> system"
-OUTPUT=$("$VLABELCTL" test write "type=admin" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=admin" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "reboot/write allowed for admin -> system"
 else
@@ -125,16 +125,16 @@ fi
 echo ""
 info "=== Sysctl Access ==="
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Sandbox can read but not write sysctls
-"$VLABELCTL" rule add "deny write type=sandbox -> type=system" >/dev/null
-"$VLABELCTL" rule add "allow read type=sandbox -> type=system" >/dev/null
-"$VLABELCTL" rule add "allow read,write type=admin -> type=system" >/dev/null
-"$VLABELCTL" default deny >/dev/null
+"$MAC_ABAC_CTL" rule add "deny write type=sandbox -> type=system" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow read type=sandbox -> type=system" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow read,write type=admin -> type=system" >/dev/null
+"$MAC_ABAC_CTL" default deny >/dev/null
 
 run_test
 info "Test: sysctl read allowed for sandbox -> system"
-OUTPUT=$("$VLABELCTL" test read "type=sandbox" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=sandbox" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "sysctl/read allowed for sandbox -> system"
 else
@@ -143,7 +143,7 @@ fi
 
 run_test
 info "Test: sysctl write denied for sandbox -> system"
-OUTPUT=$("$VLABELCTL" test write "type=sandbox" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=sandbox" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "sysctl/write denied for sandbox -> system"
 else
@@ -152,7 +152,7 @@ fi
 
 run_test
 info "Test: sysctl write allowed for admin -> system"
-OUTPUT=$("$VLABELCTL" test write "type=admin" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=admin" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "sysctl/write allowed for admin -> system"
 else
@@ -166,14 +166,14 @@ fi
 echo ""
 info "=== Mount Stat Access ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny stat type=isolated -> type=system" >/dev/null
-"$VLABELCTL" rule add "allow stat * -> type=system" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny stat type=isolated -> type=system" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow stat * -> type=system" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: mount_stat denied for isolated -> system"
-OUTPUT=$("$VLABELCTL" test stat "type=isolated" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test stat "type=isolated" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "mount_stat denied for isolated -> system"
 else
@@ -182,7 +182,7 @@ fi
 
 run_test
 info "Test: mount_stat allowed for normal -> system"
-OUTPUT=$("$VLABELCTL" test stat "type=normal" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test stat "type=normal" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "mount_stat allowed for normal -> system"
 else
@@ -195,17 +195,17 @@ fi
 echo ""
 info "=== Combined System Restrictions ==="
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Sandbox: no write to system, read only
-"$VLABELCTL" rule add "deny exec,write type=sandbox -> type=system" >/dev/null
-"$VLABELCTL" rule add "allow read,stat type=sandbox -> type=system" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny exec,write type=sandbox -> type=system" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow read,stat type=sandbox -> type=system" >/dev/null
 # Admin: full access
-"$VLABELCTL" rule add "allow exec,read,write,stat type=admin -> type=system" >/dev/null
-"$VLABELCTL" default deny >/dev/null
+"$MAC_ABAC_CTL" rule add "allow exec,read,write,stat type=admin -> type=system" >/dev/null
+"$MAC_ABAC_CTL" default deny >/dev/null
 
 run_test
 info "Test: sandbox cannot load kld (exec)"
-OUTPUT=$("$VLABELCTL" test exec "type=sandbox" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=sandbox" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "sandbox cannot load kld"
 else
@@ -214,7 +214,7 @@ fi
 
 run_test
 info "Test: sandbox cannot reboot (write)"
-OUTPUT=$("$VLABELCTL" test write "type=sandbox" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=sandbox" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "sandbox cannot reboot"
 else
@@ -223,7 +223,7 @@ fi
 
 run_test
 info "Test: sandbox can read sysctl"
-OUTPUT=$("$VLABELCTL" test read "type=sandbox" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=sandbox" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "sandbox can read sysctl"
 else
@@ -232,7 +232,7 @@ fi
 
 run_test
 info "Test: sandbox can stat mount"
-OUTPUT=$("$VLABELCTL" test stat "type=sandbox" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test stat "type=sandbox" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "sandbox can stat mount"
 else
@@ -241,7 +241,7 @@ fi
 
 run_test
 info "Test: admin has full system access"
-OUTPUT=$("$VLABELCTL" test exec "type=admin" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=admin" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "admin has full system access"
 else
@@ -253,9 +253,9 @@ fi
 # ===========================================
 echo ""
 info "=== Restore Safe State ==="
-"$VLABELCTL" mode permissive
-"$VLABELCTL" rule clear
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" mode permissive
+"$MAC_ABAC_CTL" rule clear
+"$MAC_ABAC_CTL" default allow
 info "Restored to permissive mode with no rules"
 
 # ===========================================

@@ -10,11 +10,11 @@
 # representation of a file - the same file path can map to different vnode
 # objects over time as the kernel reclaims and recreates them.
 #
-# When vlabelctl sets a label, it:
-#   1. Writes the label to the system:vlabel extended attribute
-#   2. Opens the file and calls VLABEL_SYS_REFRESH to update that vnode's label
+# When mac_abac_ctl sets a label, it:
+#   1. Writes the label to the system:mac_abac extended attribute
+#   2. Opens the file and calls ABAC_SYS_REFRESH to update that vnode's label
 #
-# The refresh only affects the vnode currently held by vlabelctl. If another
+# The refresh only affects the vnode currently held by mac_abac_ctl. If another
 # process (like cat) opens the file, it may get:
 #   - The same cached vnode (correct label from refresh)
 #   - A recycled vnode that reads fresh from extattr (correct)
@@ -22,7 +22,7 @@
 #
 # To ensure reliable testing, we:
 #   1. Create a fresh file that hasn't been accessed by other processes
-#   2. Label it immediately with vlabelctl (which does refresh)
+#   2. Label it immediately with mac_abac_ctl (which does refresh)
 #   3. Test immediately while the vnode is still valid
 #
 # This is the same approach used by 08_enforcement.sh for exec tests.
@@ -35,15 +35,15 @@ SCRIPT_DIR=$(dirname "$0")
 
 # Configuration
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
-MODULE_NAME="mac_vlabel"
+MODULE_NAME="mac_abac"
 # Use /root - guaranteed to be on ZFS with extattr support
-TEST_DIR="/root/vlabel_fileops_$$"
+TEST_DIR="/root/abac_fileops_$$"
 TEST_FILE="$TEST_DIR/secret_file"
 TEST_SYMLINK="$TEST_DIR/secret_link"
 TEST_MMAP_FILE="$TEST_DIR/mmap_file"
@@ -58,8 +58,8 @@ fi
 
 # Cleanup function
 cleanup() {
-	"$VLABELCTL" mode permissive >/dev/null 2>&1 || true
-	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
 	rm -rf "$TEST_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -69,7 +69,7 @@ echo "File Operations Tests"
 echo "(read/write/open/mmap/access/readlink)"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 info "Test directory: $TEST_DIR"
 echo ""
 
@@ -83,10 +83,10 @@ mkdir -p "$TEST_DIR"
 
 # Create and label test file
 echo "secret data" > "$TEST_FILE"
-"$VLABELCTL" label set "$TEST_FILE" "type=secret"
+"$MAC_ABAC_CTL" label set "$TEST_FILE" "type=secret"
 
 # Verify the label is set
-LABEL=$("$VLABELCTL" label get "$TEST_FILE" 2>&1)
+LABEL=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1)
 info "Test file label: $LABEL"
 
 if ! echo "$LABEL" | grep -q "type=secret"; then
@@ -96,31 +96,31 @@ fi
 
 # Create symlink to secret file and label it
 ln -s "$TEST_FILE" "$TEST_SYMLINK"
-"$VLABELCTL" label set "$TEST_SYMLINK" "type=secret"
+"$MAC_ABAC_CTL" label set "$TEST_SYMLINK" "type=secret"
 
 # Create mmap test file
 echo "mmap test data - needs to be at least a page" > "$TEST_MMAP_FILE"
 dd if=/dev/zero bs=4096 count=1 >> "$TEST_MMAP_FILE" 2>/dev/null
-"$VLABELCTL" label set "$TEST_MMAP_FILE" "type=secret"
+"$MAC_ABAC_CTL" label set "$TEST_MMAP_FILE" "type=secret"
 
 # Create unlabeled file for comparison
 UNLABELED="$TEST_DIR/unlabeled"
 echo "unlabeled data" > "$UNLABELED"
 
 # Clear rules and add test rules
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # Rules: deny read/write/open/mmap/access to secret files, allow everything else
 # Order matters - first match wins
-"$VLABELCTL" rule add "deny read * -> type=secret"
-"$VLABELCTL" rule add "deny write * -> type=secret"
-"$VLABELCTL" rule add "deny open * -> type=secret"
-"$VLABELCTL" rule add "deny mmap * -> type=secret"
-"$VLABELCTL" rule add "deny access * -> type=secret"
-"$VLABELCTL" rule add "allow read,write,open,mmap,access,exec * -> *"
+"$MAC_ABAC_CTL" rule add "deny read * -> type=secret"
+"$MAC_ABAC_CTL" rule add "deny write * -> type=secret"
+"$MAC_ABAC_CTL" rule add "deny open * -> type=secret"
+"$MAC_ABAC_CTL" rule add "deny mmap * -> type=secret"
+"$MAC_ABAC_CTL" rule add "deny access * -> type=secret"
+"$MAC_ABAC_CTL" rule add "allow read,write,open,mmap,access,exec * -> *"
 
 info "Rules loaded:"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
 # ===========================================
 # Permissive Mode Tests
@@ -128,7 +128,7 @@ info "Rules loaded:"
 echo ""
 info "=== Permissive Mode Tests ==="
 
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" mode permissive
 
 run_test
 info "Test: Can read secret file in permissive mode"
@@ -168,7 +168,7 @@ fi
 echo ""
 info "=== Enforcing Mode Tests ==="
 
-"$VLABELCTL" mode enforcing
+"$MAC_ABAC_CTL" mode enforcing
 
 run_test
 info "Test: Read blocked in enforcing mode"
@@ -332,11 +332,11 @@ echo ""
 info "=== Selective Allow Tests ==="
 
 # Clear and set up rules that only block read, allow write
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny read * -> type=secret"
-"$VLABELCTL" rule add "allow write * -> type=secret"
-"$VLABELCTL" rule add "allow open * -> type=secret"
-"$VLABELCTL" rule add "allow read,write,open,exec * -> *"
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny read * -> type=secret"
+"$MAC_ABAC_CTL" rule add "allow write * -> type=secret"
+"$MAC_ABAC_CTL" rule add "allow open * -> type=secret"
+"$MAC_ABAC_CTL" rule add "allow read,write,open,exec * -> *"
 
 run_test
 info "Test: Read blocked but write allowed on secret file"
@@ -357,7 +357,7 @@ fi
 # ===========================================
 echo ""
 info "=== Restore Safe State ==="
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" mode permissive
 info "Mode restored to permissive"
 
 # ===========================================
@@ -365,7 +365,7 @@ info "Mode restored to permissive"
 # ===========================================
 echo ""
 info "=== Final Statistics ==="
-"$VLABELCTL" stats
+"$MAC_ABAC_CTL" stats
 
 # ===========================================
 # Summary

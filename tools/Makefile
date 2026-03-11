@@ -1,4 +1,4 @@
-# vLabel tools Makefile
+# ABAC tools Makefile
 
 CC=		cc
 CFLAGS=		-O2 -pipe -Wall -Wextra -Werror -Wno-unused-parameter
@@ -8,28 +8,28 @@ CFLAGS+=	-I/usr/include/private/ucl
 # Link against UCL for policy file parsing
 LDADD=		-lprivateucl
 
-PROGS=		vlabelctl
+PROGS=		mac_abac_ctl
 
-# vlabelctl source files (split for maintainability)
-VLABELCTL_SRCS=	vlabelctl.c vlabelctl_rule.c vlabelctl_label.c vlabelctl_set.c
-VLABELCTL_OBJS=	$(VLABELCTL_SRCS:.c=.o) ../daemon/parse_line.o ../daemon/parse_ucl.o
+# mac_abac_ctl source files (split for maintainability)
+ABACCTL_SRCS=	mac_abac_ctl.c mac_abac_ctl_rule.c mac_abac_ctl_label.c mac_abac_ctl_set.c
+ABACCTL_OBJS=	$(ABACCTL_SRCS:.c=.o) ../daemon/parse_line.o ../daemon/parse_ucl.o
 
 all: $(PROGS)
 
-vlabelctl: $(VLABELCTL_OBJS)
-	$(CC) $(CFLAGS) -o $@ $(VLABELCTL_OBJS) $(LDADD)
+mac_abac_ctl: $(ABACCTL_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(ABACCTL_OBJS) $(LDADD)
 
-vlabelctl.o: vlabelctl.c vlabelctl.h ../kernel/mac_vlabel.h
-	$(CC) $(CFLAGS) -c vlabelctl.c
+mac_abac_ctl.o: mac_abac_ctl.c mac_abac_ctl.h ../kernel/mac_abac.h
+	$(CC) $(CFLAGS) -c mac_abac_ctl.c
 
-vlabelctl_rule.o: vlabelctl_rule.c vlabelctl.h ../kernel/mac_vlabel.h ../daemon/vlabeld.h
-	$(CC) $(CFLAGS) -c vlabelctl_rule.c
+mac_abac_ctl_rule.o: mac_abac_ctl_rule.c mac_abac_ctl.h ../kernel/mac_abac.h ../daemon/mac_abacd.h
+	$(CC) $(CFLAGS) -c mac_abac_ctl_rule.c
 
-vlabelctl_label.o: vlabelctl_label.c vlabelctl.h ../kernel/mac_vlabel.h
-	$(CC) $(CFLAGS) -c vlabelctl_label.c
+mac_abac_ctl_label.o: mac_abac_ctl_label.c mac_abac_ctl.h ../kernel/mac_abac.h
+	$(CC) $(CFLAGS) -c mac_abac_ctl_label.c
 
-vlabelctl_set.o: vlabelctl_set.c vlabelctl.h ../kernel/mac_vlabel.h
-	$(CC) $(CFLAGS) -c vlabelctl_set.c
+mac_abac_ctl_set.o: mac_abac_ctl_set.c mac_abac_ctl.h ../kernel/mac_abac.h
+	$(CC) $(CFLAGS) -c mac_abac_ctl_set.c
 
 ../daemon/parse_line.o:
 	$(MAKE) -C ../daemon parse_line.o

@@ -12,7 +12,7 @@
 #   - stat: fstat on pipe
 #
 # Since we can't directly label pipes, we test rule parsing and
-# evaluation via vlabelctl test command.
+# evaluation via mac_abac_ctl test command.
 #
 
 set -e
@@ -22,13 +22,13 @@ SCRIPT_DIR=$(dirname "$0")
 
 # Configuration
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
-MODULE_NAME="mac_vlabel"
+MODULE_NAME="mac_abac"
 
 # Check prerequisites
 require_root
@@ -40,9 +40,9 @@ fi
 
 # Cleanup function
 cleanup() {
-	"$VLABELCTL" mode permissive >/dev/null 2>&1 || true
-	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
-	"$VLABELCTL" default allow >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" default allow >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -51,7 +51,7 @@ echo "Pipe Operations Tests"
 echo "(read/write/stat via inherited labels)"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 echo ""
 
 # ===========================================
@@ -60,11 +60,11 @@ echo ""
 info "=== Rule Parsing ==="
 
 # Pipes use standard read/write/stat operations - verify they work
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 run_test
 info "Test: read operation in pipe context"
-if "$VLABELCTL" rule add "deny read type=untrusted -> type=secret" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny read type=untrusted -> type=secret" >/dev/null 2>&1; then
 	pass "read operation accepted"
 else
 	fail "read operation should be accepted"
@@ -72,7 +72,7 @@ fi
 
 run_test
 info "Test: write operation in pipe context"
-if "$VLABELCTL" rule add "deny write type=sandbox -> *" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny write type=sandbox -> *" >/dev/null 2>&1; then
 	pass "write operation accepted"
 else
 	fail "write operation should be accepted"
@@ -80,26 +80,26 @@ fi
 
 run_test
 info "Test: stat operation in pipe context"
-if "$VLABELCTL" rule add "deny stat type=restricted -> *" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny stat type=restricted -> *" >/dev/null 2>&1; then
 	pass "stat operation accepted"
 else
 	fail "stat operation should be accepted"
 fi
 
 # ===========================================
-# Test pipe operations via vlabelctl test
+# Test pipe operations via mac_abac_ctl test
 # ===========================================
 echo ""
 info "=== Test Command Verification ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny read type=untrusted -> type=secret" >/dev/null
-"$VLABELCTL" rule add "allow read * -> *" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny read type=untrusted -> type=secret" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow read * -> *" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: read denied for untrusted -> secret"
-OUTPUT=$("$VLABELCTL" test read "type=untrusted" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=untrusted" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "read denied for untrusted -> secret"
 else
@@ -108,7 +108,7 @@ fi
 
 run_test
 info "Test: read allowed for trusted -> secret"
-OUTPUT=$("$VLABELCTL" test read "type=trusted" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=trusted" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "read allowed for trusted -> secret"
 else
@@ -121,14 +121,14 @@ fi
 echo ""
 info "=== Write Restrictions ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny write type=sandbox -> *" >/dev/null
-"$VLABELCTL" rule add "allow write * -> *" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny write type=sandbox -> *" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow write * -> *" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: write denied for sandbox"
-OUTPUT=$("$VLABELCTL" test write "type=sandbox" "type=any" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=sandbox" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "write denied for sandbox"
 else
@@ -137,7 +137,7 @@ fi
 
 run_test
 info "Test: write allowed for normal process"
-OUTPUT=$("$VLABELCTL" test write "type=normal" "type=any" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=normal" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "write allowed for normal"
 else
@@ -150,16 +150,16 @@ fi
 echo ""
 info "=== Combined Read/Write Rules ==="
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Isolated process: no read or write to pipes with secret label
-"$VLABELCTL" rule add "deny read,write type=isolated -> type=secret" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny read,write type=isolated -> type=secret" >/dev/null
 # Allow all other pipe ops
-"$VLABELCTL" rule add "allow read,write,stat * -> *" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule add "allow read,write,stat * -> *" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: isolated cannot read secret pipe"
-OUTPUT=$("$VLABELCTL" test read "type=isolated" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=isolated" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "isolated cannot read secret"
 else
@@ -168,7 +168,7 @@ fi
 
 run_test
 info "Test: isolated cannot write secret pipe"
-OUTPUT=$("$VLABELCTL" test write "type=isolated" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=isolated" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "isolated cannot write secret"
 else
@@ -177,7 +177,7 @@ fi
 
 run_test
 info "Test: isolated can stat secret pipe (only read/write denied)"
-OUTPUT=$("$VLABELCTL" test stat "type=isolated" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test stat "type=isolated" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "isolated can stat secret"
 else
@@ -186,7 +186,7 @@ fi
 
 run_test
 info "Test: normal process can read secret pipe"
-OUTPUT=$("$VLABELCTL" test read "type=normal" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=normal" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "normal can read secret"
 else
@@ -199,12 +199,12 @@ fi
 echo ""
 info "=== Rule Display ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny read,write,stat type=restricted -> type=sensitive" >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny read,write,stat type=restricted -> type=sensitive" >/dev/null
 
 run_test
 info "Test: Rule list shows read/write/stat operations"
-OUTPUT=$("$VLABELCTL" rule list 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule list 2>&1)
 if echo "$OUTPUT" | grep -q "read" && echo "$OUTPUT" | grep -q "write"; then
 	pass "read/write operations displayed in rule list"
 else
@@ -216,9 +216,9 @@ fi
 # ===========================================
 echo ""
 info "=== Restore Safe State ==="
-"$VLABELCTL" mode permissive
-"$VLABELCTL" rule clear
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" mode permissive
+"$MAC_ABAC_CTL" rule clear
+"$MAC_ABAC_CTL" default allow
 info "Restored to permissive mode with no rules"
 
 # ===========================================

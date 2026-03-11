@@ -1,4 +1,4 @@
-# vLabel MAC Policy Module Makefile
+# mac_abac MAC Policy Module Makefile
 #
 # Build with: make
 # Install: make install (requires root)
@@ -10,15 +10,15 @@
 #   make WARNS=6
 #
 # Debugging: Use DTrace probes (see scripts/dtrace/)
-#   dtrace -n 'vlabel:::check-deny { printf("%s -> %s", stringof(arg0), stringof(arg1)); }'
+#   dtrace -n 'abac:::check-deny { printf("%s -> %s", stringof(arg0), stringof(arg1)); }'
 
 .PATH: ${.CURDIR}
 
-KMOD=	mac_vlabel
-SRCS=	mac_vlabel.c vlabel_cred.c vlabel_vnode.c vlabel_proc.c vlabel_socket.c vlabel_pipe.c vlabel_posixshm.c vlabel_system.c
-SRCS+=	vlabel_kenv.c vlabel_posixsem.c vlabel_sysv.c
-SRCS+=	vlabel_label.c vlabel_match.c vlabel_rules.c vlabel_syscall.c
-SRCS+=	mac_vlabel.h vnode_if.h
+KMOD=	mac_abac
+SRCS=	mac_abac.c abac_cred.c abac_vnode.c abac_proc.c abac_socket.c abac_pipe.c abac_posixshm.c abac_system.c
+SRCS+=	abac_kenv.c abac_posixsem.c abac_sysv.c
+SRCS+=	abac_label.c abac_match.c abac_rules.c abac_syscall.c
+SRCS+=	mac_abac.h vnode_if.h
 
 # Default warning level (can override with WARNS=6)
 WARNS?=	3

@@ -1,10 +1,10 @@
 #!/bin/sh
 #
-# Test: vLabel MAC module loads and unloads cleanly
+# Test: ABAC MAC module loads and unloads cleanly
 #
 # Prerequisites:
 # - Must be run as root
-# - Module must be built (mac_vlabel.ko present)
+# - Module must be built (mac_abac.ko present)
 # - Should be run in a test VM, not on production system!
 #
 # Usage:
@@ -14,8 +14,8 @@
 set -e
 
 # Configuration
-MODULE_PATH="${1:-./mac_vlabel.ko}"
-MODULE_NAME="mac_vlabel"
+MODULE_PATH="${1:-./mac_abac.ko}"
+MODULE_NAME="mac_abac"
 
 # Colors for output
 RED='\033[0;31m'
@@ -59,7 +59,7 @@ if kldstat -q -m "$MODULE_NAME" 2>/dev/null; then
 fi
 
 echo "============================================"
-echo "vLabel MAC Module Load/Unload Test"
+echo "ABAC MAC Module Load/Unload Test"
 echo "============================================"
 echo ""
 
@@ -80,24 +80,24 @@ pass "Module appears in kldstat"
 
 # Test 3: Check sysctl tree exists
 info "Test 3: Checking sysctl tree..."
-if ! sysctl security.mac.vlabel >/dev/null 2>&1; then
+if ! sysctl security.mac.mac_abac >/dev/null 2>&1; then
     kldunload "$MODULE_NAME"
-    fail "sysctl tree security.mac.vlabel not found"
+    fail "sysctl tree security.mac.mac_abac not found"
 fi
 pass "sysctl tree created"
 
 # Test 4: Verify sysctl values
 info "Test 4: Verifying sysctl values..."
-ENABLED=$(sysctl -n security.mac.vlabel.enabled 2>/dev/null)
-MODE=$(sysctl -n security.mac.vlabel.mode 2>/dev/null)
+ENABLED=$(sysctl -n security.mac.mac_abac.enabled 2>/dev/null)
+MODE=$(sysctl -n security.mac.mac_abac.mode 2>/dev/null)
 
 if [ -z "$ENABLED" ]; then
     kldunload "$MODULE_NAME"
-    fail "Could not read security.mac.vlabel.enabled"
+    fail "Could not read security.mac.mac_abac.enabled"
 fi
 if [ -z "$MODE" ]; then
     kldunload "$MODULE_NAME"
-    fail "Could not read security.mac.vlabel.mode"
+    fail "Could not read security.mac.mac_abac.mode"
 fi
 
 info "  enabled=$ENABLED mode=$MODE"
@@ -106,11 +106,11 @@ pass "sysctl values readable"
 # Test 5: Try modifying sysctl
 info "Test 5: Testing sysctl write..."
 ORIG_ENABLED=$ENABLED
-if ! sysctl security.mac.vlabel.enabled=0 >/dev/null 2>&1; then
+if ! sysctl security.mac.mac_abac.enabled=0 >/dev/null 2>&1; then
     kldunload "$MODULE_NAME"
-    fail "Could not write to security.mac.vlabel.enabled"
+    fail "Could not write to security.mac.mac_abac.enabled"
 fi
-sysctl security.mac.vlabel.enabled=$ORIG_ENABLED >/dev/null 2>&1
+sysctl security.mac.mac_abac.enabled=$ORIG_ENABLED >/dev/null 2>&1
 pass "sysctl write works"
 
 # Test 6: Unload module
@@ -129,7 +129,7 @@ pass "Module no longer in kldstat"
 
 # Test 8: Verify sysctl tree is gone
 info "Test 8: Verifying sysctl tree removed..."
-if sysctl security.mac.vlabel >/dev/null 2>&1; then
+if sysctl security.mac.mac_abac >/dev/null 2>&1; then
     warn "sysctl tree still exists (may be normal)"
 fi
 pass "Cleanup verified"

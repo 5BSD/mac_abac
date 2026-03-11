@@ -1,11 +1,11 @@
-# vLabel Policy Configuration - Line Format (.rules)
+# ABAC Policy Configuration - Line Format (.rules)
 #
-# Simple text format for vLabel rules, one rule per line.
+# Simple text format for ABAC rules, one rule per line.
 # Best for quick edits and shell scripting.
 #
 # Usage:
-#   vlabelctl rule load /usr/local/etc/vlabel/policy.rules
-#   vlabelctl rule add "allow exec * -> *"
+#   mac_abacctl rule load /usr/local/etc/mac_abac/policy.rules
+#   mac_abacctl rule add "allow exec * -> *"
 #
 # Syntax:
 #   action operations subject [ctx:...] -> object [ctx:...] [=> newlabel]
@@ -129,8 +129,8 @@ allow all * ctx:uid=0 -> *
 # DEFAULT POLICY
 # =============================================================================
 # The final rule determines default behavior.
-# Alternatively, use: sysctl security.mac.vlabel.default_policy=0 (deny)
-#                 or: sysctl security.mac.vlabel.default_policy=1 (allow)
+# Alternatively, use: sysctl security.mac.mac_abac.default_policy=0 (deny)
+#                 or: sysctl security.mac.mac_abac.default_policy=1 (allow)
 
 # Uncomment ONE of these:
 # deny all * -> *    # Strict: deny everything not explicitly allowed

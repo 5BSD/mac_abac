@@ -17,7 +17,7 @@
 # Prerequisites:
 # - Must be run as root
 # - Module must be loaded
-# - vlabelctl must be built
+# - mac_abac_ctl must be built
 #
 
 set -e
@@ -27,13 +27,13 @@ SCRIPT_DIR=$(dirname "$0")
 
 # Configuration
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
-MODULE_NAME="mac_vlabel"
+MODULE_NAME="mac_abac"
 
 # Check prerequisites
 require_root
@@ -45,8 +45,8 @@ fi
 
 # Cleanup function
 cleanup() {
-	"$VLABELCTL" mode permissive >/dev/null 2>&1 || true
-	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -54,11 +54,11 @@ echo "============================================"
 echo "Label Transition Rule Tests"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 echo ""
 
 # Clear any existing rules
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Basic Transition Syntax
@@ -67,39 +67,39 @@ info "=== Basic Transition Syntax ==="
 
 run_test
 info "Test: Simple transition rule"
-if "$VLABELCTL" rule add "transition exec * -> type=app => type=daemon" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec * -> type=app => type=daemon" >/dev/null 2>&1; then
 	pass "simple transition accepted"
 else
 	fail "simple transition"
 fi
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 run_test
 info "Test: Transition with subject pattern"
-if "$VLABELCTL" rule add "transition exec type=user -> type=setuid => type=elevated" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec type=user -> type=setuid => type=elevated" >/dev/null 2>&1; then
 	pass "transition with subject pattern"
 else
 	fail "transition with subject pattern"
 fi
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 run_test
 info "Test: Transition with object pattern"
-if "$VLABELCTL" rule add "transition exec * -> name=nginx => type=daemon,domain=web" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec * -> name=nginx => type=daemon,domain=web" >/dev/null 2>&1; then
 	pass "transition with object pattern"
 else
 	fail "transition with object pattern"
 fi
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 run_test
 info "Test: Transition with wildcard subject and specific object"
-if "$VLABELCTL" rule add "transition exec * -> type=admin,name=su => type=root" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec * -> type=admin,name=su => type=root" >/dev/null 2>&1; then
 	pass "wildcard subject, specific object"
 else
 	fail "wildcard subject, specific object"
 fi
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Complex Newlabel Formats
@@ -109,30 +109,30 @@ info "=== Complex Newlabel Formats ==="
 
 run_test
 info "Test: Multi-field newlabel"
-if "$VLABELCTL" rule add "transition exec * -> type=app => type=daemon,domain=web,level=high" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec * -> type=app => type=daemon,domain=web,level=high" >/dev/null 2>&1; then
 	pass "multi-field newlabel"
 else
 	fail "multi-field newlabel"
 fi
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 run_test
 info "Test: Newlabel with custom fields"
-if "$VLABELCTL" rule add "transition exec * -> * => type=custom,service=nginx,environment=prod" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec * -> * => type=custom,service=nginx,environment=prod" >/dev/null 2>&1; then
 	pass "custom fields in newlabel"
 else
 	fail "custom fields in newlabel"
 fi
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 run_test
 info "Test: Newlabel with boolean-like values"
-if "$VLABELCTL" rule add "transition exec * -> type=setuid => type=elevated,escalated=true,confined=false" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec * -> type=setuid => type=elevated,escalated=true,confined=false" >/dev/null 2>&1; then
 	pass "boolean-like values"
 else
 	fail "boolean-like values"
 fi
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Transition Rule Listing
@@ -141,13 +141,13 @@ info ""
 info "=== Transition Rule Listing ==="
 
 # Add several transition rules
-"$VLABELCTL" rule add "transition exec * -> type=web => type=daemon,domain=web"
-"$VLABELCTL" rule add "transition exec type=init -> name=sshd => type=daemon,domain=ssh"
-"$VLABELCTL" rule add "transition exec * -> type=setuid => type=privileged"
+"$MAC_ABAC_CTL" rule add "transition exec * -> type=web => type=daemon,domain=web"
+"$MAC_ABAC_CTL" rule add "transition exec type=init -> name=sshd => type=daemon,domain=ssh"
+"$MAC_ABAC_CTL" rule add "transition exec * -> type=setuid => type=privileged"
 
 run_test
 info "Test: List shows transition rules"
-RULES=$("$VLABELCTL" rule list 2>&1)
+RULES=$("$MAC_ABAC_CTL" rule list 2>&1)
 if echo "$RULES" | grep -q "Loaded rules: 3"; then
 	pass "rule count correct"
 else
@@ -168,7 +168,7 @@ else
 	fi
 fi
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Missing Newlabel Warning
@@ -178,7 +178,7 @@ info "=== Missing Newlabel Handling ==="
 
 run_test
 info "Test: Transition without newlabel produces warning"
-OUTPUT=$("$VLABELCTL" rule validate "transition exec * -> type=app" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "transition exec * -> type=app" 2>&1 || true)
 if echo "$OUTPUT" | grep -qi "warn\|missing\|newlabel"; then
 	pass "warning for missing newlabel"
 else
@@ -198,7 +198,7 @@ info "=== Invalid Transition Syntax ==="
 
 run_test
 info "Test: Transition with invalid arrow syntax"
-if "$VLABELCTL" rule add "transition exec * -> type=app -> type=daemon" 2>/dev/null; then
+if "$MAC_ABAC_CTL" rule add "transition exec * -> type=app -> type=daemon" 2>/dev/null; then
 	fail "invalid arrow syntax accepted"
 else
 	pass "invalid arrow syntax rejected"
@@ -207,7 +207,7 @@ fi
 run_test
 info "Test: Transition without object pattern"
 # "transition exec * => type=daemon" is missing the object pattern
-if "$VLABELCTL" rule add "transition exec => type=daemon" 2>/dev/null; then
+if "$MAC_ABAC_CTL" rule add "transition exec => type=daemon" 2>/dev/null; then
 	fail "missing object accepted"
 else
 	pass "missing object rejected"
@@ -220,13 +220,13 @@ info ""
 info "=== Mixed Rule Types ==="
 
 # Add allow, deny, and transition rules together
-"$VLABELCTL" rule add "deny exec * -> type=malware"
-"$VLABELCTL" rule add "transition exec * -> type=setuid => type=elevated"
-"$VLABELCTL" rule add "allow exec * -> *"
+"$MAC_ABAC_CTL" rule add "deny exec * -> type=malware"
+"$MAC_ABAC_CTL" rule add "transition exec * -> type=setuid => type=elevated"
+"$MAC_ABAC_CTL" rule add "allow exec * -> *"
 
 run_test
 info "Test: Mixed rule types coexist"
-RULES=$("$VLABELCTL" rule list 2>&1)
+RULES=$("$MAC_ABAC_CTL" rule list 2>&1)
 if echo "$RULES" | grep -q "Loaded rules: 3"; then
 	pass "mixed rules coexist"
 else
@@ -235,7 +235,7 @@ fi
 
 run_test
 info "Test: Deny rule works alongside transition"
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=malware" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=malware" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "deny still works"
 else
@@ -244,14 +244,14 @@ fi
 
 run_test
 info "Test: Allow rule works alongside transition"
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=app" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=app" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "allow still works"
 else
 	fail "allow rule (got: $OUTPUT)"
 fi
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Transition with Context Constraints
@@ -261,22 +261,22 @@ info "=== Transition with Context Constraints ==="
 
 run_test
 info "Test: Transition with context constraint"
-if "$VLABELCTL" rule add "transition exec * -> type=setuid => type=elevated ctx:uid=0" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec * -> type=setuid => type=elevated ctx:uid=0" >/dev/null 2>&1; then
 	pass "transition with context accepted"
 else
 	fail "transition with context"
 fi
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 run_test
 info "Test: Transition with jail context"
 # Note: valid jail values are: jail=host, jail=any, jail=N (specific jail ID)
-if "$VLABELCTL" rule add "transition exec * ctx:jail=any -> type=app => type=jailed" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec * ctx:jail=any -> type=app => type=jailed" >/dev/null 2>&1; then
 	pass "transition with jail context"
 else
 	fail "transition with jail context"
 fi
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Transition Rule Removal
@@ -285,15 +285,15 @@ info ""
 info "=== Transition Rule Removal ==="
 
 # Add a transition rule
-"$VLABELCTL" rule add "transition exec * -> type=test => type=tested"
+"$MAC_ABAC_CTL" rule add "transition exec * -> type=test => type=tested"
 
 run_test
 info "Test: Transition rule can be removed"
-RULES=$("$VLABELCTL" rule list 2>&1)
+RULES=$("$MAC_ABAC_CTL" rule list 2>&1)
 RULE_ID=$(echo "$RULES" | grep '^\s*\[' | head -1 | sed 's/.*\[\([0-9]*\)\].*/\1/')
 if [ -n "$RULE_ID" ]; then
-	if "$VLABELCTL" rule remove "$RULE_ID" >/dev/null 2>&1; then
-		NEW_RULES=$("$VLABELCTL" rule list 2>&1)
+	if "$MAC_ABAC_CTL" rule remove "$RULE_ID" >/dev/null 2>&1; then
+		NEW_RULES=$("$MAC_ABAC_CTL" rule list 2>&1)
 		if echo "$NEW_RULES" | grep -qi "no rules"; then
 			pass "transition rule removed"
 		else
@@ -315,24 +315,24 @@ info "=== Edge Cases ==="
 run_test
 info "Test: Transition with empty pattern fields"
 # Wildcard patterns
-if "$VLABELCTL" rule add "transition exec * -> * => type=default" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec * -> * => type=default" >/dev/null 2>&1; then
 	pass "wildcards in all positions"
 else
 	fail "wildcards in all positions"
 fi
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 run_test
 info "Test: Multiple transitions for same object"
-"$VLABELCTL" rule add "transition exec type=init -> name=nginx => type=daemon"
-"$VLABELCTL" rule add "transition exec type=user -> name=nginx => type=user_daemon"
-RULES=$("$VLABELCTL" rule list 2>&1)
+"$MAC_ABAC_CTL" rule add "transition exec type=init -> name=nginx => type=daemon"
+"$MAC_ABAC_CTL" rule add "transition exec type=user -> name=nginx => type=user_daemon"
+RULES=$("$MAC_ABAC_CTL" rule list 2>&1)
 if echo "$RULES" | grep -q "Loaded rules: 2"; then
 	pass "multiple transitions for same target"
 else
 	fail "multiple transitions (got: $RULES)"
 fi
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 run_test
 info "Test: Transition newlabel at size limit"
@@ -343,12 +343,12 @@ while [ $i -lt 200 ]; do
 	LONG_VALUE="${LONG_VALUE}x"
 	i=$((i + 1))
 done
-if "$VLABELCTL" rule add "transition exec * -> type=test => type=large,data=$LONG_VALUE" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec * -> type=test => type=large,data=$LONG_VALUE" >/dev/null 2>&1; then
 	pass "large newlabel accepted"
 else
 	fail "large newlabel"
 fi
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Test Command with Transition Rules
@@ -359,12 +359,12 @@ info "=== Test Command Behavior ==="
 # Note: The test command shows ALLOW/DENY, not the transition result.
 # Transitions happen at exec time, not during access checks.
 
-"$VLABELCTL" rule add "transition exec * -> type=setuid => type=elevated"
-"$VLABELCTL" rule add "allow exec * -> *"
+"$MAC_ABAC_CTL" rule add "transition exec * -> type=setuid => type=elevated"
+"$MAC_ABAC_CTL" rule add "allow exec * -> *"
 
 run_test
 info "Test: Test command shows allow for transition-matching exec"
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=setuid" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=setuid" 2>&1 || true)
 # A transition rule allows access (it's not a deny), so test should show ALLOW
 if echo "$OUTPUT" | grep -q "ALLOW\|TRANSITION"; then
 	pass "transition allows access"
@@ -372,7 +372,7 @@ else
 	fail "transition access (got: $OUTPUT)"
 fi
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # ===========================================
 # Summary

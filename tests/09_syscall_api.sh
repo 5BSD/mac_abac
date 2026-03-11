@@ -3,19 +3,19 @@
 # Test: mac_syscall API functionality
 #
 # Tests the new mac_syscall-based interface that replaced the ioctl/device interface.
-# Verifies all syscall commands work correctly through vlabelctl.
+# Verifies all syscall commands work correctly through mac_abac_ctl.
 #
 # Prerequisites:
 # - Must be run as root
 # - Module must be loaded
-# - vlabelctl must be built with mac_syscall support
+# - mac_abac_ctl must be built with mac_syscall support
 #
 
 set -e
 
 # Configuration
-VLABELCTL="${1:-../tools/vlabelctl}"
-MODULE_NAME="mac_vlabel"
+MAC_ABAC_CTL="${1:-../tools/mac_abac_ctl}"
+MODULE_NAME="mac_abac"
 
 # Colors for output
 RED='\033[0;31m'
@@ -53,8 +53,8 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-if [ ! -x "$VLABELCTL" ]; then
-    echo "vlabelctl not found or not executable: $VLABELCTL"
+if [ ! -x "$MAC_ABAC_CTL" ]; then
+    echo "mac_abac_ctl not found or not executable: $MAC_ABAC_CTL"
     exit 1
 fi
 
@@ -69,8 +69,8 @@ echo "============================================"
 echo ""
 
 # Save original settings
-ORIG_MODE=$("$VLABELCTL" mode)
-ORIG_DEFAULT=$("$VLABELCTL" default)
+ORIG_MODE=$("$MAC_ABAC_CTL" mode)
+ORIG_DEFAULT=$("$MAC_ABAC_CTL" default)
 
 # ===========================================
 # Test: Module reports ENOSYS when not loaded
@@ -79,12 +79,12 @@ ORIG_DEFAULT=$("$VLABELCTL" default)
 info "=== Error Handling Tests ==="
 
 run_test
-info "Test: vlabelctl handles module-not-loaded error gracefully"
-# We test this by verifying vlabelctl works when module IS loaded
-if "$VLABELCTL" status >/dev/null 2>&1; then
-    pass "vlabelctl communicates with loaded module"
+info "Test: mac_abac_ctl handles module-not-loaded error gracefully"
+# We test this by verifying mac_abac_ctl works when module IS loaded
+if "$MAC_ABAC_CTL" status >/dev/null 2>&1; then
+    pass "mac_abac_ctl communicates with loaded module"
 else
-    fail "vlabelctl cannot communicate with module"
+    fail "mac_abac_ctl cannot communicate with module"
 fi
 
 # ===========================================
@@ -94,8 +94,8 @@ info ""
 info "=== Mode Syscall Tests ==="
 
 run_test
-info "Test: VLABEL_SYS_GETMODE returns valid value"
-MODE=$("$VLABELCTL" mode)
+info "Test: ABAC_SYS_GETMODE returns valid value"
+MODE=$("$MAC_ABAC_CTL" mode)
 case "$MODE" in
     disabled|permissive|enforcing)
         pass "GETMODE returns valid mode: $MODE"
@@ -106,13 +106,13 @@ case "$MODE" in
 esac
 
 run_test
-info "Test: VLABEL_SYS_SETMODE disabled->permissive->disabled cycle"
-"$VLABELCTL" mode disabled >/dev/null 2>&1
-"$VLABELCTL" mode permissive >/dev/null 2>&1
-MODE=$("$VLABELCTL" mode)
+info "Test: ABAC_SYS_SETMODE disabled->permissive->disabled cycle"
+"$MAC_ABAC_CTL" mode disabled >/dev/null 2>&1
+"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1
+MODE=$("$MAC_ABAC_CTL" mode)
 if [ "$MODE" = "permissive" ]; then
-    "$VLABELCTL" mode disabled >/dev/null 2>&1
-    MODE=$("$VLABELCTL" mode)
+    "$MAC_ABAC_CTL" mode disabled >/dev/null 2>&1
+    MODE=$("$MAC_ABAC_CTL" mode)
     if [ "$MODE" = "disabled" ]; then
         pass "mode cycle works"
     else
@@ -129,12 +129,12 @@ info ""
 info "=== Default Policy Syscall Tests ==="
 
 run_test
-info "Test: VLABEL_SYS_GETDEFPOL/SETDEFPOL"
-"$VLABELCTL" default allow >/dev/null 2>&1
-DEF=$("$VLABELCTL" default)
+info "Test: ABAC_SYS_GETDEFPOL/SETDEFPOL"
+"$MAC_ABAC_CTL" default allow >/dev/null 2>&1
+DEF=$("$MAC_ABAC_CTL" default)
 if [ "$DEF" = "allow" ]; then
-    "$VLABELCTL" default deny >/dev/null 2>&1
-    DEF=$("$VLABELCTL" default)
+    "$MAC_ABAC_CTL" default deny >/dev/null 2>&1
+    DEF=$("$MAC_ABAC_CTL" default)
     if [ "$DEF" = "deny" ]; then
         pass "default policy syscalls work"
     else
@@ -151,8 +151,8 @@ info ""
 info "=== Statistics Syscall Tests ==="
 
 run_test
-info "Test: VLABEL_SYS_GETSTATS"
-OUTPUT=$("$VLABELCTL" stats 2>&1)
+info "Test: ABAC_SYS_GETSTATS"
+OUTPUT=$("$MAC_ABAC_CTL" stats 2>&1)
 # Check for expected fields in stats output (case-insensitive)
 if echo "$OUTPUT" | grep -qi "check"; then
     if echo "$OUTPUT" | grep -qi "allow"; then
@@ -174,37 +174,37 @@ fi
 info ""
 info "=== Rule Syscall Tests (Variable Length) ==="
 
-"$VLABELCTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 
 run_test
-info "Test: VLABEL_SYS_RULE_ADD with short pattern"
-if "$VLABELCTL" rule add "allow exec * -> *" >/dev/null 2>&1; then
+info "Test: ABAC_SYS_RULE_ADD with short pattern"
+if "$MAC_ABAC_CTL" rule add "allow exec * -> *" >/dev/null 2>&1; then
     pass "rule add short pattern"
 else
     fail "rule add short pattern"
 fi
 
 run_test
-info "Test: VLABEL_SYS_RULE_ADD with long pattern"
+info "Test: ABAC_SYS_RULE_ADD with long pattern"
 # Use a moderately long pattern to test variable-length handling
 LONG_PATTERN="type=application,domain=security,name=testapp,env=production,tier=backend,region=us-west"
-if "$VLABELCTL" rule add "allow read $LONG_PATTERN -> $LONG_PATTERN" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "allow read $LONG_PATTERN -> $LONG_PATTERN" >/dev/null 2>&1; then
     pass "rule add long pattern"
 else
     fail "rule add long pattern"
 fi
 
 run_test
-info "Test: VLABEL_SYS_RULE_ADD transition with newlabel"
-if "$VLABELCTL" rule add "transition exec * -> type=setuid => type=elevated,escalated=true" >/dev/null 2>&1; then
+info "Test: ABAC_SYS_RULE_ADD transition with newlabel"
+if "$MAC_ABAC_CTL" rule add "transition exec * -> type=setuid => type=elevated,escalated=true" >/dev/null 2>&1; then
     pass "rule add transition with newlabel"
 else
     fail "rule add transition with newlabel"
 fi
 
 run_test
-info "Test: VLABEL_SYS_RULE_LIST returns correct count"
-OUTPUT=$("$VLABELCTL" rule list 2>&1)
+info "Test: ABAC_SYS_RULE_LIST returns correct count"
+OUTPUT=$("$MAC_ABAC_CTL" rule list 2>&1)
 if echo "$OUTPUT" | grep -q "Loaded rules: 3"; then
     pass "rule list correct count"
 else
@@ -212,7 +212,7 @@ else
 fi
 
 run_test
-info "Test: VLABEL_SYS_RULE_LIST shows rule details"
+info "Test: ABAC_SYS_RULE_LIST shows rule details"
 if echo "$OUTPUT" | grep -q "allow"; then
     if echo "$OUTPUT" | grep -q "transition"; then
         pass "rule list shows details"
@@ -224,12 +224,12 @@ else
 fi
 
 run_test
-info "Test: VLABEL_SYS_RULE_REMOVE"
+info "Test: ABAC_SYS_RULE_REMOVE"
 # Get first rule ID
 RULE_ID=$(echo "$OUTPUT" | grep '^\s*\[' | head -1 | sed 's/.*\[\([0-9]*\)\].*/\1/')
 if [ -n "$RULE_ID" ]; then
-    if "$VLABELCTL" rule remove "$RULE_ID" >/dev/null 2>&1; then
-        OUTPUT=$("$VLABELCTL" rule list 2>&1)
+    if "$MAC_ABAC_CTL" rule remove "$RULE_ID" >/dev/null 2>&1; then
+        OUTPUT=$("$MAC_ABAC_CTL" rule list 2>&1)
         if echo "$OUTPUT" | grep -q "Loaded rules: 2"; then
             pass "rule remove"
         else
@@ -243,9 +243,9 @@ else
 fi
 
 run_test
-info "Test: VLABEL_SYS_RULE_CLEAR"
-if "$VLABELCTL" rule clear >/dev/null 2>&1; then
-    OUTPUT=$("$VLABELCTL" rule list 2>&1)
+info "Test: ABAC_SYS_RULE_CLEAR"
+if "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1; then
+    OUTPUT=$("$MAC_ABAC_CTL" rule list 2>&1)
     if echo "$OUTPUT" | grep -qi "no rules"; then
         pass "rule clear"
     else
@@ -262,14 +262,14 @@ info ""
 info "=== Test Access Syscall Tests ==="
 
 # Add test rules
-"$VLABELCTL" rule clear >/dev/null 2>&1
-"$VLABELCTL" rule add "deny exec type=user -> type=untrusted" >/dev/null 2>&1
-"$VLABELCTL" rule add "allow exec * -> *" >/dev/null 2>&1
-"$VLABELCTL" default allow >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule add "deny exec type=user -> type=untrusted" >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule add "allow exec * -> *" >/dev/null 2>&1
+"$MAC_ABAC_CTL" default allow >/dev/null 2>&1
 
 run_test
-info "Test: VLABEL_SYS_TEST with short labels"
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=untrusted" 2>&1 || true)
+info "Test: ABAC_SYS_TEST with short labels"
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=untrusted" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
     pass "test access deny (short labels)"
 else
@@ -277,8 +277,8 @@ else
 fi
 
 run_test
-info "Test: VLABEL_SYS_TEST with longer labels"
-OUTPUT=$("$VLABELCTL" test exec "type=admin,domain=system,clearance=high" "type=app,domain=system" 2>&1 || true)
+info "Test: ABAC_SYS_TEST with longer labels"
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=admin,domain=system,clearance=high" "type=app,domain=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
     pass "test access allow (long labels)"
 else
@@ -286,8 +286,8 @@ else
 fi
 
 run_test
-info "Test: VLABEL_SYS_TEST returns matching rule ID"
-OUTPUT=$("$VLABELCTL" test exec "type=user" "type=untrusted" 2>&1 || true)
+info "Test: ABAC_SYS_TEST returns matching rule ID"
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=user" "type=untrusted" 2>&1 || true)
 # Should show rule ID in output
 if echo "$OUTPUT" | grep -qi "rule"; then
     pass "test shows matching rule"
@@ -297,7 +297,7 @@ else
 fi
 
 # Clean up
-"$VLABELCTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 
 # ===========================================
 # Test: Permission checks
@@ -310,7 +310,7 @@ info "Test: Non-root cannot use syscalls"
 # This test is tricky - we'd need to run as non-root user
 # For now, just verify we can run as root
 if [ "$(id -u)" -eq 0 ]; then
-    if "$VLABELCTL" mode >/dev/null 2>&1; then
+    if "$MAC_ABAC_CTL" mode >/dev/null 2>&1; then
         pass "root can use syscalls (non-root test skipped)"
     else
         fail "root cannot use syscalls"
@@ -324,8 +324,8 @@ fi
 # ===========================================
 info ""
 info "Restoring original settings..."
-"$VLABELCTL" mode "$ORIG_MODE" >/dev/null 2>&1
-"$VLABELCTL" default "$ORIG_DEFAULT" >/dev/null 2>&1
+"$MAC_ABAC_CTL" mode "$ORIG_MODE" >/dev/null 2>&1
+"$MAC_ABAC_CTL" default "$ORIG_DEFAULT" >/dev/null 2>&1
 
 # ===========================================
 # Summary

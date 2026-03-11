@@ -1,4 +1,4 @@
-# vLabel - FreeBSD MAC Module for ZFS
+# ABAC - FreeBSD MAC Module for ZFS
 
 Label-based mandatory access control using extended attributes. **ZFS only.**
 
@@ -10,21 +10,21 @@ cd kernel && make SYSDIR=/usr/src/sys
 cd tools && make
 
 # Load and label
-kldload ./kernel/mac_vlabel.ko
-vlabelctl label set /usr/local/bin/myapp "type=trusted,domain=web"
+kldload ./kernel/mac_abac.ko
+mac_abac_ctl label set /usr/local/bin/myapp "type=trusted,domain=web"
 
 # Add rules and enforce
-vlabelctl rule add "deny exec * -> type=untrusted"
-sysctl security.mac.vlabel.mode=2
+mac_abac_ctl rule add "deny exec * -> type=untrusted"
+sysctl security.mac.mac_abac.mode=2
 ```
 
 ## Components
 
 | Component | Description |
 |-----------|-------------|
-| `kernel/mac_vlabel.ko` | MACF kernel module |
-| `daemon/vlabeld` | Policy daemon (JSON/UCL config) |
-| `tools/vlabelctl` | CLI for labels, rules, stats |
+| `kernel/mac_abac.ko` | MACF kernel module |
+| `daemon/mac_abacd` | Policy daemon (JSON/UCL config) |
+| `tools/mac_abac_ctl` | CLI for labels, rules, stats |
 
 ## Documentation
 
@@ -32,7 +32,7 @@ sysctl security.mac.vlabel.mode=2
 - [Policy](docs/policy.md) - Writing rules
 - [Examples](docs/examples.md) - Real-world scenarios
 - [Architecture](docs/architecture.md) - System design, DTrace probes
-- [Tools](docs/tools.md) - vlabelctl and vlabeld usage
+- [Tools](docs/tools.md) - mac_abac_ctl and mac_abacd usage
 
 ## Supported Operations
 
@@ -44,7 +44,7 @@ sysctl security.mac.vlabel.mode=2
 | `open` | vnode | Open files |
 | `mmap` | vnode | Memory-map files |
 | `access` | vnode | access() syscall |
-| `setextattr` | vnode | Modify labels (protects `system:vlabel`) |
+| `setextattr` | vnode | Modify labels (protects `system:mac_abac`) |
 | `getextattr` | vnode | Read labels |
 | `debug` | proc | ptrace/procfs debugging |
 | `signal` | proc | Send signals |
@@ -54,8 +54,8 @@ sysctl security.mac.vlabel.mode=2
 
 | Sysctl | Values | Description |
 |--------|--------|-------------|
-| `security.mac.vlabel.mode` | 0/1/2 | Disabled/Permissive/Enforcing |
-| `security.mac.vlabel.default_policy` | 0/1 | Allow/Deny when no rule matches |
+| `security.mac.mac_abac.mode` | 0/1/2 | Disabled/Permissive/Enforcing |
+| `security.mac.mac_abac.default_policy` | 0/1 | Allow/Deny when no rule matches |
 
 ## Module Loading
 
@@ -65,8 +65,8 @@ There are two ways to load the kernel module:
 
 ```sh
 # Copy module to VM and load manually
-scp kernel/mac_vlabel.ko root@vm:/root/
-ssh root@vm 'kldload /root/mac_vlabel.ko'
+scp kernel/mac_abac.ko root@vm:/root/
+ssh root@vm 'kldload /root/mac_abac.ko'
 ```
 
 Module is loaded once; lost on reboot. Good for quick testing.
@@ -75,10 +75,10 @@ Module is loaded once; lost on reboot. Good for quick testing.
 
 ```sh
 # Install to boot kernel directory (preferred location)
-scp kernel/mac_vlabel.ko root@vm:/boot/kernel/
+scp kernel/mac_abac.ko root@vm:/boot/kernel/
 
 # Enable in loader.conf (on the VM)
-echo 'mac_vlabel_load="YES"' >> /boot/loader.conf
+echo 'mac_abac_load="YES"' >> /boot/loader.conf
 ```
 
 Module loads automatically at boot, before userland starts. **This is the recommended setup for test VMs.**
@@ -86,8 +86,8 @@ Module loads automatically at boot, before userland starts. **This is the recomm
 **Important:** FreeBSD searches `/boot/kernel/` before `/boot/modules/`. Check where your module loads from:
 
 ```sh
-kldstat -v | grep vlabel
-# Output shows: (/boot/kernel/mac_vlabel.ko) or (/boot/modules/mac_vlabel.ko)
+kldstat -v | grep mac_abac
+# Output shows: (/boot/kernel/mac_abac.ko) or (/boot/modules/mac_abac.ko)
 ```
 
 If you have copies in multiple locations, the kernel uses this search order:
@@ -102,13 +102,13 @@ The module cannot be unloaded (by design - orphaned labels would crash the kerne
 
 1. Find where the module is loaded from:
    ```sh
-   ssh root@vm 'kldstat -v | grep vlabel'
-   # Shows: (/boot/kernel/mac_vlabel.ko) or similar
+   ssh root@vm 'kldstat -v | grep mac_abac'
+   # Shows: (/boot/kernel/mac_abac.ko) or similar
    ```
 
 2. Copy new `.ko` to that **exact location**:
    ```sh
-   scp kernel/mac_vlabel.ko root@vm:/boot/kernel/   # or wherever kldstat showed
+   scp kernel/mac_abac.ko root@vm:/boot/kernel/   # or wherever kldstat showed
    ```
 
 3. Reboot the system:
@@ -119,11 +119,11 @@ The module cannot be unloaded (by design - orphaned labels would crash the kerne
 **Troubleshooting:** If debug spam persists after reboot, verify the correct file was updated:
 ```sh
 # Check MD5 matches between local and VM
-md5sum kernel/mac_vlabel.ko                           # local
-ssh root@vm 'md5 /boot/kernel/mac_vlabel.ko'          # VM - must match!
+md5sum kernel/mac_abac.ko                           # local
+ssh root@vm 'md5 /boot/kernel/mac_abac.ko'          # VM - must match!
 
 # Find all copies on VM
-ssh root@vm 'find / -name mac_vlabel.ko 2>/dev/null'
+ssh root@vm 'find / -name mac_abac.ko 2>/dev/null'
 ```
 
 ### Debug vs Release Builds
@@ -133,12 +133,12 @@ ssh root@vm 'find / -name mac_vlabel.ko 2>/dev/null'
 make SYSDIR=/usr/src/sys
 
 # Debug build (verbose logging to console)
-make SYSDIR=/usr/src/sys VLABEL_DEBUG=1
+make SYSDIR=/usr/src/sys ABAC_DEBUG=1
 ```
 
 ## Known Limitations
 
-- **ZFS only** - UFS multilabel not supported. Use `vlabelctl`, not `getfmac`/`setfmac`.
+- **ZFS only** - UFS multilabel not supported. Use `mac_abac_ctl`, not `getfmac`/`setfmac`.
 - **No module unload** - Reboot to update module (see above).
 
 See [Architecture](docs/architecture.md) for details on the ZFS-only design.

@@ -1,9 +1,9 @@
 #!/bin/sh
 #
-# Run all vLabel tests
+# Run all ABAC tests
 #
 # Usage:
-#   ./run_all.sh [-q] [module_path] [vlabelctl_path]
+#   ./run_all.sh [-q] [module_path] [mac_abac_ctl_path]
 #
 # Options:
 #   -q    Quiet mode - only show failures and summary
@@ -19,29 +19,29 @@ QUIET_MODE=0
 while getopts "q" opt; do
     case $opt in
         q) QUIET_MODE=1 ;;
-        *) echo "Usage: $0 [-q] [module_path] [vlabelctl_path]"; exit 1 ;;
+        *) echo "Usage: $0 [-q] [module_path] [mac_abac_ctl_path]"; exit 1 ;;
     esac
 done
 shift $((OPTIND - 1))
 
 # Export for test_helpers.sh
-export VLABEL_QUIET="$QUIET_MODE"
+export ABAC_QUIET="$QUIET_MODE"
 
 # Default paths - check VM locations first, then local build
 if [ -n "$1" ]; then
     MODULE_PATH="$1"
-elif [ -f "/root/mac_vlabel.ko" ]; then
-    MODULE_PATH="/root/mac_vlabel.ko"
+elif [ -f "/root/mac_abac.ko" ]; then
+    MODULE_PATH="/root/mac_abac.ko"
 else
-    MODULE_PATH="../kernel/mac_vlabel.ko"
+    MODULE_PATH="../kernel/mac_abac.ko"
 fi
 
 if [ -n "$2" ]; then
-    VLABELCTL="$2"
-elif [ -x "/usr/local/bin/vlabelctl" ]; then
-    VLABELCTL="/usr/local/bin/vlabelctl"
+    MAC_ABAC_CTL="$2"
+elif [ -x "/usr/local/bin/mac_abac_ctl" ]; then
+    MAC_ABAC_CTL="/usr/local/bin/mac_abac_ctl"
 else
-    VLABELCTL="../tools/vlabelctl"
+    MAC_ABAC_CTL="../tools/mac_abac_ctl"
 fi
 
 # Colors
@@ -60,7 +60,7 @@ fi
 if [ "$QUIET_MODE" != "1" ]; then
     echo ""
     printf "${BLUE}============================================${NC}\n"
-    printf "${BLUE}     vLabel MAC Module Test Suite${NC}\n"
+    printf "${BLUE}     ABAC MAC Module Test Suite${NC}\n"
     printf "${BLUE}============================================${NC}\n"
     echo ""
 fi
@@ -114,41 +114,41 @@ if [ "$QUIET_MODE" != "1" ]; then
 fi
 
 # Ensure module is loaded
-if ! kldstat -q -m mac_vlabel 2>/dev/null; then
+if ! kldstat -q -m mac_abac 2>/dev/null; then
     echo "Module not loaded, loading..."
     kldload "$MODULE_PATH"
 fi
 
-run_test_script "vlabelctl Commands" ./02_vlabelctl.sh "$VLABELCTL"
-run_test_script "Sysctl Tunables" ./03_tunables.sh "$VLABELCTL"
-run_test_script "Label Format" ./03_label_format.sh "$VLABELCTL"
-run_test_script "Default Policy" ./04_default_policy.sh "$VLABELCTL"
-run_test_script "Debug/Signal/Sched" ./05_debug_check.sh "$VLABELCTL"
-run_test_script "Rule Validation" ./06_rule_validate.sh "$VLABELCTL"
-run_test_script "Rule Load" ./07_rule_load.sh "$VLABELCTL"
-run_test_script "mac_syscall API" ./09_syscall_api.sh "$VLABELCTL"
-run_test_script "Limits" ./10_limits.sh "$VLABELCTL"
-run_test_script "Process Enforcement" ./12_process_enforcement.sh "$VLABELCTL"
-run_test_script "Label Transitions" ./13_transitions.sh "$VLABELCTL"
-run_test_script "Context Debug" ./14_context_debug.sh "$VLABELCTL"
-run_test_script "Context Constraints" ./15_context_constraints.sh "$VLABELCTL"
-run_test_script "Policy Formats" ./16_formats.sh "$VLABELCTL"
-run_test_script "Pattern Negation" ./17_negation.sh "$VLABELCTL"
-run_test_script "File Operations" ./12_file_ops.sh "$VLABELCTL"
-run_test_script "Label Protection" ./18_label_protection.sh "$VLABELCTL"
-run_test_script "Socket Operations" ./19_socket.sh "$VLABELCTL"
-run_test_script "Pipe Operations" ./20_pipe.sh "$VLABELCTL"
-run_test_script "POSIX Shared Memory" ./21_posixshm.sh "$VLABELCTL"
-run_test_script "Directory & Metadata" ./22_directory.sh "$VLABELCTL"
-run_test_script "System Operations" ./23_system.sh "$VLABELCTL"
-run_test_script "Vnode Extra Hooks" ./24_vnode_extra.sh "$VLABELCTL"
-run_test_script "Kenv Operations" ./25_kenv.sh "$VLABELCTL"
-run_test_script "Atomic Setlabel" ./26_atomic_setlabel.sh "$VLABELCTL"
-run_test_script "Recursive Labeling" ./27_recursive_label.sh "$VLABELCTL"
+run_test_script "mac_abac_ctl Commands" ./02_mac_abac_ctl.sh "$MAC_ABAC_CTL"
+run_test_script "Sysctl Tunables" ./03_tunables.sh "$MAC_ABAC_CTL"
+run_test_script "Label Format" ./03_label_format.sh "$MAC_ABAC_CTL"
+run_test_script "Default Policy" ./04_default_policy.sh "$MAC_ABAC_CTL"
+run_test_script "Debug/Signal/Sched" ./05_debug_check.sh "$MAC_ABAC_CTL"
+run_test_script "Rule Validation" ./06_rule_validate.sh "$MAC_ABAC_CTL"
+run_test_script "Rule Load" ./07_rule_load.sh "$MAC_ABAC_CTL"
+run_test_script "mac_syscall API" ./09_syscall_api.sh "$MAC_ABAC_CTL"
+run_test_script "Limits" ./10_limits.sh "$MAC_ABAC_CTL"
+run_test_script "Process Enforcement" ./12_process_enforcement.sh "$MAC_ABAC_CTL"
+run_test_script "Label Transitions" ./13_transitions.sh "$MAC_ABAC_CTL"
+run_test_script "Context Debug" ./14_context_debug.sh "$MAC_ABAC_CTL"
+run_test_script "Context Constraints" ./15_context_constraints.sh "$MAC_ABAC_CTL"
+run_test_script "Policy Formats" ./16_formats.sh "$MAC_ABAC_CTL"
+run_test_script "Pattern Negation" ./17_negation.sh "$MAC_ABAC_CTL"
+run_test_script "File Operations" ./12_file_ops.sh "$MAC_ABAC_CTL"
+run_test_script "Label Protection" ./18_label_protection.sh "$MAC_ABAC_CTL"
+run_test_script "Socket Operations" ./19_socket.sh "$MAC_ABAC_CTL"
+run_test_script "Pipe Operations" ./20_pipe.sh "$MAC_ABAC_CTL"
+run_test_script "POSIX Shared Memory" ./21_posixshm.sh "$MAC_ABAC_CTL"
+run_test_script "Directory & Metadata" ./22_directory.sh "$MAC_ABAC_CTL"
+run_test_script "System Operations" ./23_system.sh "$MAC_ABAC_CTL"
+run_test_script "Vnode Extra Hooks" ./24_vnode_extra.sh "$MAC_ABAC_CTL"
+run_test_script "Kenv Operations" ./25_kenv.sh "$MAC_ABAC_CTL"
+run_test_script "Atomic Setlabel" ./26_atomic_setlabel.sh "$MAC_ABAC_CTL"
+run_test_script "Recursive Labeling" ./27_recursive_label.sh "$MAC_ABAC_CTL"
 
 # DTrace test - only run if dtrace is available
 if which dtrace >/dev/null 2>&1; then
-    run_test_script "DTrace Probes" ./11_dtrace.sh "$VLABELCTL"
+    run_test_script "DTrace Probes" ./11_dtrace.sh "$MAC_ABAC_CTL"
 elif [ "$QUIET_MODE" != "1" ]; then
     echo ""
     printf "${YELLOW}>>> Skipping: DTrace Probes (dtrace not available)${NC}\n"
@@ -156,20 +156,20 @@ fi
 
 # Enforcement test - requires labeled binaries set up before module load
 # Run scripts/deploy-test.sh to set up the test environment properly
-run_test_script "Enforcement" ./08_enforcement.sh "$VLABELCTL"
+run_test_script "Enforcement" ./08_enforcement.sh "$MAC_ABAC_CTL"
 
 # Sets test
 if [ -x ./28_sets.sh ]; then
-    run_test_script "Label Sets" ./28_sets.sh "$VLABELCTL"
+    run_test_script "Label Sets" ./28_sets.sh "$MAC_ABAC_CTL"
 fi
 
 # SysV IPC tests
-run_test_script "SysV Message Queues" ./31_sysv_msgq.sh "$VLABELCTL"
-run_test_script "SysV Semaphores" ./32_sysv_sem.sh "$VLABELCTL"
+run_test_script "SysV Message Queues" ./31_sysv_msgq.sh "$MAC_ABAC_CTL"
+run_test_script "SysV Semaphores" ./32_sysv_sem.sh "$MAC_ABAC_CTL"
 
 # Sanity and stress tests
-run_test_script "Sanity Checks" ./29_sanity.sh "$VLABELCTL"
-run_test_script "Stress Tests" ./30_stress.sh "$VLABELCTL"
+run_test_script "Sanity Checks" ./29_sanity.sh "$MAC_ABAC_CTL"
+run_test_script "Stress Tests" ./30_stress.sh "$MAC_ABAC_CTL"
 
 # Summary
 echo ""

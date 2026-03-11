@@ -1,6 +1,6 @@
-# vLabel Architecture
+# ABAC Architecture
 
-vLabel is a FreeBSD Mandatory Access Control Framework (MACF) policy module. This document describes the system architecture, kernel hooks, and component interactions.
+ABAC is a FreeBSD Mandatory Access Control Framework (MACF) policy module. This document describes the system architecture, kernel hooks, and component interactions.
 
 ## System Overview
 
@@ -9,7 +9,7 @@ vLabel is a FreeBSD Mandatory Access Control Framework (MACF) policy module. Thi
 │                         User Space                               │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│   vlabeld                    vlabelctl                          │
+│   mac_abacd                    mac_abac_ctl                          │
 │   ┌──────────────┐           ┌──────────────┐                   │
 │   │ Policy Parser│           │ CLI Commands │                   │
 │   │ SIGHUP Reload│           │ Label Mgmt   │                   │
@@ -17,7 +17,7 @@ vLabel is a FreeBSD Mandatory Access Control Framework (MACF) policy module. Thi
 │   └──────┬───────┘           └──────┬───────┘                   │
 │          │                          │                            │
 │          └──────────┬───────────────┘                            │
-│                     │ mac_syscall("vlabel", cmd, arg)            │
+│                     │ mac_syscall("mac_abac", cmd, arg)            │
 │                     ▼                                            │
 │              MAC Framework Syscall Interface                     │
 │                                                                  │
@@ -25,7 +25,7 @@ vLabel is a FreeBSD Mandatory Access Control Framework (MACF) policy module. Thi
 │                        Kernel Space                              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│   mac_vlabel.ko                                                  │
+│   mac_abac.ko                                                  │
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │                                                          │   │
 │   │  ┌──────────┐  ┌──────────┐  ┌──────────┐              │   │
@@ -36,8 +36,8 @@ vLabel is a FreeBSD Mandatory Access Control Framework (MACF) policy module. Thi
 │   │       └─────────────┼─────────────┘                     │   │
 │   │                     │                                    │   │
 │   │  ┌──────────────────┴──────────────────┐               │   │
-│   │  │           vlabel_syscall()           │               │   │
-│   │  │  (handles mac_syscall for "vlabel")  │               │   │
+│   │  │           abac_syscall()           │               │   │
+│   │  │  (handles mac_syscall for "mac_abac")  │               │   │
 │   │  └──────────────────┬──────────────────┘               │   │
 │   │                     │                                    │   │
 │   │              ┌──────┴──────┐                            │   │
@@ -53,7 +53,7 @@ vLabel is a FreeBSD Mandatory Access Control Framework (MACF) policy module. Thi
 ├─────────────────────────────────────────────────────────────────┤
 │                       Filesystem                                 │
 │                                                                  │
-│   Extended Attributes: system:vlabel                            │
+│   Extended Attributes: system:mac_abac                            │
 │   ┌─────────────────────────────────────────────────────────┐   │
 │   │ /bin/ls        → (no label - default)                    │   │
 │   │ /usr/bin/app   → type=trusted,domain=system              │   │
@@ -65,38 +65,38 @@ vLabel is a FreeBSD Mandatory Access Control Framework (MACF) policy module. Thi
 
 ## Kernel Module Components
 
-### mac_vlabel.c - Module Core
+### mac_abac.c - Module Core
 
 - MACF policy registration via `MAC_POLICY_SET()`
-- Sysctl tree setup (`security.mac.vlabel.*`)
+- Sysctl tree setup (`security.mac.mac_abac.*`)
 - Global state: enabled flag, mode, audit level
 - Coordination between submodules
 
-### vlabel_label.c - Label Management
+### abac_label.c - Label Management
 
-- UMA zone for label allocation (`vlabel_label_zone`)
+- UMA zone for label allocation (`abac_label_zone`)
 - Label parsing: `"key=val\nkey=val\n"` → struct
 - Label matching against patterns
 - Hash computation for fast comparison
 
 ```c
-struct vlabel_label {
-    char             vl_raw[VLABEL_MAX_LABEL_LEN];  // Original string (4KB)
+struct abac_label {
+    char             vl_raw[ABAC_MAX_LABEL_LEN];  // Original string (4KB)
     uint32_t         vl_hash;                        // Quick comparison
     uint32_t         vl_npairs;                      // Number of valid pairs
-    struct vlabel_pair vl_pairs[VLABEL_MAX_PAIRS];  // Parsed key=value (16 max)
+    struct abac_pair vl_pairs[ABAC_MAX_PAIRS];  // Parsed key=value (16 max)
 };
 
-struct vlabel_pair {
-    char vp_key[VLABEL_MAX_KEY_LEN];     // 64 bytes
-    char vp_value[VLABEL_MAX_VALUE_LEN]; // 256 bytes
+struct abac_pair {
+    char vp_key[ABAC_MAX_KEY_LEN];     // 64 bytes
+    char vp_value[ABAC_MAX_VALUE_LEN]; // 256 bytes
 };
 ```
 
 **Note:** Labels use arbitrary key=value pairs. The old type/domain/name/level
 fields are removed in favor of flexible pairs.
 
-### vlabel_rules.c - Rule Engine
+### abac_rules.c - Rule Engine
 
 - Rule storage array with rwlock protection
 - First-match evaluation semantics
@@ -106,35 +106,35 @@ fields are removed in favor of flexible pairs.
 - Rules appended at end (never reordered on removal)
 
 ```c
-struct vlabel_rule {
+struct abac_rule {
     uint32_t                vr_id;           // Unique identifier
     uint8_t                 vr_action;       // ALLOW/DENY/TRANSITION
     uint32_t                vr_operations;   // Operation bitmask
-    struct vlabel_rule_pattern vr_subject;   // Subject pattern (1,032 bytes)
-    struct vlabel_rule_pattern vr_object;    // Object pattern (1,032 bytes)
-    struct vlabel_context   vr_subj_context; // Subject constraints (24B)
-    struct vlabel_context   vr_obj_context;  // Object constraints (24B)
-    struct vlabel_label    *vr_newlabel;     // For transitions (pointer, NULL if not used)
+    struct abac_rule_pattern vr_subject;   // Subject pattern (1,032 bytes)
+    struct abac_rule_pattern vr_object;    // Object pattern (1,032 bytes)
+    struct abac_context   vr_subj_context; // Subject constraints (24B)
+    struct abac_context   vr_obj_context;  // Object constraints (24B)
+    struct abac_label    *vr_newlabel;     // For transitions (pointer, NULL if not used)
 };
 // Size: ~2.1KB (non-transition), ~11KB (transition with allocated newlabel)
 ```
 
-### vlabel_match.c - Pattern Matching
+### abac_match.c - Pattern Matching
 
-Separated from vlabel_label.c for clarity:
-- `vlabel_pattern_match()` - Check label against pattern
-- `vlabel_context_matches()` - Check process context constraints
-- `vlabel_rule_matches()` - Full rule evaluation
+Separated from abac_label.c for clarity:
+- `abac_pattern_match()` - Check label against pattern
+- `abac_context_matches()` - Check process context constraints
+- `abac_rule_matches()` - Full rule evaluation
 
-### vlabel_syscall() - Syscall Interface
+### abac_syscall() - Syscall Interface
 
-- Handles `mac_syscall("vlabel", cmd, arg)` from userland
+- Handles `mac_syscall("mac_abac", cmd, arg)` from userland
 - Provides all management operations (mode, audit, rules, stats)
 - Variable-length data structures eliminate ioctl size limits
 - Uses copyin/copyout for safe kernel-userland data transfer
 - All commands require root privilege (PRIV_MAC_PARTITION)
 
-### vlabel_vnode.c - Vnode Hooks
+### abac_vnode.c - Vnode Hooks
 
 Implements all vnode (file) access checks:
 - `check_exec`, `check_read`, `check_write`
@@ -143,7 +143,7 @@ Implements all vnode (file) access checks:
 - `check_create`, `check_chdir`, `check_lookup`
 - Extended attribute hooks for label protection
 
-### vlabel_cred.c - Credential Hooks
+### abac_cred.c - Credential Hooks
 
 Manages process (subject) labels:
 - `cred_init_label` - Initialize on process creation
@@ -151,7 +151,7 @@ Manages process (subject) labels:
 - `execve_transition` - Label change on exec
 - `execve_will_transition` - Check if transition occurs
 
-### vlabel_proc.c - Process Hooks
+### abac_proc.c - Process Hooks
 
 Inter-process access control:
 - `proc_check_debug` - ptrace/procfs access
@@ -163,23 +163,23 @@ Inter-process access control:
 ### Hook Registration
 
 ```c
-static struct mac_policy_ops vlabel_ops = {
+static struct mac_policy_ops abac_ops = {
     // Lifecycle
-    .mpo_init = vlabel_init,
-    .mpo_destroy = vlabel_destroy,
+    .mpo_init = abac_init,
+    .mpo_destroy = abac_destroy,
 
     // Vnode checks (31 hooks)
-    .mpo_vnode_check_exec = vlabel_vnode_check_exec,
-    .mpo_vnode_check_read = vlabel_vnode_check_read,
+    .mpo_vnode_check_exec = abac_vnode_check_exec,
+    .mpo_vnode_check_read = abac_vnode_check_read,
     // ... etc
 
     // Credential lifecycle (10 hooks)
-    .mpo_cred_init_label = vlabel_cred_init_label,
+    .mpo_cred_init_label = abac_cred_init_label,
     // ... etc
 };
 
-MAC_POLICY_SET(&vlabel_ops, mac_vlabel, "vLabel MAC Policy",
-    MPC_LOADTIME_FLAG_UNLOADOK, &vlabel_slot);
+MAC_POLICY_SET(&abac_ops, mac_abac, "ABAC MAC Policy",
+    MPC_LOADTIME_FLAG_UNLOADOK, &abac_slot);
 ```
 
 ### Label Slot
@@ -187,10 +187,10 @@ MAC_POLICY_SET(&vlabel_ops, mac_vlabel, "vLabel MAC Policy",
 MACF provides a "slot" for each policy to store per-object data:
 
 ```c
-static int vlabel_slot;  // Assigned by MACF
+static int abac_slot;  // Assigned by MACF
 
 // Access label on any labeled object
-#define SLOT(l) mac_label_get((l), vlabel_slot)
+#define SLOT(l) mac_label_get((l), abac_slot)
 ```
 
 ### Hook Flow
@@ -207,11 +207,11 @@ MACF: mac_vnode_check_open()
     ├── Calls each registered policy's mpo_vnode_check_open
     │
     ▼
-vLabel: vlabel_vnode_check_open()
+ABAC: abac_vnode_check_open()
     │
     ├── Get subject label from cred->cr_label
     ├── Get object label from vp->v_label (cached from extattr)
-    ├── Evaluate rules for VLABEL_OP_OPEN
+    ├── Evaluate rules for ABAC_OP_OPEN
     ├── Log audit event if configured
     │
     ▼
@@ -222,7 +222,7 @@ Return 0 (allow) or EACCES (deny)
 
 ### ZFS-Only Design
 
-vLabel is designed exclusively for ZFS filesystems. The traditional FreeBSD MAC label
+ABAC is designed exclusively for ZFS filesystems. The traditional FreeBSD MAC label
 API (`mac_get_file`/`mac_set_file`, `getfmac`/`setfmac`) relies on filesystem callbacks:
 
 - `mac_vnode_create_extattr()` - Called during file creation to set initial label
@@ -232,14 +232,14 @@ ZFS does not implement these callbacks because it uses its own SA-based attribut
 rather than the UFS extattr infrastructure. The `MNT_MULTILABEL` mount flag that enables
 these callbacks is not supported on ZFS.
 
-**vLabel's approach works around this:**
+**ABAC's approach works around this:**
 
 1. Labels are read via `VOP_GETEXTATTR()` during `mac_vnode_associate_extattr()`
-2. Labels are written via `VOP_SETEXTATTR()` through `vlabelctl`
-3. Cached labels are refreshed via the `VLABEL_SYS_REFRESH` syscall
+2. Labels are written via `VOP_SETEXTATTR()` through `mac_abac_ctl`
+3. Cached labels are refreshed via the `ABAC_SYS_REFRESH` syscall
 4. The `externalize_label`/`internalize_label` hooks are stubs (return errors)
 
-This means `vlabelctl` is the only supported tool for label management. The standard
+This means `mac_abac_ctl` is the only supported tool for label management. The standard
 `getfmac`/`setfmac` tools will not work.
 
 ### Reading Labels
@@ -251,9 +251,9 @@ File accessed (open, exec, stat, etc.)
 MACF: mac_vnode_associate_extattr()
     │
     ▼
-vLabel: vlabel_vnode_associate_extattr()
+ABAC: abac_vnode_associate_extattr()
     │
-    ├── VOP_GETEXTATTR(vp, SYSTEM, "vlabel", ...)
+    ├── VOP_GETEXTATTR(vp, SYSTEM, "mac_abac", ...)
     │   │
     │   ▼
     │   Filesystem returns extattr value or ENOATTR
@@ -268,7 +268,7 @@ Label cached in vnode for future checks
 ### Writing Labels
 
 ```
-setextattr system vlabel "type=foo" /path
+setextattr system mac_abac "type=foo" /path
     │
     ▼
 VFS: VOP_SETEXTATTR()
@@ -277,7 +277,7 @@ VFS: VOP_SETEXTATTR()
 MACF: mac_vnode_check_setextattr()
     │
     ▼
-vLabel: vlabel_vnode_check_setextattr()
+ABAC: abac_vnode_check_setextattr()
     │
     ├── Check if caller can modify labels
     ├── (Currently: require root)
@@ -289,7 +289,7 @@ Filesystem stores extattr
 MACF: mac_vnode_setlabel_extattr()
     │
     ▼
-vLabel: vlabel_vnode_setlabel_extattr()
+ABAC: abac_vnode_setlabel_extattr()
     │
     ├── Parse new label
     ├── Update cached label in slot
@@ -300,16 +300,16 @@ Done
 
 ## Sysctl Tunables
 
-vLabel exposes configuration and statistics via the `security.mac.vlabel` sysctl tree.
+ABAC exposes configuration and statistics via the `security.mac.mac_abac` sysctl tree.
 
 ### Configuration Tunables (Read-Write)
 
 | Sysctl | Type | Default | Description |
 |--------|------|---------|-------------|
-| `security.mac.vlabel.enabled` | int | 1 | Enable (1) or disable (0) the module |
-| `security.mac.vlabel.mode` | int | 1 | 0=disabled, 1=permissive, 2=enforcing |
-| `security.mac.vlabel.default_policy` | int | 0 | Default when no rule matches: 0=allow, 1=deny |
-| `security.mac.vlabel.extattr_name` | string | "vlabel" | Extended attribute name in system namespace |
+| `security.mac.mac_abac.enabled` | int | 1 | Enable (1) or disable (0) the module |
+| `security.mac.mac_abac.mode` | int | 1 | 0=disabled, 1=permissive, 2=enforcing |
+| `security.mac.mac_abac.default_policy` | int | 0 | Default when no rule matches: 0=allow, 1=deny |
+| `security.mac.mac_abac.extattr_name` | string | "mac_abac" | Extended attribute name in system namespace |
 
 **Mode values:**
 - `0` (disabled): All operations allowed, no rule evaluation
@@ -320,35 +320,35 @@ vLabel exposes configuration and statistics via the `security.mac.vlabel` sysctl
 
 | Sysctl | Type | Description |
 |--------|------|-------------|
-| `security.mac.vlabel.checks` | uint64 | Total access checks performed |
-| `security.mac.vlabel.allowed` | uint64 | Operations allowed |
-| `security.mac.vlabel.denied` | uint64 | Operations denied (or would-deny in permissive) |
-| `security.mac.vlabel.rule_count` | int | Currently loaded rules |
-| `security.mac.vlabel.labels_read` | uint64 | Labels read from extended attributes |
-| `security.mac.vlabel.labels_default` | uint64 | Default labels assigned (no extattr) |
-| `security.mac.vlabel.labels_allocated` | uint64 | Label structures allocated |
-| `security.mac.vlabel.labels_freed` | uint64 | Label structures freed |
-| `security.mac.vlabel.parse_errors` | uint64 | Label parse failures |
+| `security.mac.mac_abac.checks` | uint64 | Total access checks performed |
+| `security.mac.mac_abac.allowed` | uint64 | Operations allowed |
+| `security.mac.mac_abac.denied` | uint64 | Operations denied (or would-deny in permissive) |
+| `security.mac.mac_abac.rule_count` | int | Currently loaded rules |
+| `security.mac.mac_abac.labels_read` | uint64 | Labels read from extended attributes |
+| `security.mac.mac_abac.labels_default` | uint64 | Default labels assigned (no extattr) |
+| `security.mac.mac_abac.labels_allocated` | uint64 | Label structures allocated |
+| `security.mac.mac_abac.labels_freed` | uint64 | Label structures freed |
+| `security.mac.mac_abac.parse_errors` | uint64 | Label parse failures |
 
 ### Example Usage
 
 ```sh
 # View all tunables
-sysctl security.mac.vlabel
+sysctl security.mac.mac_abac
 
 # Set enforcing mode
-sysctl security.mac.vlabel.mode=2
+sysctl security.mac.mac_abac.mode=2
 
 # Set default deny policy
-sysctl security.mac.vlabel.default_policy=1
+sysctl security.mac.mac_abac.default_policy=1
 
 # Check statistics
-sysctl security.mac.vlabel.checks security.mac.vlabel.denied
+sysctl security.mac.mac_abac.checks security.mac.mac_abac.denied
 ```
 
 ## mac_syscall Interface
 
-vLabel uses the FreeBSD MAC Framework's syscall interface (`mac_syscall()`) instead of
+ABAC uses the FreeBSD MAC Framework's syscall interface (`mac_syscall()`) instead of
 a character device. This provides several benefits:
 
 - **No filesystem dependency**: Works before filesystems are mounted
@@ -357,35 +357,35 @@ a character device. This provides several benefits:
 
 ### Syscall Commands
 
-All commands use: `mac_syscall("vlabel", VLABEL_SYS_*, arg)`
+All commands use: `mac_syscall("mac_abac", ABAC_SYS_*, arg)`
 
 | Command | Direction | Argument | Purpose |
 |---------|-----------|----------|---------|
-| `VLABEL_SYS_GETMODE` | Read | `int*` | Get current mode |
-| `VLABEL_SYS_SETMODE` | Write | `int*` | Set mode (0/1/2) |
-| `VLABEL_SYS_GETSTATS` | Read | `struct vlabel_stats*` | Get statistics |
-| `VLABEL_SYS_GETDEFPOL` | Read | `int*` | Get default policy |
-| `VLABEL_SYS_SETDEFPOL` | Write | `int*` | Set default policy |
-| `VLABEL_SYS_RULE_ADD` | Write | `struct vlabel_rule_arg*` | Add a rule |
-| `VLABEL_SYS_RULE_REMOVE` | Write | `uint32_t*` | Remove rule by ID |
-| `VLABEL_SYS_RULE_CLEAR` | None | `NULL` | Clear all rules |
-| `VLABEL_SYS_RULE_LIST` | Read | `struct vlabel_rule_list_arg*` | List rules |
-| `VLABEL_SYS_TEST` | Read/Write | `struct vlabel_test_arg*` | Test access |
-| `VLABEL_SYS_REFRESH` | Write | `int*` (fd) | Refresh cached label from extattr |
-| `VLABEL_SYS_SETLABEL` | Write | `struct vlabel_setlabel_arg*` | Atomic set: extattr + cache |
+| `ABAC_SYS_GETMODE` | Read | `int*` | Get current mode |
+| `ABAC_SYS_SETMODE` | Write | `int*` | Set mode (0/1/2) |
+| `ABAC_SYS_GETSTATS` | Read | `struct abac_stats*` | Get statistics |
+| `ABAC_SYS_GETDEFPOL` | Read | `int*` | Get default policy |
+| `ABAC_SYS_SETDEFPOL` | Write | `int*` | Set default policy |
+| `ABAC_SYS_RULE_ADD` | Write | `struct abac_rule_arg*` | Add a rule |
+| `ABAC_SYS_RULE_REMOVE` | Write | `uint32_t*` | Remove rule by ID |
+| `ABAC_SYS_RULE_CLEAR` | None | `NULL` | Clear all rules |
+| `ABAC_SYS_RULE_LIST` | Read | `struct abac_rule_list_arg*` | List rules |
+| `ABAC_SYS_TEST` | Read/Write | `struct abac_test_arg*` | Test access |
+| `ABAC_SYS_REFRESH` | Write | `int*` (fd) | Refresh cached label from extattr |
+| `ABAC_SYS_SETLABEL` | Write | `struct abac_setlabel_arg*` | Atomic set: extattr + cache |
 
 ### Variable-Length Structures
 
 The syscall API uses variable-length structures to support large labels:
 
 ```c
-struct vlabel_rule_arg {
+struct abac_rule_arg {
     uint8_t   vr_action;       // ALLOW/DENY/TRANSITION
     uint8_t   vr_reserved[3];
     uint32_t  vr_operations;   // Operation bitmask
     uint32_t  vr_subject_flags;
     uint32_t  vr_object_flags;
-    struct vlabel_context_arg vr_context;
+    struct abac_context_arg vr_context;
     uint16_t  vr_subject_len;  // Length including null
     uint16_t  vr_object_len;
     uint16_t  vr_newlabel_len; // 0 if not transition
@@ -398,31 +398,31 @@ struct vlabel_rule_arg {
 
 ```c
 #include <sys/mac.h>
-#include "mac_vlabel.h"
+#include "mac_abac.h"
 
 // Get current mode
 int mode;
-if (mac_syscall("vlabel", VLABEL_SYS_GETMODE, &mode) == 0)
+if (mac_syscall("mac_abac", ABAC_SYS_GETMODE, &mode) == 0)
     printf("Mode: %d\n", mode);
 
 // Set enforcing mode
-int newmode = VLABEL_MODE_ENFORCING;
-mac_syscall("vlabel", VLABEL_SYS_SETMODE, &newmode);
+int newmode = ABAC_MODE_ENFORCING;
+mac_syscall("mac_abac", ABAC_SYS_SETMODE, &newmode);
 
 // Add a rule
 size_t subject_len = strlen("*") + 1;
 size_t object_len = strlen("type=untrusted") + 1;
-size_t total = sizeof(struct vlabel_rule_arg) + subject_len + object_len;
+size_t total = sizeof(struct abac_rule_arg) + subject_len + object_len;
 
 char *buf = malloc(total);
-struct vlabel_rule_arg *arg = (struct vlabel_rule_arg *)buf;
-arg->vr_action = VLABEL_ACTION_DENY;
-arg->vr_operations = VLABEL_OP_EXEC;
+struct abac_rule_arg *arg = (struct abac_rule_arg *)buf;
+arg->vr_action = ABAC_ACTION_DENY;
+arg->vr_operations = ABAC_OP_EXEC;
 arg->vr_subject_len = subject_len;
 arg->vr_object_len = object_len;
 arg->vr_newlabel_len = 0;
 // ... copy strings after header
-mac_syscall("vlabel", VLABEL_SYS_RULE_ADD, arg);
+mac_syscall("mac_abac", ABAC_SYS_RULE_ADD, arg);
 ```
 
 ## Statistics
@@ -446,8 +446,8 @@ Available via sysctl or ioctl:
 ### UMA Zones
 
 ```c
-vlabel_label_zone = uma_zcreate("vlabel_label",
-    sizeof(struct vlabel_label),
+abac_label_zone = uma_zcreate("abac_label",
+    sizeof(struct abac_label),
     NULL, NULL, NULL, NULL,
     UMA_ALIGN_PTR, 0);
 ```
@@ -461,8 +461,8 @@ Labels are allocated from a UMA zone for:
 
 | Lock | Type | Protects |
 |------|------|----------|
-| `vlabel_rules_lock` | rwlock | Rules array |
-| `vlabel_audit_mtx` | mutex | Audit ring buffer |
+| `abac_rules_lock` | rwlock | Rules array |
+| `abac_audit_mtx` | mutex | Audit ring buffer |
 
 Rule evaluation takes a read lock (allows concurrent checks).
 Rule modification takes a write lock (exclusive).
@@ -479,7 +479,7 @@ Rule modification takes a write lock (exclusive).
 ### Self-Protection
 
 The module protects its own extended attribute:
-- `check_setextattr` can deny modifications to `system:vlabel`
+- `check_setextattr` can deny modifications to `system:mac_abac`
 - Currently allows root; could be restricted further
 
 ### Fail-Safe Behavior
@@ -491,54 +491,54 @@ The module protects its own extended attribute:
 
 ## DTrace Integration
 
-vLabel provides DTrace probes for detailed instrumentation and debugging. These probes fire
+ABAC provides DTrace probes for detailed instrumentation and debugging. These probes fire
 on key events in the policy module, allowing real-time observation without recompilation.
 
 ### Available Probes
 
 | Probe | Arguments | Description |
 |-------|-----------|-------------|
-| `vlabel:::check-entry` | subj, obj, op | Start of access check |
-| `vlabel:::check-return` | result, op | End of access check |
-| `vlabel:::check-allow` | subj, obj, op, rule_id | Access allowed |
-| `vlabel:::check-deny` | subj, obj, op, rule_id | Access denied |
-| `vlabel:::rule-match` | rule_id, action, op | Rule matched |
-| `vlabel:::rule-nomatch` | default_policy, op | No rule matched |
-| `vlabel:::transition-exec` | old_label, new_label, exec_label, pid | Label transition on exec |
-| `vlabel:::extattr-read` | label, vnode | Label read from extattr |
-| `vlabel:::extattr-default` | is_subject | Default label assigned |
-| `vlabel:::rule-add` | rule_id, action, ops | Rule added |
-| `vlabel:::rule-remove` | rule_id | Rule removed |
-| `vlabel:::rule-clear` | count | All rules cleared |
-| `vlabel:::mode-change` | old_mode, new_mode | Enforcement mode changed |
+| `mac_abac:::check-entry` | subj, obj, op | Start of access check |
+| `mac_abac:::check-return` | result, op | End of access check |
+| `mac_abac:::check-allow` | subj, obj, op, rule_id | Access allowed |
+| `mac_abac:::check-deny` | subj, obj, op, rule_id | Access denied |
+| `mac_abac:::rule-match` | rule_id, action, op | Rule matched |
+| `mac_abac:::rule-nomatch` | default_policy, op | No rule matched |
+| `mac_abac:::transition-exec` | old_label, new_label, exec_label, pid | Label transition on exec |
+| `mac_abac:::extattr-read` | label, vnode | Label read from extattr |
+| `mac_abac:::extattr-default` | is_subject | Default label assigned |
+| `mac_abac:::rule-add` | rule_id, action, ops | Rule added |
+| `mac_abac:::rule-remove` | rule_id | Rule removed |
+| `mac_abac:::rule-clear` | count | All rules cleared |
+| `mac_abac:::mode-change` | old_mode, new_mode | Enforcement mode changed |
 
 ### Example DTrace Commands
 
 ```sh
 # Watch all denied accesses
-dtrace -n 'vlabel:::check-deny { printf("%s -> %s op=0x%x rule=%u",
+dtrace -n 'mac_abac:::check-deny { printf("%s -> %s op=0x%x rule=%u",
     stringof(arg0), stringof(arg1), arg2, arg3); }'
 
 # Count denials by operation
-dtrace -n 'vlabel:::check-deny { @[arg2] = count(); }'
+dtrace -n 'mac_abac:::check-deny { @[arg2] = count(); }'
 
 # Measure access check latency
-dtrace -n 'vlabel:::check-entry { self->ts = timestamp; }
-           vlabel:::check-return /self->ts/ {
+dtrace -n 'mac_abac:::check-entry { self->ts = timestamp; }
+           mac_abac:::check-return /self->ts/ {
                @["ns"] = quantize(timestamp - self->ts);
                self->ts = 0;
            }'
 
 # Watch label transitions
-dtrace -n 'vlabel:::transition-exec {
+dtrace -n 'mac_abac:::transition-exec {
     printf("pid %d: %s -> %s (via %s)",
         arg3, stringof(arg0), stringof(arg1), stringof(arg2)); }'
 
 # Count rule matches by rule ID
-dtrace -n 'vlabel:::rule-match { @[arg0] = count(); }'
+dtrace -n 'mac_abac:::rule-match { @[arg0] = count(); }'
 
 # Watch mode changes
-dtrace -n 'vlabel:::mode-change {
+dtrace -n 'mac_abac:::mode-change {
     printf("mode: %d -> %d", arg0, arg1); }'
 ```
 
@@ -566,13 +566,13 @@ dtrace -n 'vlabel:::mode-change {
 
 | Structure | Size | Notes |
 |-----------|------|-------|
-| `vlabel_pair` | 320 bytes | 64 key + 256 value (file labels) |
-| `vlabel_label` | ~9,224 bytes | 4096 raw + 8 meta + 16×320 pairs |
-| `vlabel_rule_pair` | 128 bytes | 64 key + 64 value (rule patterns) |
-| `vlabel_rule_pattern` | 1,032 bytes | 8 meta + 8×128 pairs |
-| `vlabel_context` | 24 bytes | Flags + uid/gid/jail |
-| `vlabel_rule` (non-transition) | **~2,132 bytes** | Subject + object patterns + contexts |
-| `vlabel_rule` (transition) | **~11,356 bytes** | +9KB for allocated newlabel |
+| `abac_pair` | 320 bytes | 64 key + 256 value (file labels) |
+| `abac_label` | ~9,224 bytes | 4096 raw + 8 meta + 16×320 pairs |
+| `abac_rule_pair` | 128 bytes | 64 key + 64 value (rule patterns) |
+| `abac_rule_pattern` | 1,032 bytes | 8 meta + 8×128 pairs |
+| `abac_context` | 24 bytes | Flags + uid/gid/jail |
+| `abac_rule` (non-transition) | **~2,132 bytes** | Subject + object patterns + contexts |
+| `abac_rule` (transition) | **~11,356 bytes** | +9KB for allocated newlabel |
 
 ### Memory Usage at Scale
 
@@ -586,13 +586,13 @@ dtrace -n 'vlabel:::mode-change {
 
 File labels and rule patterns have different requirements:
 
-**File labels** (`vlabel_label`, `vlabel_pair`):
+**File labels** (`abac_label`, `abac_pair`):
 - Stored in extended attributes, cached per-vnode
 - May contain paths, descriptions, complex values
 - 16 pairs × (64-byte key + 256-byte value) = 5KB per label
 - Size is acceptable because labels are sparse (most files unlabeled)
 
-**Rule patterns** (`vlabel_rule_pattern`, `vlabel_rule_pair`):
+**Rule patterns** (`abac_rule_pattern`, `abac_rule_pair`):
 - Loaded into kernel memory for every rule
 - Contain short identifiers: type names, domains, categories
 - Analysis shows 1-4 pairs typical, values rarely exceed 30 chars

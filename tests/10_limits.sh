@@ -23,14 +23,14 @@
 # Prerequisites:
 # - Must be run as root
 # - Module must be loaded
-# - vlabelctl must be built
+# - mac_abac_ctl must be built
 #
 
 set -e
 
 # Configuration
-VLABELCTL="${1:-../tools/vlabelctl}"
-MODULE_NAME="mac_vlabel"
+MAC_ABAC_CTL="${1:-../tools/mac_abac_ctl}"
+MODULE_NAME="mac_abac"
 
 # Colors for output
 RED='\033[0;31m'
@@ -68,8 +68,8 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-if [ ! -x "$VLABELCTL" ]; then
-    echo "vlabelctl not found or not executable: $VLABELCTL"
+if [ ! -x "$MAC_ABAC_CTL" ]; then
+    echo "mac_abac_ctl not found or not executable: $MAC_ABAC_CTL"
     exit 1
 fi
 
@@ -84,9 +84,9 @@ echo "============================================"
 echo ""
 
 # Save original state
-ORIG_MODE=$("$VLABELCTL" mode)
-"$VLABELCTL" mode disabled >/dev/null 2>&1
-"$VLABELCTL" rule clear >/dev/null 2>&1
+ORIG_MODE=$("$MAC_ABAC_CTL" mode)
+"$MAC_ABAC_CTL" mode disabled >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 
 # ===========================================
 # Test: Multiple key-value pairs
@@ -96,14 +96,14 @@ info "=== Key-Value Pair Limits ==="
 run_test
 info "Test: Rule with 8 key-value pairs (moderate)"
 PATTERN_8="k1=v1,k2=v2,k3=v3,k4=v4,k5=v5,k6=v6,k7=v7,k8=v8"
-if "$VLABELCTL" rule add "allow read $PATTERN_8 -> $PATTERN_8" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "allow read $PATTERN_8 -> $PATTERN_8" >/dev/null 2>&1; then
     pass "8 key-value pairs accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "8 key-value pairs"
 fi
 
-# Note: Rule patterns are limited to 8 pairs (VLABEL_RULE_MAX_PAIRS)
+# Note: Rule patterns are limited to 8 pairs (ABAC_RULE_MAX_PAIRS)
 # File labels support 16 pairs but rules are more compact
 
 # ===========================================
@@ -115,9 +115,9 @@ info "=== Key and Value Length Limits ==="
 run_test
 info "Test: Moderate key length (30 chars)"
 KEY_30="keyname_with_thirty_characters"
-if "$VLABELCTL" rule add "allow read ${KEY_30}=value -> *" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "allow read ${KEY_30}=value -> *" >/dev/null 2>&1; then
     pass "30-char key accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "30-char key"
 fi
@@ -125,22 +125,22 @@ fi
 run_test
 info "Test: Long key length (60 chars, under 64 limit)"
 KEY_60="this_is_a_very_long_key_name_that_is_sixty_characters_long__"
-if "$VLABELCTL" rule add "allow read ${KEY_60}=value -> *" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "allow read ${KEY_60}=value -> *" >/dev/null 2>&1; then
     pass "60-char key accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "60-char key"
 fi
 
-# Note: Rule pattern values are limited to 64 chars (VLABEL_RULE_VALUE_LEN)
+# Note: Rule pattern values are limited to 64 chars (ABAC_RULE_VALUE_LEN)
 # File labels support 256-char values but rules use shorter values
 
 run_test
 info "Test: Moderate value length (50 chars, under 64 rule limit)"
 VALUE_50="this_is_a_moderately_long_value_string_that_is_ok"
-if "$VLABELCTL" rule add "allow read type=$VALUE_50 -> *" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "allow read type=$VALUE_50 -> *" >/dev/null 2>&1; then
     pass "50-char value accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "50-char value"
 fi
@@ -148,9 +148,9 @@ fi
 run_test
 info "Test: Max value length (63 chars, at rule limit)"
 VALUE_63="this_is_exactly_sixty_three_characters_long_for_rule_patterns__"
-if "$VLABELCTL" rule add "allow read type=$VALUE_63 -> *" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "allow read type=$VALUE_63 -> *" >/dev/null 2>&1; then
     pass "63-char value accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "63-char value"
 fi
@@ -165,13 +165,13 @@ run_test
 info "Test: Adding 50 rules"
 SUCCESS=1
 for i in $(seq 1 50); do
-    if ! "$VLABELCTL" rule add "allow read id=$i -> *" >/dev/null 2>&1; then
+    if ! "$MAC_ABAC_CTL" rule add "allow read id=$i -> *" >/dev/null 2>&1; then
         SUCCESS=0
         break
     fi
 done
 if [ $SUCCESS -eq 1 ]; then
-    OUTPUT=$("$VLABELCTL" rule list 2>&1)
+    OUTPUT=$("$MAC_ABAC_CTL" rule list 2>&1)
     if echo "$OUTPUT" | grep -q "Loaded rules: 50"; then
         pass "50 rules added"
     else
@@ -180,19 +180,19 @@ if [ $SUCCESS -eq 1 ]; then
 else
     fail "50 rules (failed at rule $i)"
 fi
-"$VLABELCTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 
 run_test
 info "Test: Adding 100 rules"
 SUCCESS=1
 for i in $(seq 1 100); do
-    if ! "$VLABELCTL" rule add "allow read id=$i -> *" >/dev/null 2>&1; then
+    if ! "$MAC_ABAC_CTL" rule add "allow read id=$i -> *" >/dev/null 2>&1; then
         SUCCESS=0
         break
     fi
 done
 if [ $SUCCESS -eq 1 ]; then
-    OUTPUT=$("$VLABELCTL" rule list 2>&1)
+    OUTPUT=$("$MAC_ABAC_CTL" rule list 2>&1)
     if echo "$OUTPUT" | grep -q "Loaded rules: 100"; then
         pass "100 rules added"
     else
@@ -201,7 +201,7 @@ if [ $SUCCESS -eq 1 ]; then
 else
     fail "100 rules (failed at rule $i)"
 fi
-"$VLABELCTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 
 # ===========================================
 # Test: Complex combined patterns
@@ -213,9 +213,9 @@ run_test
 info "Test: Complex subject and object patterns"
 COMPLEX_SUBJ="type=daemon,domain=security,name=auditor,env=prod,tier=backend"
 COMPLEX_OBJ="sensitivity=secret,compartment=intel,project=alpha,handling=noforn"
-if "$VLABELCTL" rule add "allow read $COMPLEX_SUBJ -> $COMPLEX_OBJ" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "allow read $COMPLEX_SUBJ -> $COMPLEX_OBJ" >/dev/null 2>&1; then
     pass "complex patterns accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "complex patterns"
 fi
@@ -232,9 +232,9 @@ info "Test: Rule with all context fields + complex patterns"
 # This tests that using many context fields doesn't hit pair limits
 # Use ctx: before -> for subject, after -> for object
 PATTERN_WITH_CTX="type=app,domain=secure,tier=prod,env=test"
-if "$VLABELCTL" rule add "deny debug $PATTERN_WITH_CTX ctx:uid=0,jail=host,tty=true -> $PATTERN_WITH_CTX ctx:sandboxed=true,jail=any" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny debug $PATTERN_WITH_CTX ctx:uid=0,jail=host,tty=true -> $PATTERN_WITH_CTX ctx:sandboxed=true,jail=any" >/dev/null 2>&1; then
     pass "all context fields + complex patterns accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "all context fields + complex patterns"
 fi
@@ -244,9 +244,9 @@ info "Test: Max pattern pairs (8) with all context fields"
 # Rule patterns limited to 8 pairs, but context is separate
 # Use ctx: before -> for subject, after -> for object
 PATTERN_8="k1=v1,k2=v2,k3=v3,k4=v4,k5=v5,k6=v6,k7=v7,k8=v8"
-if "$VLABELCTL" rule add "deny signal $PATTERN_8 ctx:uid=0,gid=0,jail=host -> $PATTERN_8 ctx:sandboxed=true" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny signal $PATTERN_8 ctx:uid=0,gid=0,jail=host -> $PATTERN_8 ctx:sandboxed=true" >/dev/null 2>&1; then
     pass "8 pattern pairs + all contexts accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "8 pattern pairs + all contexts"
 fi
@@ -254,9 +254,9 @@ fi
 run_test
 info "Test: Rule with both subj_context and obj_context"
 # Use ctx: before -> for subject, after -> for object
-if "$VLABELCTL" rule add "deny sched type=a ctx:jail=any -> type=b ctx:jail=host" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny sched type=a ctx:jail=any -> type=b ctx:jail=host" >/dev/null 2>&1; then
     pass "dual context constraints accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "dual context constraints"
 fi
@@ -264,9 +264,9 @@ fi
 run_test
 info "Test: Transition rule with complex newlabel"
 COMPLEX_NEWLABEL="type=elevated,domain=system,privileges=admin,audit=required,timestamp=now"
-if "$VLABELCTL" rule add "transition exec * -> type=setuid => $COMPLEX_NEWLABEL" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec * -> type=setuid => $COMPLEX_NEWLABEL" >/dev/null 2>&1; then
     pass "complex transition rule accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "complex transition rule"
 fi
@@ -277,14 +277,14 @@ fi
 info ""
 info "=== Test Access with Complex Labels ==="
 
-"$VLABELCTL" rule add "deny read sensitivity=topsecret -> *" >/dev/null 2>&1
-"$VLABELCTL" rule add "allow read clearance=secret -> sensitivity=secret" >/dev/null 2>&1
-"$VLABELCTL" rule add "allow read * -> *" >/dev/null 2>&1
-"$VLABELCTL" default allow >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule add "deny read sensitivity=topsecret -> *" >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule add "allow read clearance=secret -> sensitivity=secret" >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule add "allow read * -> *" >/dev/null 2>&1
+"$MAC_ABAC_CTL" default allow >/dev/null 2>&1
 
 run_test
 info "Test: Complex label matching - deny"
-OUTPUT=$("$VLABELCTL" test read "sensitivity=topsecret,compartment=sci" "sensitivity=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "sensitivity=topsecret,compartment=sci" "sensitivity=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
     pass "complex deny match"
 else
@@ -293,14 +293,14 @@ fi
 
 run_test
 info "Test: Complex label matching - allow"
-OUTPUT=$("$VLABELCTL" test read "clearance=secret,department=intel" "sensitivity=secret,project=alpha" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "clearance=secret,department=intel" "sensitivity=secret,project=alpha" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
     pass "complex allow match"
 else
     fail "complex allow match (got: $OUTPUT)"
 fi
 
-"$VLABELCTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 
 # ===========================================
 # Test: Fully loaded rules (max pairs + max length keys/values)
@@ -309,16 +309,16 @@ info ""
 info "=== Fully Loaded Rule Tests ==="
 
 # Generate max-length key (63 chars) and value (63 chars)
-# VLABEL_RULE_KEY_LEN = 64, VLABEL_RULE_VALUE_LEN = 64 (63 usable + null)
+# ABAC_RULE_KEY_LEN = 64, ABAC_RULE_VALUE_LEN = 64 (63 usable + null)
 # Each underscore string below is exactly 62 chars, plus 1-char prefix = 63
 MAX_KEY="k______________________________________________________________"
 MAX_VAL="v______________________________________________________________"
 
 run_test
 info "Test: Single pair with max-length key and value (63 chars each)"
-if "$VLABELCTL" rule add "allow read ${MAX_KEY}=${MAX_VAL} -> *" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "allow read ${MAX_KEY}=${MAX_VAL} -> *" >/dev/null 2>&1; then
     pass "max-length key=value accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "max-length key=value"
 fi
@@ -336,18 +336,18 @@ FULLY_LOADED="${FULLY_LOADED},key5______________________________________________
 FULLY_LOADED="${FULLY_LOADED},key6___________________________________________________________=val6___________________________________________________________"
 FULLY_LOADED="${FULLY_LOADED},key7___________________________________________________________=val7___________________________________________________________"
 FULLY_LOADED="${FULLY_LOADED},key8___________________________________________________________=val8___________________________________________________________"
-if "$VLABELCTL" rule add "allow read ${FULLY_LOADED} -> *" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "allow read ${FULLY_LOADED} -> *" >/dev/null 2>&1; then
     pass "8 max-length pairs accepted (fully loaded pattern)"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "8 max-length pairs (fully loaded pattern)"
 fi
 
 run_test
 info "Test: Fully loaded rule with both subject and object patterns"
-if "$VLABELCTL" rule add "allow read ${FULLY_LOADED} -> ${FULLY_LOADED}" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "allow read ${FULLY_LOADED} -> ${FULLY_LOADED}" >/dev/null 2>&1; then
     pass "fully loaded subject AND object patterns accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "fully loaded subject AND object patterns"
 fi
@@ -355,9 +355,9 @@ fi
 run_test
 info "Test: Fully loaded rule + all context constraints"
 # Use ctx: before -> for subject, after -> for object
-if "$VLABELCTL" rule add "deny debug ${FULLY_LOADED} ctx:uid=0,gid=0,jail=host,tty=true -> ${FULLY_LOADED} ctx:sandboxed=true,jail=any" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny debug ${FULLY_LOADED} ctx:uid=0,gid=0,jail=host,tty=true -> ${FULLY_LOADED} ctx:sandboxed=true,jail=any" >/dev/null 2>&1; then
     pass "fully loaded patterns + all contexts accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "fully loaded patterns + all contexts"
 fi
@@ -370,27 +370,27 @@ info "=== Fully Loaded Transition Rule Tests ==="
 
 run_test
 info "Test: Transition rule with fully loaded newlabel"
-if "$VLABELCTL" rule add "transition exec * -> type=setuid => ${FULLY_LOADED}" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec * -> type=setuid => ${FULLY_LOADED}" >/dev/null 2>&1; then
     pass "transition with fully loaded newlabel accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "transition with fully loaded newlabel"
 fi
 
 run_test
 info "Test: Fully loaded transition (all 3 patterns maxed)"
-if "$VLABELCTL" rule add "transition exec ${FULLY_LOADED} -> ${FULLY_LOADED} => ${FULLY_LOADED}" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec ${FULLY_LOADED} -> ${FULLY_LOADED} => ${FULLY_LOADED}" >/dev/null 2>&1; then
     pass "fully loaded transition rule accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "fully loaded transition rule"
 fi
 
 run_test
 info "Test: Fully loaded transition + contexts"
-if "$VLABELCTL" rule add "transition exec ${FULLY_LOADED} -> ${FULLY_LOADED} ctx:uid=0,jail=host => ${FULLY_LOADED}" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "transition exec ${FULLY_LOADED} -> ${FULLY_LOADED} ctx:uid=0,jail=host => ${FULLY_LOADED}" >/dev/null 2>&1; then
     pass "fully loaded transition + contexts accepted"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     fail "fully loaded transition + contexts"
 fi
@@ -405,9 +405,9 @@ info "=== Oversized Rule Tests (should fail) ==="
 OVERLONG_KEY="________________________________________________________________"
 run_test
 info "Test: Key exceeds 63 chars (should fail)"
-if "$VLABELCTL" rule add "allow read ${OVERLONG_KEY}=value -> *" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "allow read ${OVERLONG_KEY}=value -> *" >/dev/null 2>&1; then
     fail "overlong key should have been rejected"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     pass "overlong key correctly rejected"
 fi
@@ -416,9 +416,9 @@ fi
 OVERLONG_VAL="________________________________________________________________"
 run_test
 info "Test: Value exceeds 63 chars (should fail)"
-if "$VLABELCTL" rule add "allow read type=${OVERLONG_VAL} -> *" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "allow read type=${OVERLONG_VAL} -> *" >/dev/null 2>&1; then
     fail "overlong value should have been rejected"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     pass "overlong value correctly rejected"
 fi
@@ -427,9 +427,9 @@ fi
 run_test
 info "Test: 9 pairs exceeds limit (should fail)"
 NINE_PAIRS="k1=v1,k2=v2,k3=v3,k4=v4,k5=v5,k6=v6,k7=v7,k8=v8,k9=v9"
-if "$VLABELCTL" rule add "allow read ${NINE_PAIRS} -> *" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "allow read ${NINE_PAIRS} -> *" >/dev/null 2>&1; then
     fail "9 pairs should have been rejected"
-    "$VLABELCTL" rule clear >/dev/null 2>&1
+    "$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 else
     pass "9 pairs correctly rejected"
 fi
@@ -441,8 +441,8 @@ info ""
 info "=== Limits Display Test ==="
 
 run_test
-info "Test: vlabelctl limits shows expected values"
-OUTPUT=$("$VLABELCTL" limits 2>&1)
+info "Test: mac_abac_ctl limits shows expected values"
+OUTPUT=$("$MAC_ABAC_CTL" limits 2>&1)
 if echo "$OUTPUT" | grep -q "Max key=value pairs:  16" && \
    echo "$OUTPUT" | grep -q "Max rules:"; then
     pass "limits command shows expected values"
@@ -455,7 +455,7 @@ fi
 # ===========================================
 info ""
 info "Restoring original settings..."
-"$VLABELCTL" mode "$ORIG_MODE" >/dev/null 2>&1
+"$MAC_ABAC_CTL" mode "$ORIG_MODE" >/dev/null 2>&1
 
 # ===========================================
 # Summary

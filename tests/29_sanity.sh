@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# 29_sanity.sh - Runtime sanity checks for mac_vlabel module
+# 29_sanity.sh - Runtime sanity checks for mac_abac module
 #
 # Checks for:
 # - Memory leaks (malloc/free balance via DTrace)
@@ -9,24 +9,24 @@
 # - Kernel message anomalies
 # - Lock issues
 #
-# Usage: ./29_sanity.sh [vlabelctl_path]
+# Usage: ./29_sanity.sh [mac_abac_ctl_path]
 #
 
 SCRIPT_DIR=$(dirname "$0")
 . "$SCRIPT_DIR/lib/test_helpers.sh"
 
-VLABELCTL="${1:-/usr/local/sbin/vlabelctl}"
+MAC_ABAC_CTL="${1:-/usr/local/sbin/mac_abac_ctl}"
 
 require_root
 require_module
 
-info "Running sanity checks on mac_vlabel module"
+info "Running sanity checks on mac_abac module"
 
 # -----------------------------------------------------------------------------
 # Check 1: Kernel messages for errors/warnings
 # -----------------------------------------------------------------------------
 run_test
-DMESG_ERRORS=$(dmesg | grep -i "mac_vlabel" | grep -iE "error|panic|fault|failed|warn" || true)
+DMESG_ERRORS=$(dmesg | grep -i "mac_abac" | grep -iE "error|panic|fault|failed|warn" || true)
 if [ -z "$DMESG_ERRORS" ]; then
     pass "No errors in kernel messages"
 else
@@ -40,20 +40,20 @@ fi
 # Check 2: Module loaded and intact
 # -----------------------------------------------------------------------------
 run_test
-MOD_INFO=$(kldstat -v -m mac_vlabel 2>&1)
-if echo "$MOD_INFO" | grep -q "mac_vlabel"; then
+MOD_INFO=$(kldstat -v -m mac_abac 2>&1)
+if echo "$MOD_INFO" | grep -q "mac_abac"; then
     pass "Module loaded and responding"
 else
     fail "Module not responding to kldstat"
 fi
 
 # -----------------------------------------------------------------------------
-# Check 3: UMA zone status for vlabel
+# Check 3: UMA zone status for mac_abac
 # -----------------------------------------------------------------------------
 run_test
-VMSTAT_ZONES=$(vmstat -z 2>/dev/null | grep -i vlabel || true)
+VMSTAT_ZONES=$(vmstat -z 2>/dev/null | grep -i mac_abac || true)
 if [ -n "$VMSTAT_ZONES" ]; then
-    info "vLabel UMA zones:"
+    info "ABAC UMA zones:"
     echo "$VMSTAT_ZONES"
 
     # Check for zone failures
@@ -63,33 +63,33 @@ if [ -n "$VMSTAT_ZONES" ]; then
         pass "UMA zones healthy (no allocation failures)"
     fi
 else
-    skip "No vlabel UMA zones found (may use malloc directly)"
+    skip "No mac_abac UMA zones found (may use malloc directly)"
 fi
 
 # -----------------------------------------------------------------------------
 # Check 4: Sysctl values are sane
 # -----------------------------------------------------------------------------
 run_test
-SYSCTL_OUT=$(sysctl -a 2>/dev/null | grep "security.mac.vlabel" || true)
+SYSCTL_OUT=$(sysctl -a 2>/dev/null | grep "security.mac.mac_abac" || true)
 if [ -n "$SYSCTL_OUT" ]; then
     # Check that enabled sysctl exists and is readable
-    if sysctl -n security.mac.vlabel.enabled >/dev/null 2>&1; then
+    if sysctl -n security.mac.mac_abac.enabled >/dev/null 2>&1; then
         pass "Sysctl interface responsive"
     else
         fail "Sysctl interface not responding"
     fi
 else
-    fail "No vlabel sysctls found"
+    fail "No mac_abac sysctls found"
 fi
 
 # -----------------------------------------------------------------------------
-# Check 5: vlabelctl status works
+# Check 5: mac_abac_ctl status works
 # -----------------------------------------------------------------------------
 run_test
-if $VLABELCTL status >/dev/null 2>&1; then
-    pass "vlabelctl status command works"
+if $MAC_ABAC_CTL status >/dev/null 2>&1; then
+    pass "mac_abac_ctl status command works"
 else
-    fail "vlabelctl status failed"
+    fail "mac_abac_ctl status failed"
 fi
 
 # -----------------------------------------------------------------------------
@@ -102,7 +102,7 @@ if which dtrace >/dev/null 2>&1; then
     # Create temp file for dtrace output
     DTRACE_OUT=$(mktemp)
 
-    # Run dtrace for 5 seconds tracking kernel mallocs in mac_vlabel
+    # Run dtrace for 5 seconds tracking kernel mallocs in mac_abac
     dtrace -q -n '
         fbt::malloc:entry /execname == "kernel" && arg1 > 0/ {
             @allocs["malloc"] = count();
@@ -116,8 +116,8 @@ if which dtrace >/dev/null 2>&1; then
 
     # Generate some activity
     sleep 1
-    $VLABELCTL status >/dev/null 2>&1 || true
-    $VLABELCTL rule list >/dev/null 2>&1 || true
+    $MAC_ABAC_CTL status >/dev/null 2>&1 || true
+    $MAC_ABAC_CTL rule list >/dev/null 2>&1 || true
 
     # Wait for dtrace
     wait $DTRACE_PID 2>/dev/null || true
@@ -166,7 +166,7 @@ fi
 # -----------------------------------------------------------------------------
 run_test
 # Try a basic syscall operation
-if $VLABELCTL status 2>&1 | grep -qiE "enabled|disabled|status"; then
+if $MAC_ABAC_CTL status 2>&1 | grep -qiE "enabled|disabled|status"; then
     pass "Module syscall interface working"
 else
     fail "Module syscall interface not responding correctly"
@@ -176,7 +176,7 @@ fi
 # Check 10: Verify module references are sane
 # -----------------------------------------------------------------------------
 run_test
-MOD_REFS=$(kldstat -v -m mac_vlabel 2>/dev/null | grep -i "refs" | awk '{print $NF}' || echo "")
+MOD_REFS=$(kldstat -v -m mac_abac 2>/dev/null | grep -i "refs" | awk '{print $NF}' || echo "")
 if [ -n "$MOD_REFS" ]; then
     info "Module reference count: $MOD_REFS"
     pass "Module reference count retrieved"

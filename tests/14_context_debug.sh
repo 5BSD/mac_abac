@@ -13,7 +13,7 @@
 # Prerequisites:
 # - Must be run as root
 # - Module must be loaded
-# - vlabelctl must be built
+# - mac_abac_ctl must be built
 #
 # SAFETY:
 # - Always loads "allow all * -> *" as a catch-all BEFORE going enforcing
@@ -27,20 +27,20 @@ SCRIPT_DIR=$(dirname "$0")
 
 # Configuration
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
-MODULE_NAME="mac_vlabel"
-TEST_DIR="/root/vlabel_context_test_$$"
+MODULE_NAME="mac_abac"
+TEST_DIR="/root/abac_context_test_$$"
 HELPER_BIN="$TEST_DIR/capmode_debug"
 TARGET_BIN="$TEST_DIR/target"
 
 # Check prerequisites
 require_root
-require_vlabelctl
+require_mac_abac_ctl
 
 if ! kldstat -q -m "$MODULE_NAME" 2>/dev/null; then
 	echo "Module not loaded. Please load the module first."
@@ -50,12 +50,12 @@ fi
 # Cleanup function - ALWAYS restore safe state
 cleanup() {
 	# Kill any lingering target processes first
-	pkill -f "vlabel_context_test" 2>/dev/null || true
+	pkill -f "abac_context_test" 2>/dev/null || true
 	# Restore permissive mode (critical for system recovery)
-	"$VLABELCTL" mode permissive >/dev/null 2>&1 || \
-		sysctl security.mac.vlabel.mode=1 >/dev/null 2>&1 || true
-	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
-	"$VLABELCTL" default allow >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1 || \
+		sysctl security.mac.mac_abac.mode=1 >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" default allow >/dev/null 2>&1 || true
 	rm -rf "$TEST_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -64,7 +64,7 @@ echo "============================================"
 echo "Context-based Debug Enforcement Tests"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 echo ""
 
 # Create test directory
@@ -212,9 +212,9 @@ pass "Capmode target program compiled"
 echo ""
 info "=== Test 1: Baseline (no MAC restrictions) ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" default allow
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" default allow
+"$MAC_ABAC_CTL" mode permissive
 
 # Start a target process
 "$TARGET_BIN" &
@@ -240,21 +240,21 @@ echo ""
 info "=== Test 2: Subject Context - Sandboxed Debugger Denied ==="
 info "(This tests ctx:sandboxed=true - the CALLER is in capmode)"
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" default allow
 
 # IMPORTANT: Add rules BEFORE going to enforcing mode!
 # Rule order matters - first match wins
 # 1. Deny debug from sandboxed (capability mode) processes - SUBJECT context
 # 2. Allow everything else (safety catch-all)
-"$VLABELCTL" rule add "deny debug * -> * ctx:sandboxed=true"
-"$VLABELCTL" rule add "allow all * -> *"
+"$MAC_ABAC_CTL" rule add "deny debug * -> * ctx:sandboxed=true"
+"$MAC_ABAC_CTL" rule add "allow all * -> *"
 
 info "Rules loaded:"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
 # Now safe to go enforcing - we have allow all as catch-all
-"$VLABELCTL" mode enforcing
+"$MAC_ABAC_CTL" mode enforcing
 info "Mode: ENFORCING"
 
 # Start fresh target
@@ -269,7 +269,7 @@ if "$HELPER_BIN" "$TARGET_PID" 2>/dev/null; then
 else
 	EXIT_CODE=$?
 	# Restore before failing
-	"$VLABELCTL" mode permissive
+	"$MAC_ABAC_CTL" mode permissive
 	fail "ptrace should succeed without capmode (exit code: $EXIT_CODE)"
 fi
 
@@ -288,7 +288,7 @@ EXIT_CODE=$?
 set -e
 case $EXIT_CODE in
 	1)
-		pass "ptrace DENIED by MAC (EACCES/EPERM) - vLabel subject context blocked it!"
+		pass "ptrace DENIED by MAC (EACCES/EPERM) - ABAC subject context blocked it!"
 		;;
 	2)
 		# Capsicum denied it first, meaning MAC check didn't happen
@@ -298,11 +298,11 @@ case $EXIT_CODE in
 		pass "ptrace was blocked (by Capsicum - it runs first)"
 		;;
 	0)
-		"$VLABELCTL" mode permissive
+		"$MAC_ABAC_CTL" mode permissive
 		fail "ptrace should be DENIED in capmode"
 		;;
 	*)
-		"$VLABELCTL" mode permissive
+		"$MAC_ABAC_CTL" mode permissive
 		fail "unexpected exit code: $EXIT_CODE"
 		;;
 esac
@@ -311,7 +311,7 @@ kill $TARGET_PID 2>/dev/null || true
 wait $TARGET_PID 2>/dev/null || true
 
 # Back to permissive for remaining tests
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" mode permissive
 info "Mode restored to permissive"
 
 # ===========================================
@@ -321,19 +321,19 @@ echo ""
 info "=== Test 2b: Object Context - Sandboxed Target Protected ==="
 info "(This tests ctx:sandboxed=true - the TARGET is in capmode)"
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" default allow
 
 # Rules:
 # 1. Deny debug TO processes in capability mode - OBJECT context
 # 2. Allow everything else
-"$VLABELCTL" rule add "deny debug * -> * ctx:sandboxed=true"
-"$VLABELCTL" rule add "allow all * -> *"
+"$MAC_ABAC_CTL" rule add "deny debug * -> * ctx:sandboxed=true"
+"$MAC_ABAC_CTL" rule add "allow all * -> *"
 
 info "Rules loaded:"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
-"$VLABELCTL" mode enforcing
+"$MAC_ABAC_CTL" mode enforcing
 info "Mode: ENFORCING"
 
 # Start a target that enters capability mode
@@ -352,7 +352,7 @@ case $EXIT_CODE in
 		pass "ptrace DENIED by MAC - ctx:sandboxed=true works!"
 		;;
 	0)
-		"$VLABELCTL" mode permissive
+		"$MAC_ABAC_CTL" mode permissive
 		fail "ptrace should be DENIED to capmode target"
 		;;
 	*)
@@ -385,7 +385,7 @@ fi
 kill $TARGET_PID 2>/dev/null || true
 wait $TARGET_PID 2>/dev/null || true
 
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" mode permissive
 info "Mode restored to permissive"
 
 # ===========================================
@@ -394,32 +394,32 @@ info "Mode restored to permissive"
 echo ""
 info "=== Test 3: Label-based Debug Denial (ENFORCING) ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" default allow
 
 # Rules: deny debug to type=protected, allow everything else
-"$VLABELCTL" rule add "deny debug * -> type=protected"
-"$VLABELCTL" rule add "allow all * -> *"
+"$MAC_ABAC_CTL" rule add "deny debug * -> type=protected"
+"$MAC_ABAC_CTL" rule add "allow all * -> *"
 
 info "Rules loaded:"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
 # For process labels, we need a transition rule or the process
 # inherits the default subject label. Let's use transition.
 # When target executes, it transitions to type=protected
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "transition exec * -> type=protected_bin => type=protected"
-"$VLABELCTL" rule add "deny debug * -> type=protected"
-"$VLABELCTL" rule add "allow all * -> *"
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "transition exec * -> type=protected_bin => type=protected"
+"$MAC_ABAC_CTL" rule add "deny debug * -> type=protected"
+"$MAC_ABAC_CTL" rule add "allow all * -> *"
 
 # Label the target binary
-"$VLABELCTL" label set "$TARGET_BIN" "type=protected_bin"
+"$MAC_ABAC_CTL" label set "$TARGET_BIN" "type=protected_bin"
 
 info "Target binary labeled as type=protected_bin"
 info "Transition rule: exec type=protected_bin => process gets type=protected"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
-"$VLABELCTL" mode enforcing
+"$MAC_ABAC_CTL" mode enforcing
 info "Mode: ENFORCING"
 
 # Start target - it should transition to type=protected
@@ -450,7 +450,7 @@ fi
 kill $TARGET_PID 2>/dev/null || true
 wait $TARGET_PID 2>/dev/null || true
 
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" mode permissive
 
 # ===========================================
 # Test 4: Verify stats show denials
@@ -460,7 +460,7 @@ info "=== Test 4: Verify Denial Statistics ==="
 
 run_test
 info "Test: Stats show denied operations"
-STATS=$("$VLABELCTL" stats 2>&1)
+STATS=$("$MAC_ABAC_CTL" stats 2>&1)
 DENIED=$(echo "$STATS" | grep "Denied:" | awk '{print $2}')
 if [ -n "$DENIED" ] && [ "$DENIED" -gt 0 ]; then
 	pass "stats show $DENIED denied operations"
@@ -475,13 +475,13 @@ fi
 echo ""
 info "=== Test 5: Test Command Verification ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny debug * -> type=secret"
-"$VLABELCTL" rule add "allow all * -> *"
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny debug * -> type=secret"
+"$MAC_ABAC_CTL" rule add "allow all * -> *"
 
 run_test
-info "Test: 'vlabelctl test' shows DENY for type=secret"
-OUTPUT=$("$VLABELCTL" test debug "*" "type=secret" 2>&1 || true)
+info "Test: 'mac_abac_ctl test' shows DENY for type=secret"
+OUTPUT=$("$MAC_ABAC_CTL" test debug "*" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "test command shows DENY"
 else
@@ -489,8 +489,8 @@ else
 fi
 
 run_test
-info "Test: 'vlabelctl test' shows ALLOW for type=normal"
-OUTPUT=$("$VLABELCTL" test debug "*" "type=normal" 2>&1 || true)
+info "Test: 'mac_abac_ctl test' shows ALLOW for type=normal"
+OUTPUT=$("$MAC_ABAC_CTL" test debug "*" "type=normal" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "test command shows ALLOW"
 else
@@ -502,8 +502,8 @@ fi
 # ===========================================
 
 # Restore safe state
-"$VLABELCTL" mode permissive >/dev/null 2>&1
-"$VLABELCTL" rule clear >/dev/null 2>&1
-"$VLABELCTL" default allow >/dev/null 2>&1
+"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" default allow >/dev/null 2>&1
 
 summary

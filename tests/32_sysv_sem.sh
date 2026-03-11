@@ -14,7 +14,7 @@
 #   - write: semctl(IPC_SET, IPC_RMID, SETVAL, SETALL)
 #
 # Since we can't directly label semaphores, we test rule parsing and
-# evaluation via vlabelctl test command.
+# evaluation via mac_abac_ctl test command.
 #
 
 set -e
@@ -24,13 +24,13 @@ SCRIPT_DIR=$(dirname "$0")
 
 # Configuration
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
-MODULE_NAME="mac_vlabel"
+MODULE_NAME="mac_abac"
 
 # Check prerequisites
 require_root
@@ -42,9 +42,9 @@ fi
 
 # Cleanup function
 cleanup() {
-	"$VLABELCTL" mode permissive >/dev/null 2>&1 || true
-	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
-	"$VLABELCTL" default allow >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" default allow >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -53,7 +53,7 @@ echo "SysV Semaphore Tests"
 echo "(open/read/write/stat)"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 echo ""
 
 # ===========================================
@@ -61,11 +61,11 @@ echo ""
 # ===========================================
 info "=== Rule Parsing ==="
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 run_test
 info "Test: open operation for semget"
-if "$VLABELCTL" rule add "deny open type=untrusted -> type=sem_critical" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny open type=untrusted -> type=sem_critical" >/dev/null 2>&1; then
 	pass "open operation accepted"
 else
 	fail "open operation should be accepted"
@@ -73,7 +73,7 @@ fi
 
 run_test
 info "Test: read operation for semop(SEM_R)"
-if "$VLABELCTL" rule add "deny read type=sandbox -> type=sem_sensitive" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny read type=sandbox -> type=sem_sensitive" >/dev/null 2>&1; then
 	pass "read operation accepted"
 else
 	fail "read operation should be accepted"
@@ -81,7 +81,7 @@ fi
 
 run_test
 info "Test: write operation for semop(SEM_A)"
-if "$VLABELCTL" rule add "deny write type=untrusted -> type=sem_system" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny write type=untrusted -> type=sem_system" >/dev/null 2>&1; then
 	pass "write operation accepted"
 else
 	fail "write operation should be accepted"
@@ -93,14 +93,14 @@ fi
 echo ""
 info "=== Semaphore Access (semget) ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny open type=untrusted -> type=sem_critical" >/dev/null
-"$VLABELCTL" rule add "allow open * -> *" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny open type=untrusted -> type=sem_critical" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow open * -> *" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: untrusted cannot open critical semaphore"
-OUTPUT=$("$VLABELCTL" test open "type=untrusted" "type=sem_critical" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test open "type=untrusted" "type=sem_critical" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "untrusted cannot open critical semaphore"
 else
@@ -109,7 +109,7 @@ fi
 
 run_test
 info "Test: trusted can open critical semaphore"
-OUTPUT=$("$VLABELCTL" test open "type=trusted" "type=sem_critical" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test open "type=trusted" "type=sem_critical" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "trusted can open critical semaphore"
 else
@@ -122,17 +122,17 @@ fi
 echo ""
 info "=== Semaphore Operations (semop) ==="
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Worker can read semaphore value but not alter
-"$VLABELCTL" rule add "allow read type=worker -> type=sem_job" >/dev/null
-"$VLABELCTL" rule add "deny write type=worker -> type=sem_job" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow read type=worker -> type=sem_job" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny write type=worker -> type=sem_job" >/dev/null
 # Coordinator can both read and alter
-"$VLABELCTL" rule add "allow read,write type=coordinator -> type=sem_job" >/dev/null
-"$VLABELCTL" default deny >/dev/null
+"$MAC_ABAC_CTL" rule add "allow read,write type=coordinator -> type=sem_job" >/dev/null
+"$MAC_ABAC_CTL" default deny >/dev/null
 
 run_test
 info "Test: worker can read job semaphore"
-OUTPUT=$("$VLABELCTL" test read "type=worker" "type=sem_job" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=worker" "type=sem_job" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "worker can read job semaphore"
 else
@@ -141,7 +141,7 @@ fi
 
 run_test
 info "Test: worker cannot alter job semaphore"
-OUTPUT=$("$VLABELCTL" test write "type=worker" "type=sem_job" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=worker" "type=sem_job" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "worker cannot alter job semaphore"
 else
@@ -150,7 +150,7 @@ fi
 
 run_test
 info "Test: coordinator can read job semaphore"
-OUTPUT=$("$VLABELCTL" test read "type=coordinator" "type=sem_job" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=coordinator" "type=sem_job" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "coordinator can read job semaphore"
 else
@@ -159,7 +159,7 @@ fi
 
 run_test
 info "Test: coordinator can alter job semaphore"
-OUTPUT=$("$VLABELCTL" test write "type=coordinator" "type=sem_job" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=coordinator" "type=sem_job" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "coordinator can alter job semaphore"
 else
@@ -172,17 +172,17 @@ fi
 echo ""
 info "=== Semaphore Control (semctl) ==="
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Monitor can stat but not modify
-"$VLABELCTL" rule add "allow stat type=monitor -> type=sem_system" >/dev/null
-"$VLABELCTL" rule add "deny write type=monitor -> type=sem_system" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow stat type=monitor -> type=sem_system" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny write type=monitor -> type=sem_system" >/dev/null
 # Admin can do everything
-"$VLABELCTL" rule add "allow stat,write type=admin -> type=sem_system" >/dev/null
-"$VLABELCTL" default deny >/dev/null
+"$MAC_ABAC_CTL" rule add "allow stat,write type=admin -> type=sem_system" >/dev/null
+"$MAC_ABAC_CTL" default deny >/dev/null
 
 run_test
 info "Test: monitor can stat system semaphore"
-OUTPUT=$("$VLABELCTL" test stat "type=monitor" "type=sem_system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test stat "type=monitor" "type=sem_system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "monitor can stat system semaphore"
 else
@@ -191,7 +191,7 @@ fi
 
 run_test
 info "Test: monitor cannot modify system semaphore"
-OUTPUT=$("$VLABELCTL" test write "type=monitor" "type=sem_system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=monitor" "type=sem_system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "monitor cannot modify system semaphore"
 else
@@ -200,7 +200,7 @@ fi
 
 run_test
 info "Test: admin can stat system semaphore"
-OUTPUT=$("$VLABELCTL" test stat "type=admin" "type=sem_system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test stat "type=admin" "type=sem_system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "admin can stat system semaphore"
 else
@@ -209,7 +209,7 @@ fi
 
 run_test
 info "Test: admin can modify system semaphore"
-OUTPUT=$("$VLABELCTL" test write "type=admin" "type=sem_system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=admin" "type=sem_system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "admin can modify system semaphore"
 else
@@ -222,18 +222,18 @@ fi
 echo ""
 info "=== Multi-Process Synchronization Scenario ==="
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Producer/consumer pattern
-"$VLABELCTL" rule add "allow read,write type=producer -> type=sem_buffer" >/dev/null
-"$VLABELCTL" rule add "allow read,write type=consumer -> type=sem_buffer" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow read,write type=producer -> type=sem_buffer" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow read,write type=consumer -> type=sem_buffer" >/dev/null
 # Isolate different buffer types
-"$VLABELCTL" rule add "deny read,write type=producer -> type=sem_log" >/dev/null
-"$VLABELCTL" rule add "allow read,write type=logger -> type=sem_log" >/dev/null
-"$VLABELCTL" default deny >/dev/null
+"$MAC_ABAC_CTL" rule add "deny read,write type=producer -> type=sem_log" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow read,write type=logger -> type=sem_log" >/dev/null
+"$MAC_ABAC_CTL" default deny >/dev/null
 
 run_test
 info "Test: producer can access buffer semaphore"
-OUTPUT=$("$VLABELCTL" test write "type=producer" "type=sem_buffer" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=producer" "type=sem_buffer" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "producer can access buffer semaphore"
 else
@@ -242,7 +242,7 @@ fi
 
 run_test
 info "Test: consumer can access buffer semaphore"
-OUTPUT=$("$VLABELCTL" test read "type=consumer" "type=sem_buffer" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=consumer" "type=sem_buffer" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "consumer can access buffer semaphore"
 else
@@ -251,7 +251,7 @@ fi
 
 run_test
 info "Test: producer cannot access log semaphore"
-OUTPUT=$("$VLABELCTL" test write "type=producer" "type=sem_log" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=producer" "type=sem_log" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "producer cannot access log semaphore"
 else
@@ -260,7 +260,7 @@ fi
 
 run_test
 info "Test: logger can access log semaphore"
-OUTPUT=$("$VLABELCTL" test write "type=logger" "type=sem_log" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=logger" "type=sem_log" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "logger can access log semaphore"
 else
@@ -272,9 +272,9 @@ fi
 # ===========================================
 echo ""
 info "=== Restore Safe State ==="
-"$VLABELCTL" mode permissive
-"$VLABELCTL" rule clear
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" mode permissive
+"$MAC_ABAC_CTL" rule clear
+"$MAC_ABAC_CTL" default allow
 info "Restored to permissive mode with no rules"
 
 # ===========================================

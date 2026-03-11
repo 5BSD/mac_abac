@@ -1,11 +1,11 @@
-# vLabel DTrace Scripts
+# ABAC DTrace Scripts
 
-This directory contains DTrace scripts for analyzing and debugging the vLabel MAC module.
+This directory contains DTrace scripts for analyzing and debugging the ABAC MAC module.
 
 ## Prerequisites
 
 - FreeBSD with DTrace support
-- vLabel module loaded (`kldload mac_vlabel`)
+- ABAC module loaded (`kldload mac_abac`)
 - Root privileges
 
 ## Scripts
@@ -14,56 +14,56 @@ This directory contains DTrace scripts for analyzing and debugging the vLabel MA
 
 | Script | Purpose |
 |--------|---------|
-| `vlabel-denials.d` | Watch access denials as they happen |
-| `vlabel-transitions.d` | Watch label transitions on exec |
-| `vlabel-all.d` | Trace ALL vLabel activity (verbose) |
+| `abac-denials.d` | Watch access denials as they happen |
+| `abac-transitions.d` | Watch label transitions on exec |
+| `abac-all.d` | Trace ALL ABAC activity (verbose) |
 
 ### Performance Analysis
 
 | Script | Purpose |
 |--------|---------|
-| `vlabel-latency.d` | Measure access check latency distribution |
-| `vlabel-operations.d` | Count operations by type (read/write/exec) |
-| `vlabel-hotspots.d` | Find most common access patterns |
+| `abac-latency.d` | Measure access check latency distribution |
+| `abac-operations.d` | Count operations by type (read/write/exec) |
+| `abac-hotspots.d` | Find most common access patterns |
 
 ### Policy Analysis
 
 | Script | Purpose |
 |--------|---------|
-| `vlabel-rules.d` | Analyze rule matching frequency |
-| `vlabel-labels.d` | Track label reads and defaults |
+| `abac-rules.d` | Analyze rule matching frequency |
+| `abac-labels.d` | Track label reads and defaults |
 
 ### Memory Analysis
 
 | Script | Purpose |
 |--------|---------|
-| `vlabel-memory.d` | Track UMA zone allocations |
+| `abac-memory.d` | Track UMA zone allocations |
 
 ## Usage
 
 ```sh
 # Watch denials
-dtrace -s vlabel-denials.d
+dtrace -s abac-denials.d
 
 # Measure latency (run workload, then Ctrl+C for results)
-dtrace -s vlabel-latency.d
+dtrace -s abac-latency.d
 
 # Find hotspots
-dtrace -s vlabel-hotspots.d
+dtrace -s abac-hotspots.d
 ```
 
 ## Quick One-liners
 
 ```sh
 # Count denials by operation
-dtrace -n 'vlabel:::check-deny { @[arg2] = count(); }'
+dtrace -n 'abac:::check-deny { @[arg2] = count(); }'
 
 # Watch rule additions
-dtrace -n 'vlabel:::rule-add { printf("rule %u added\n", arg0); }'
+dtrace -n 'abac:::rule-add { printf("rule %u added\n", arg0); }'
 
 # Measure average check time
-dtrace -n 'vlabel:::check-entry { self->ts = timestamp; }
-           vlabel:::check-return /self->ts/ {
+dtrace -n 'abac:::check-entry { self->ts = timestamp; }
+           abac:::check-return /self->ts/ {
                @avg = avg(timestamp - self->ts);
                self->ts = 0;
            }'
@@ -73,29 +73,29 @@ dtrace -n 'vlabel:::check-entry { self->ts = timestamp; }
 
 | Probe | Arguments |
 |-------|-----------|
-| `vlabel:::check-entry` | subject, object, op |
-| `vlabel:::check-return` | result, op |
-| `vlabel:::check-allow` | subject, object, op, rule_id |
-| `vlabel:::check-deny` | subject, object, op, rule_id |
-| `vlabel:::rule-match` | rule_id, action, op |
-| `vlabel:::rule-nomatch` | default_policy, op |
-| `vlabel:::transition-exec` | old_label, new_label, exec_label, pid |
-| `vlabel:::extattr-read` | label, vnode |
-| `vlabel:::extattr-default` | is_subject |
-| `vlabel:::rule-add` | rule_id, action, ops |
-| `vlabel:::rule-remove` | rule_id |
-| `vlabel:::rule-clear` | count |
-| `vlabel:::mode-change` | old_mode, new_mode |
+| `abac:::check-entry` | subject, object, op |
+| `abac:::check-return` | result, op |
+| `abac:::check-allow` | subject, object, op, rule_id |
+| `abac:::check-deny` | subject, object, op, rule_id |
+| `abac:::rule-match` | rule_id, action, op |
+| `abac:::rule-nomatch` | default_policy, op |
+| `abac:::transition-exec` | old_label, new_label, exec_label, pid |
+| `abac:::extattr-read` | label, vnode |
+| `abac:::extattr-default` | is_subject |
+| `abac:::rule-add` | rule_id, action, ops |
+| `abac:::rule-remove` | rule_id |
+| `abac:::rule-clear` | count |
+| `abac:::mode-change` | old_mode, new_mode |
 
 ## Operation Masks
 
 ```
-VLABEL_OP_READ    = 0x01
-VLABEL_OP_WRITE   = 0x02
-VLABEL_OP_EXEC    = 0x04
-VLABEL_OP_OPEN    = 0x08
-VLABEL_OP_STAT    = 0x10
-VLABEL_OP_CREATE  = 0x20
-VLABEL_OP_UNLINK  = 0x40
-VLABEL_OP_LOOKUP  = 0x80
+ABAC_OP_READ    = 0x01
+ABAC_OP_WRITE   = 0x02
+ABAC_OP_EXEC    = 0x04
+ABAC_OP_OPEN    = 0x08
+ABAC_OP_STAT    = 0x10
+ABAC_OP_CREATE  = 0x20
+ABAC_OP_UNLINK  = 0x40
+ABAC_OP_LOOKUP  = 0x80
 ```

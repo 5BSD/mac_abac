@@ -5,11 +5,11 @@
 # Tests IPFW-style rule sets for grouping and bulk enable/disable.
 #
 # Prerequisites:
-# - vlabelctl must be built
+# - mac_abac_ctl must be built
 # - Does NOT require module to be loaded (validation is local)
 #
 # Usage:
-#   ./28_sets.sh [path_to_vlabelctl]
+#   ./28_sets.sh [path_to_mac_abac_ctl]
 #
 
 set -e
@@ -17,18 +17,18 @@ set -e
 SCRIPT_DIR=$(dirname "$0")
 . "$SCRIPT_DIR/lib/test_helpers.sh"
 
-# Configuration - find vlabelctl relative to script location
+# Configuration - find mac_abac_ctl relative to script location
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
 
 # Check prerequisites
-if [ ! -x "$VLABELCTL" ]; then
-	echo "vlabelctl not found or not executable: $VLABELCTL"
+if [ ! -x "$MAC_ABAC_CTL" ]; then
+	echo "mac_abac_ctl not found or not executable: $MAC_ABAC_CTL"
 	exit 1
 fi
 
@@ -36,7 +36,7 @@ echo "============================================"
 echo "Rule Sets Tests"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 echo ""
 
 # ===========================================
@@ -46,7 +46,7 @@ info "=== Set Syntax (Line Format) ==="
 
 run_test
 info "Test: Rule with 'set 0' (default)"
-OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> * set 0" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow exec * -> * set 0" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "set 0 accepted"
 else
@@ -55,7 +55,7 @@ fi
 
 run_test
 info "Test: Rule with 'set 1'"
-OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> * set 1" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow exec * -> * set 1" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "set 1 accepted"
 else
@@ -64,7 +64,7 @@ fi
 
 run_test
 info "Test: Rule with 'set 100'"
-OUTPUT=$("$VLABELCTL" rule validate "deny read * -> type=secret set 100" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "deny read * -> type=secret set 100" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "set 100 accepted"
 else
@@ -73,7 +73,7 @@ fi
 
 run_test
 info "Test: Rule with high set number (65000)"
-OUTPUT=$("$VLABELCTL" rule validate "allow write * -> * set 65000" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow write * -> * set 65000" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "set 65000 accepted"
 else
@@ -82,7 +82,7 @@ fi
 
 run_test
 info "Test: Rule with max valid set (65535)"
-OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> * set 65535" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow exec * -> * set 65535" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "set 65535 accepted"
 else
@@ -91,7 +91,7 @@ fi
 
 run_test
 info "Test: Rule without set (defaults to 0)"
-OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> *" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow exec * -> *" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "rule without set accepted (defaults to 0)"
 else
@@ -106,7 +106,7 @@ info "=== Invalid Set Numbers ==="
 
 run_test
 info "Test: Invalid set (65536 - too large)"
-OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> * set 65536" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow exec * -> * set 65536" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ERROR\|invalid set"; then
 	pass "set 65536 rejected"
 else
@@ -115,7 +115,7 @@ fi
 
 run_test
 info "Test: Invalid set (100000 - too large)"
-OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> * set 100000" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow exec * -> * set 100000" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ERROR\|invalid set"; then
 	pass "set 100000 rejected"
 else
@@ -124,7 +124,7 @@ fi
 
 run_test
 info "Test: Invalid set (negative)"
-OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> * set -1" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow exec * -> * set -1" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ERROR\|invalid set"; then
 	pass "negative set rejected"
 else
@@ -133,7 +133,7 @@ fi
 
 run_test
 info "Test: Invalid set (non-numeric)"
-OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> * set abc" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow exec * -> * set abc" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ERROR\|invalid set"; then
 	pass "non-numeric set rejected"
 else
@@ -142,7 +142,7 @@ fi
 
 run_test
 info "Test: Missing set number"
-OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> * set" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow exec * -> * set" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ERROR\|missing set"; then
 	pass "missing set number rejected"
 else
@@ -157,7 +157,7 @@ info "=== Set Combined With Other Modifiers ==="
 
 run_test
 info "Test: Set with context"
-OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> type=app ctx:uid=0 set 5" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow exec * -> type=app ctx:uid=0 set 5" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "set with context accepted"
 else
@@ -166,7 +166,7 @@ fi
 
 run_test
 info "Test: Set with complex pattern"
-OUTPUT=$("$VLABELCTL" rule validate "allow read,write type=app,domain=web -> type=data,sensitivity=public set 10" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow read,write type=app,domain=web -> type=data,sensitivity=public set 10" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "set with complex pattern accepted"
 else
@@ -175,7 +175,7 @@ fi
 
 run_test
 info "Test: Transition rule with set"
-OUTPUT=$("$VLABELCTL" rule validate "transition exec * -> type=app => type=daemon set 20" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "transition exec * -> type=app => type=daemon set 20" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "transition with set accepted"
 else
@@ -184,7 +184,7 @@ fi
 
 run_test
 info "Test: Set with negation"
-OUTPUT=$("$VLABELCTL" rule validate "deny exec * -> !type=trusted set 15" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "deny exec * -> !type=trusted set 15" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "set with negation accepted"
 else
@@ -199,7 +199,7 @@ info "=== Set Position in Rule ==="
 
 run_test
 info "Test: Set at end of rule"
-OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> * set 5" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow exec * -> * set 5" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "set at end accepted"
 else
@@ -208,7 +208,7 @@ fi
 
 run_test
 info "Test: Context then set"
-OUTPUT=$("$VLABELCTL" rule validate "deny write * -> * ctx:jail=host set 30" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "deny write * -> * ctx:jail=host set 30" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "context then set accepted"
 else
@@ -219,21 +219,21 @@ fi
 # UCL format set field tests
 # ===========================================
 echo ""
-info "=== UCL Format (via vlabelctl set list) ==="
+info "=== UCL Format (via mac_abac_ctl set list) ==="
 
 # Note: UCL tests require module or we test via help output
 run_test
-info "Test: vlabelctl set help shows commands"
-OUTPUT=$("$VLABELCTL" set 2>&1 || true)
+info "Test: mac_abac_ctl set help shows commands"
+OUTPUT=$("$MAC_ABAC_CTL" set 2>&1 || true)
 if echo "$OUTPUT" | grep -q "enable\|disable\|swap"; then
-	pass "vlabelctl set shows subcommands"
+	pass "mac_abac_ctl set shows subcommands"
 else
-	fail "vlabelctl set shows subcommands (got: $OUTPUT)"
+	fail "mac_abac_ctl set shows subcommands (got: $OUTPUT)"
 fi
 
 run_test
-info "Test: vlabelctl set enable requires argument"
-OUTPUT=$("$VLABELCTL" set enable 2>&1 || true)
+info "Test: mac_abac_ctl set enable requires argument"
+OUTPUT=$("$MAC_ABAC_CTL" set enable 2>&1 || true)
 if echo "$OUTPUT" | grep -q "requires\|usage"; then
 	pass "set enable requires argument"
 else
@@ -241,8 +241,8 @@ else
 fi
 
 run_test
-info "Test: vlabelctl set disable requires argument"
-OUTPUT=$("$VLABELCTL" set disable 2>&1 || true)
+info "Test: mac_abac_ctl set disable requires argument"
+OUTPUT=$("$MAC_ABAC_CTL" set disable 2>&1 || true)
 if echo "$OUTPUT" | grep -q "requires\|usage"; then
 	pass "set disable requires argument"
 else
@@ -250,8 +250,8 @@ else
 fi
 
 run_test
-info "Test: vlabelctl set swap requires two arguments"
-OUTPUT=$("$VLABELCTL" set swap 5 2>&1 || true)
+info "Test: mac_abac_ctl set swap requires two arguments"
+OUTPUT=$("$MAC_ABAC_CTL" set swap 5 2>&1 || true)
 if echo "$OUTPUT" | grep -q "requires\|two\|usage"; then
 	pass "set swap requires two arguments"
 else
@@ -259,8 +259,8 @@ else
 fi
 
 run_test
-info "Test: vlabelctl set move requires two arguments"
-OUTPUT=$("$VLABELCTL" set move 5 2>&1 || true)
+info "Test: mac_abac_ctl set move requires two arguments"
+OUTPUT=$("$MAC_ABAC_CTL" set move 5 2>&1 || true)
 if echo "$OUTPUT" | grep -q "requires\|two\|usage"; then
 	pass "set move requires two arguments"
 else
@@ -268,8 +268,8 @@ else
 fi
 
 run_test
-info "Test: vlabelctl set clear requires argument"
-OUTPUT=$("$VLABELCTL" set clear 2>&1 || true)
+info "Test: mac_abac_ctl set clear requires argument"
+OUTPUT=$("$MAC_ABAC_CTL" set clear 2>&1 || true)
 if echo "$OUTPUT" | grep -q "requires\|usage"; then
 	pass "set clear requires argument"
 else
@@ -278,7 +278,7 @@ fi
 
 run_test
 info "Test: Unknown set subcommand rejected"
-OUTPUT=$("$VLABELCTL" set badcommand 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" set badcommand 2>&1 || true)
 if echo "$OUTPUT" | grep -q "unknown\|usage"; then
 	pass "unknown set subcommand rejected"
 else
@@ -293,7 +293,7 @@ info "=== Set Range Syntax ==="
 
 run_test
 info "Test: Invalid range (start > end)"
-OUTPUT=$("$VLABELCTL" set enable 10-5 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" set enable 10-5 2>&1 || true)
 if echo "$OUTPUT" | grep -q "invalid\|error\|Error"; then
 	pass "invalid range (start > end) rejected"
 else
@@ -302,7 +302,7 @@ fi
 
 run_test
 info "Test: Invalid range format"
-OUTPUT=$("$VLABELCTL" set enable 5- 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" set enable 5- 2>&1 || true)
 if echo "$OUTPUT" | grep -q "invalid\|error\|Error"; then
 	pass "invalid range format rejected"
 else
@@ -311,7 +311,7 @@ fi
 
 run_test
 info "Test: Invalid set in range (too large)"
-OUTPUT=$("$VLABELCTL" set enable 0-70000 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" set enable 0-70000 2>&1 || true)
 if echo "$OUTPUT" | grep -q "invalid\|error\|Error"; then
 	pass "set range with too large end rejected"
 else
@@ -326,7 +326,7 @@ info "=== Edge Cases ==="
 
 run_test
 info "Test: Boundary set 0"
-OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> * set 0" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow exec * -> * set 0" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "boundary set 0 accepted"
 else
@@ -335,7 +335,7 @@ fi
 
 run_test
 info "Test: Multiple spaces before set"
-OUTPUT=$("$VLABELCTL" rule validate "allow exec * -> *    set 5" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule validate "allow exec * -> *    set 5" 2>&1)
 if echo "$OUTPUT" | grep -q "OK"; then
 	pass "multiple spaces before set accepted"
 else

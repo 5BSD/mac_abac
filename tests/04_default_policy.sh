@@ -8,17 +8,17 @@
 # Prerequisites:
 # - Must be run as root
 # - Module must be loaded
-# - vlabelctl must be built
+# - mac_abac_ctl must be built
 #
 # Usage:
-#   ./04_default_policy.sh [path_to_vlabelctl]
+#   ./04_default_policy.sh [path_to_mac_abac_ctl]
 #
 
 set -e
 
 # Configuration
-VLABELCTL="${1:-../tools/vlabelctl}"
-MODULE_NAME="mac_vlabel"
+MAC_ABAC_CTL="${1:-../tools/mac_abac_ctl}"
+MODULE_NAME="mac_abac"
 
 # Colors for output
 RED='\033[0;31m'
@@ -56,8 +56,8 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-if [ ! -x "$VLABELCTL" ]; then
-    echo "vlabelctl not found or not executable: $VLABELCTL"
+if [ ! -x "$MAC_ABAC_CTL" ]; then
+    echo "mac_abac_ctl not found or not executable: $MAC_ABAC_CTL"
     exit 1
 fi
 
@@ -72,24 +72,24 @@ echo "============================================"
 echo ""
 
 # Save original settings
-ORIG_DEFAULT=$("$VLABELCTL" default)
-ORIG_MODE=$("$VLABELCTL" mode)
+ORIG_DEFAULT=$("$MAC_ABAC_CTL" default)
+ORIG_MODE=$("$MAC_ABAC_CTL" mode)
 
 # SAFETY: Run in permissive mode during tests to avoid lockout
 # The default policy affects rule evaluation, not enforcement
-"$VLABELCTL" mode permissive >/dev/null 2>&1
+"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1
 
 # Clear all rules for testing
-"$VLABELCTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 
 # ===========================================
-# Default policy via vlabelctl
+# Default policy via mac_abac_ctl
 # ===========================================
-info "=== Default Policy via vlabelctl ==="
+info "=== Default Policy via mac_abac_ctl ==="
 
 run_test
 info "Test: Get default policy"
-if "$VLABELCTL" default >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" default >/dev/null 2>&1; then
     pass "get default policy"
 else
     fail "get default policy"
@@ -97,8 +97,8 @@ fi
 
 run_test
 info "Test: Set default policy to allow"
-if "$VLABELCTL" default allow >/dev/null 2>&1; then
-    RESULT=$("$VLABELCTL" default)
+if "$MAC_ABAC_CTL" default allow >/dev/null 2>&1; then
+    RESULT=$("$MAC_ABAC_CTL" default)
     if [ "$RESULT" = "allow" ]; then
         pass "set default allow"
     else
@@ -110,8 +110,8 @@ fi
 
 run_test
 info "Test: Set default policy to deny"
-if "$VLABELCTL" default deny >/dev/null 2>&1; then
-    RESULT=$("$VLABELCTL" default)
+if "$MAC_ABAC_CTL" default deny >/dev/null 2>&1; then
+    RESULT=$("$MAC_ABAC_CTL" default)
     if [ "$RESULT" = "deny" ]; then
         pass "set default deny"
     else
@@ -129,7 +129,7 @@ info "=== Default Policy via sysctl ==="
 
 run_test
 info "Test: Read default_policy sysctl"
-if sysctl -n security.mac.vlabel.default_policy >/dev/null 2>&1; then
+if sysctl -n security.mac.mac_abac.default_policy >/dev/null 2>&1; then
     pass "read sysctl"
 else
     fail "read sysctl"
@@ -137,8 +137,8 @@ fi
 
 run_test
 info "Test: Set default_policy to 0 (allow) via sysctl"
-if sysctl security.mac.vlabel.default_policy=0 >/dev/null 2>&1; then
-    RESULT=$(sysctl -n security.mac.vlabel.default_policy)
+if sysctl security.mac.mac_abac.default_policy=0 >/dev/null 2>&1; then
+    RESULT=$(sysctl -n security.mac.mac_abac.default_policy)
     if [ "$RESULT" = "0" ]; then
         pass "sysctl set 0"
     else
@@ -150,8 +150,8 @@ fi
 
 run_test
 info "Test: Set default_policy to 1 (deny) via sysctl"
-if sysctl security.mac.vlabel.default_policy=1 >/dev/null 2>&1; then
-    RESULT=$(sysctl -n security.mac.vlabel.default_policy)
+if sysctl security.mac.mac_abac.default_policy=1 >/dev/null 2>&1; then
+    RESULT=$(sysctl -n security.mac.mac_abac.default_policy)
     if [ "$RESULT" = "1" ]; then
         pass "sysctl set 1"
     else
@@ -167,13 +167,13 @@ info "Test: Invalid sysctl value handling"
 # The kernel sysctl is CTLFLAG_RW int, so any int value is accepted.
 # This is expected behavior - the policy code should handle invalid values.
 # We verify the value is at least set (not rejected outright).
-if sysctl security.mac.vlabel.default_policy=2 2>/dev/null; then
-    RESULT=$(sysctl -n security.mac.vlabel.default_policy)
+if sysctl security.mac.mac_abac.default_policy=2 2>/dev/null; then
+    RESULT=$(sysctl -n security.mac.mac_abac.default_policy)
     # Value was accepted - this is expected for SYSCTL_INT
     # In enforcement, values > 0 are treated as "deny" (secure default)
     pass "sysctl accepts integer values (got: $RESULT)"
     # Restore valid value
-    sysctl security.mac.vlabel.default_policy=0 >/dev/null 2>&1
+    sysctl security.mac.mac_abac.default_policy=0 >/dev/null 2>&1
 else
     pass "invalid sysctl value rejected"
 fi
@@ -185,15 +185,15 @@ info ""
 info "=== Default Policy Rule Evaluation ==="
 
 # Clear all rules
-"$VLABELCTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 
 run_test
 info "Test: No rules + default=allow -> ALLOW"
-if ! "$VLABELCTL" default allow 2>&1; then
+if ! "$MAC_ABAC_CTL" default allow 2>&1; then
     fail "no rules + default allow (could not set default policy)"
 else
     # Note: test command returns exit code 1 for DENY, so use || true to prevent set -e from killing script
-    OUTPUT=$("$VLABELCTL" test exec "type=test" "type=target" 2>&1 || true)
+    OUTPUT=$("$MAC_ABAC_CTL" test exec "type=test" "type=target" 2>&1 || true)
     if echo "$OUTPUT" | grep -q "ALLOW"; then
         pass "no rules + default allow"
     else
@@ -203,14 +203,14 @@ fi
 
 run_test
 info "Test: No rules + default=deny -> DENY"
-if ! "$VLABELCTL" default deny 2>&1; then
+if ! "$MAC_ABAC_CTL" default deny 2>&1; then
     fail "no rules + default deny (could not set default policy)"
 else
     # Verify the policy was set
-    POLICY=$("$VLABELCTL" default 2>&1)
-    SYSCTL_VAL=$(sysctl -n security.mac.vlabel.default_policy 2>&1)
+    POLICY=$("$MAC_ABAC_CTL" default 2>&1)
+    SYSCTL_VAL=$(sysctl -n security.mac.mac_abac.default_policy 2>&1)
     # Note: test command returns exit code 1 for DENY, so use || true to prevent set -e from killing script
-    OUTPUT=$("$VLABELCTL" test exec "type=test" "type=target" 2>&1 || true)
+    OUTPUT=$("$MAC_ABAC_CTL" test exec "type=test" "type=target" 2>&1 || true)
     if echo "$OUTPUT" | grep -q "DENY"; then
         pass "no rules + default deny"
     else
@@ -226,10 +226,10 @@ info "=== Rule Precedence Over Default ==="
 
 run_test
 info "Test: Explicit allow rule overrides default=deny"
-"$VLABELCTL" default deny >/dev/null 2>&1
-"$VLABELCTL" rule clear >/dev/null 2>&1
-"$VLABELCTL" rule add "allow exec type=allowed -> *" >/dev/null 2>&1
-OUTPUT=$("$VLABELCTL" test exec "type=allowed" "type=any" 2>&1 || true)
+"$MAC_ABAC_CTL" default deny >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule add "allow exec type=allowed -> *" >/dev/null 2>&1
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=allowed" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
     pass "allow rule overrides default deny"
 else
@@ -238,10 +238,10 @@ fi
 
 run_test
 info "Test: Explicit deny rule overrides default=allow"
-"$VLABELCTL" default allow >/dev/null 2>&1
-"$VLABELCTL" rule clear >/dev/null 2>&1
-"$VLABELCTL" rule add "deny exec type=denied -> *" >/dev/null 2>&1
-OUTPUT=$("$VLABELCTL" test exec "type=denied" "type=any" 2>&1 || true)
+"$MAC_ABAC_CTL" default allow >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule add "deny exec type=denied -> *" >/dev/null 2>&1
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=denied" "type=any" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
     pass "deny rule overrides default allow"
 else
@@ -250,10 +250,10 @@ fi
 
 run_test
 info "Test: Non-matching rule falls back to default=allow"
-"$VLABELCTL" default allow >/dev/null 2>&1
-"$VLABELCTL" rule clear >/dev/null 2>&1
-"$VLABELCTL" rule add "deny exec type=specific -> type=specific" >/dev/null 2>&1
-OUTPUT=$("$VLABELCTL" test exec "type=other" "type=other" 2>&1 || true)
+"$MAC_ABAC_CTL" default allow >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule add "deny exec type=specific -> type=specific" >/dev/null 2>&1
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=other" "type=other" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
     pass "non-matching falls back to default allow"
 else
@@ -262,8 +262,8 @@ fi
 
 run_test
 info "Test: Non-matching rule falls back to default=deny"
-"$VLABELCTL" default deny >/dev/null 2>&1
-OUTPUT=$("$VLABELCTL" test exec "type=other" "type=other" 2>&1 || true)
+"$MAC_ABAC_CTL" default deny >/dev/null 2>&1
+OUTPUT=$("$MAC_ABAC_CTL" test exec "type=other" "type=other" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
     pass "non-matching falls back to default deny"
 else
@@ -278,8 +278,8 @@ info "=== Status Display ==="
 
 run_test
 info "Test: Status shows default policy"
-"$VLABELCTL" default allow >/dev/null 2>&1
-OUTPUT=$("$VLABELCTL" status 2>&1)
+"$MAC_ABAC_CTL" default allow >/dev/null 2>&1
+OUTPUT=$("$MAC_ABAC_CTL" status 2>&1)
 if echo "$OUTPUT" | grep -q "Default policy:.*allow"; then
     pass "status shows default allow"
 else
@@ -288,8 +288,8 @@ fi
 
 run_test
 info "Test: Status shows deny policy"
-"$VLABELCTL" default deny >/dev/null 2>&1
-OUTPUT=$("$VLABELCTL" status 2>&1)
+"$MAC_ABAC_CTL" default deny >/dev/null 2>&1
+OUTPUT=$("$MAC_ABAC_CTL" status 2>&1)
 if echo "$OUTPUT" | grep -q "Default policy:.*deny"; then
     pass "status shows default deny"
 else
@@ -301,9 +301,9 @@ fi
 # ===========================================
 info ""
 info "Restoring original settings..."
-"$VLABELCTL" rule clear >/dev/null 2>&1
-"$VLABELCTL" default "$ORIG_DEFAULT" >/dev/null 2>&1
-"$VLABELCTL" mode "$ORIG_MODE" >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" default "$ORIG_DEFAULT" >/dev/null 2>&1
+"$MAC_ABAC_CTL" mode "$ORIG_MODE" >/dev/null 2>&1
 
 # ===========================================
 # Summary

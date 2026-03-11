@@ -13,7 +13,7 @@
 # Prerequisites:
 # - Must be run as root
 # - Module must be loaded
-# - vlabelctl must be built
+# - mac_abac_ctl must be built
 #
 
 set -e
@@ -23,18 +23,18 @@ SCRIPT_DIR=$(dirname "$0")
 
 # Configuration
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
-MODULE_NAME="mac_vlabel"
-TEST_DIR="/root/vlabel_context_constraint_test_$$"
+MODULE_NAME="mac_abac"
+TEST_DIR="/root/abac_context_constraint_test_$$"
 
 # Check prerequisites
 require_root
-require_vlabelctl
+require_mac_abac_ctl
 
 if ! kldstat -q -m "$MODULE_NAME" 2>/dev/null; then
 	echo "Module not loaded. Please load the module first."
@@ -43,10 +43,10 @@ fi
 
 # Cleanup function
 cleanup() {
-	pkill -f "vlabel_context_constraint_test" 2>/dev/null || true
-	"$VLABELCTL" mode permissive >/dev/null 2>&1 || true
-	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
-	"$VLABELCTL" default allow >/dev/null 2>&1 || true
+	pkill -f "abac_context_constraint_test" 2>/dev/null || true
+	"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" default allow >/dev/null 2>&1 || true
 	rm -rf "$TEST_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -55,7 +55,7 @@ echo "============================================"
 echo "Context Constraints Comprehensive Tests"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 echo ""
 
 # Create test directory
@@ -141,8 +141,8 @@ pass "Capmode target compiled"
 echo ""
 info "=== Test 1: Rules Without Context (Regression) ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" default allow
 
 # When a process execs a labeled binary, it inherits the vnode label.
 # No transition rule needed - this is automatic.
@@ -151,16 +151,16 @@ info "=== Test 1: Rules Without Context (Regression) ==="
 # 1. Deny debug to type=secret processes
 # 2. Allow everything else
 
-"$VLABELCTL" rule add "deny debug * -> type=secret"
-"$VLABELCTL" rule add "allow all * -> *"
+"$MAC_ABAC_CTL" rule add "deny debug * -> type=secret"
+"$MAC_ABAC_CTL" rule add "allow all * -> *"
 
 # Label the binary - process will inherit this label on exec
-"$VLABELCTL" label set "$TEST_DIR/target" "type=secret"
+"$MAC_ABAC_CTL" label set "$TEST_DIR/target" "type=secret"
 
 info "Rules (no context constraints):"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
-"$VLABELCTL" mode enforcing
+"$MAC_ABAC_CTL" mode enforcing
 
 "$TEST_DIR/target" &
 TARGET_PID=$!
@@ -182,7 +182,7 @@ kill $TARGET_PID 2>/dev/null || true
 wait $TARGET_PID 2>/dev/null || true
 
 # Remove label and try again - should succeed (unlabeled = inherit parent)
-"$VLABELCTL" label set "$TEST_DIR/target" ""
+"$MAC_ABAC_CTL" label set "$TEST_DIR/target" ""
 "$TEST_DIR/target" &
 TARGET_PID=$!
 sleep 1
@@ -198,7 +198,7 @@ fi
 kill $TARGET_PID 2>/dev/null || true
 wait $TARGET_PID 2>/dev/null || true
 
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" mode permissive
 
 # ===========================================
 # Test 2: subj_context ONLY
@@ -206,17 +206,17 @@ wait $TARGET_PID 2>/dev/null || true
 echo ""
 info "=== Test 2: Subject Context Only ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" default allow
 
 # Deny debug if caller is root (uid=0) - we ARE root, so this should deny
-"$VLABELCTL" rule add "deny debug * -> * ctx:uid=0"
-"$VLABELCTL" rule add "allow all * -> *"
+"$MAC_ABAC_CTL" rule add "deny debug * -> * ctx:uid=0"
+"$MAC_ABAC_CTL" rule add "allow all * -> *"
 
 info "Rules (ctx:uid=0):"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
-"$VLABELCTL" mode enforcing
+"$MAC_ABAC_CTL" mode enforcing
 
 "$TEST_DIR/target" &
 TARGET_PID=$!
@@ -238,9 +238,9 @@ kill $TARGET_PID 2>/dev/null || true
 wait $TARGET_PID 2>/dev/null || true
 
 # Now test with uid=9999 (not us) - should allow
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny debug * -> * ctx:uid=9999"
-"$VLABELCTL" rule add "allow all * -> *"
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny debug * -> * ctx:uid=9999"
+"$MAC_ABAC_CTL" rule add "allow all * -> *"
 
 "$TEST_DIR/target" &
 TARGET_PID=$!
@@ -257,7 +257,7 @@ fi
 kill $TARGET_PID 2>/dev/null || true
 wait $TARGET_PID 2>/dev/null || true
 
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" mode permissive
 
 # ===========================================
 # Test 3: obj_context ONLY
@@ -265,17 +265,17 @@ wait $TARGET_PID 2>/dev/null || true
 echo ""
 info "=== Test 3: Object Context Only ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" default allow
 
 # Deny debug if TARGET is in capability mode
-"$VLABELCTL" rule add "deny debug * -> * ctx:sandboxed=true"
-"$VLABELCTL" rule add "allow all * -> *"
+"$MAC_ABAC_CTL" rule add "deny debug * -> * ctx:sandboxed=true"
+"$MAC_ABAC_CTL" rule add "allow all * -> *"
 
 info "Rules (ctx:sandboxed=true):"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
-"$VLABELCTL" mode enforcing
+"$MAC_ABAC_CTL" mode enforcing
 
 # Start capmode target
 "$TEST_DIR/capmode_target" &
@@ -313,7 +313,7 @@ fi
 kill $TARGET_PID 2>/dev/null || true
 wait $TARGET_PID 2>/dev/null || true
 
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" mode permissive
 
 # ===========================================
 # Test 4: BOTH subj_context AND obj_context
@@ -321,18 +321,18 @@ wait $TARGET_PID 2>/dev/null || true
 echo ""
 info "=== Test 4: Both Subject and Object Context ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" default allow
 
 # Deny if: caller is root AND target is in capmode
 # Both conditions must be true - use ctx: before -> for subject, after -> for object
-"$VLABELCTL" rule add "deny debug * ctx:uid=0 -> * ctx:sandboxed=true"
-"$VLABELCTL" rule add "allow all * -> *"
+"$MAC_ABAC_CTL" rule add "deny debug * ctx:uid=0 -> * ctx:sandboxed=true"
+"$MAC_ABAC_CTL" rule add "allow all * -> *"
 
 info "Rules (subj ctx:uid=0 AND obj ctx:sandboxed=true):"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
-"$VLABELCTL" mode enforcing
+"$MAC_ABAC_CTL" mode enforcing
 
 # Start capmode target
 "$TEST_DIR/capmode_target" &
@@ -370,7 +370,7 @@ fi
 kill $TARGET_PID 2>/dev/null || true
 wait $TARGET_PID 2>/dev/null || true
 
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" mode permissive
 
 # ===========================================
 # Test 5: obj_context with jail (simulation)
@@ -378,18 +378,18 @@ wait $TARGET_PID 2>/dev/null || true
 echo ""
 info "=== Test 5: Object Context Jail Check ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" default allow
 
 # Deny debug if target is on host (jail=host means jail_id=0)
 # Since we're on host and target is on host, this should deny
-"$VLABELCTL" rule add "deny debug * -> * ctx:jail=host"
-"$VLABELCTL" rule add "allow all * -> *"
+"$MAC_ABAC_CTL" rule add "deny debug * -> * ctx:jail=host"
+"$MAC_ABAC_CTL" rule add "allow all * -> *"
 
 info "Rules (ctx:jail=host):"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
-"$VLABELCTL" mode enforcing
+"$MAC_ABAC_CTL" mode enforcing
 
 "$TEST_DIR/target" &
 TARGET_PID=$!
@@ -411,9 +411,9 @@ kill $TARGET_PID 2>/dev/null || true
 wait $TARGET_PID 2>/dev/null || true
 
 # Now use jail=any - target is NOT in jail, so should ALLOW
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny debug * -> * ctx:jail=any"
-"$VLABELCTL" rule add "allow all * -> *"
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny debug * -> * ctx:jail=any"
+"$MAC_ABAC_CTL" rule add "allow all * -> *"
 
 "$TEST_DIR/target" &
 TARGET_PID=$!
@@ -430,7 +430,7 @@ fi
 kill $TARGET_PID 2>/dev/null || true
 wait $TARGET_PID 2>/dev/null || true
 
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" mode permissive
 
 # ===========================================
 # Test 6: Verify rule display shows contexts
@@ -438,21 +438,21 @@ wait $TARGET_PID 2>/dev/null || true
 echo ""
 info "=== Test 6: Rule Display Verification ==="
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
-"$VLABELCTL" rule add "deny debug * -> * ctx:uid=0,jail=host"
-"$VLABELCTL" rule add "deny signal * -> * ctx:sandboxed=true"
+"$MAC_ABAC_CTL" rule add "deny debug * -> * ctx:uid=0,jail=host"
+"$MAC_ABAC_CTL" rule add "deny signal * -> * ctx:sandboxed=true"
 # Use both subject and object context for display testing
-"$VLABELCTL" rule add "deny sched * ctx:jail=any -> * ctx:jail=host"
+"$MAC_ABAC_CTL" rule add "deny sched * ctx:jail=any -> * ctx:jail=host"
 
 run_test
 info "Test 6: Rules display context constraints correctly"
-OUTPUT=$("$VLABELCTL" rule list 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule list 2>&1)
 echo "$OUTPUT"
 
 ERRORS=0
 
-# Note: vlabelctl displays "obj_context:" and "subj_context:" not "ctx:"
+# Note: mac_abac_ctl displays "obj_context:" and "subj_context:" not "ctx:"
 if echo "$OUTPUT" | grep -q "uid=0"; then
 	pass "uid constraint displayed"
 else
@@ -487,8 +487,8 @@ fi
 # Summary
 # ===========================================
 
-"$VLABELCTL" mode permissive >/dev/null 2>&1
-"$VLABELCTL" rule clear >/dev/null 2>&1
-"$VLABELCTL" default allow >/dev/null 2>&1
+"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" default allow >/dev/null 2>&1
 
 summary

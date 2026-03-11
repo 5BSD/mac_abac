@@ -23,13 +23,13 @@ SCRIPT_DIR=$(dirname "$0")
 
 # Configuration
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
-MODULE_NAME="mac_vlabel"
+MODULE_NAME="mac_abac"
 
 # Check prerequisites
 require_root
@@ -41,9 +41,9 @@ fi
 
 # Cleanup function
 cleanup() {
-	"$VLABELCTL" mode permissive >/dev/null 2>&1 || true
-	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
-	"$VLABELCTL" default allow >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" default allow >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -53,7 +53,7 @@ echo "(chdir/readdir/lookup/create/link/rename/"
 echo " unlink/stat/setmode/setowner/setutimes)"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 echo ""
 
 # ===========================================
@@ -61,11 +61,11 @@ echo ""
 # ===========================================
 info "=== Rule Parsing ==="
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 run_test
 info "Test: chdir operation"
-if "$VLABELCTL" rule add "deny chdir type=restricted -> type=protected" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny chdir type=restricted -> type=protected" >/dev/null 2>&1; then
 	pass "chdir operation accepted"
 else
 	fail "chdir operation should be accepted"
@@ -73,7 +73,7 @@ fi
 
 run_test
 info "Test: readdir operation"
-if "$VLABELCTL" rule add "deny readdir type=untrusted -> type=secret" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny readdir type=untrusted -> type=secret" >/dev/null 2>&1; then
 	pass "readdir operation accepted"
 else
 	fail "readdir operation should be accepted"
@@ -81,7 +81,7 @@ fi
 
 run_test
 info "Test: lookup operation"
-if "$VLABELCTL" rule add "deny lookup type=sandbox -> type=system" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny lookup type=sandbox -> type=system" >/dev/null 2>&1; then
 	pass "lookup operation accepted"
 else
 	fail "lookup operation should be accepted"
@@ -89,7 +89,7 @@ fi
 
 run_test
 info "Test: create operation"
-if "$VLABELCTL" rule add "deny create type=guest -> type=admin" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny create type=guest -> type=admin" >/dev/null 2>&1; then
 	pass "create operation accepted"
 else
 	fail "create operation should be accepted"
@@ -97,7 +97,7 @@ fi
 
 run_test
 info "Test: link operation"
-if "$VLABELCTL" rule add "deny link type=user -> type=protected" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny link type=user -> type=protected" >/dev/null 2>&1; then
 	pass "link operation accepted"
 else
 	fail "link operation should be accepted"
@@ -105,7 +105,7 @@ fi
 
 run_test
 info "Test: rename operation"
-if "$VLABELCTL" rule add "deny rename type=reader -> type=important" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny rename type=reader -> type=important" >/dev/null 2>&1; then
 	pass "rename operation accepted"
 else
 	fail "rename operation should be accepted"
@@ -113,7 +113,7 @@ fi
 
 run_test
 info "Test: unlink operation"
-if "$VLABELCTL" rule add "deny unlink type=guest -> type=critical" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny unlink type=guest -> type=critical" >/dev/null 2>&1; then
 	pass "unlink operation accepted"
 else
 	fail "unlink operation should be accepted"
@@ -121,26 +121,26 @@ fi
 
 run_test
 info "Test: stat operation"
-if "$VLABELCTL" rule add "deny stat type=lowpriv -> type=secret" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny stat type=lowpriv -> type=secret" >/dev/null 2>&1; then
 	pass "stat operation accepted"
 else
 	fail "stat operation should be accepted"
 fi
 
 # ===========================================
-# Test directory operations via vlabelctl test
+# Test directory operations via mac_abac_ctl test
 # ===========================================
 echo ""
 info "=== Directory Access Rules ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny chdir type=restricted -> type=protected" >/dev/null
-"$VLABELCTL" rule add "allow chdir * -> *" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny chdir type=restricted -> type=protected" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow chdir * -> *" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: chdir denied for restricted -> protected"
-OUTPUT=$("$VLABELCTL" test chdir "type=restricted" "type=protected" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test chdir "type=restricted" "type=protected" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "chdir denied for restricted -> protected"
 else
@@ -149,7 +149,7 @@ fi
 
 run_test
 info "Test: chdir allowed for normal -> protected"
-OUTPUT=$("$VLABELCTL" test chdir "type=normal" "type=protected" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test chdir "type=normal" "type=protected" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "chdir allowed for normal -> protected"
 else
@@ -162,14 +162,14 @@ fi
 echo ""
 info "=== ReadDir Restrictions ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny readdir type=untrusted -> type=secret" >/dev/null
-"$VLABELCTL" rule add "allow readdir * -> *" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny readdir type=untrusted -> type=secret" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow readdir * -> *" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: readdir denied for untrusted -> secret"
-OUTPUT=$("$VLABELCTL" test readdir "type=untrusted" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test readdir "type=untrusted" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "readdir denied for untrusted -> secret"
 else
@@ -178,7 +178,7 @@ fi
 
 run_test
 info "Test: readdir allowed for trusted -> secret"
-OUTPUT=$("$VLABELCTL" test readdir "type=trusted" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test readdir "type=trusted" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "readdir allowed for trusted -> secret"
 else
@@ -191,14 +191,14 @@ fi
 echo ""
 info "=== Lookup Restrictions ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny lookup type=sandbox -> type=system" >/dev/null
-"$VLABELCTL" rule add "allow lookup * -> *" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny lookup type=sandbox -> type=system" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow lookup * -> *" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: lookup denied for sandbox -> system"
-OUTPUT=$("$VLABELCTL" test lookup "type=sandbox" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test lookup "type=sandbox" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "lookup denied for sandbox -> system"
 else
@@ -207,7 +207,7 @@ fi
 
 run_test
 info "Test: lookup allowed for admin -> system"
-OUTPUT=$("$VLABELCTL" test lookup "type=admin" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test lookup "type=admin" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "lookup allowed for admin -> system"
 else
@@ -220,17 +220,17 @@ fi
 echo ""
 info "=== File Manipulation ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny create type=guest -> type=admin" >/dev/null
-"$VLABELCTL" rule add "deny link type=user -> type=protected" >/dev/null
-"$VLABELCTL" rule add "deny rename type=reader -> type=important" >/dev/null
-"$VLABELCTL" rule add "deny unlink type=guest -> type=critical" >/dev/null
-"$VLABELCTL" rule add "allow create,link,rename,unlink * -> *" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny create type=guest -> type=admin" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny link type=user -> type=protected" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny rename type=reader -> type=important" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny unlink type=guest -> type=critical" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow create,link,rename,unlink * -> *" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: create denied for guest -> admin"
-OUTPUT=$("$VLABELCTL" test create "type=guest" "type=admin" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test create "type=guest" "type=admin" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "create denied for guest -> admin"
 else
@@ -239,7 +239,7 @@ fi
 
 run_test
 info "Test: link denied for user -> protected"
-OUTPUT=$("$VLABELCTL" test link "type=user" "type=protected" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test link "type=user" "type=protected" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "link denied for user -> protected"
 else
@@ -248,7 +248,7 @@ fi
 
 run_test
 info "Test: rename denied for reader -> important"
-OUTPUT=$("$VLABELCTL" test rename "type=reader" "type=important" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test rename "type=reader" "type=important" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "rename denied for reader -> important"
 else
@@ -257,7 +257,7 @@ fi
 
 run_test
 info "Test: unlink denied for guest -> critical"
-OUTPUT=$("$VLABELCTL" test unlink "type=guest" "type=critical" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test unlink "type=guest" "type=critical" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "unlink denied for guest -> critical"
 else
@@ -266,7 +266,7 @@ fi
 
 run_test
 info "Test: unlink allowed for admin -> critical"
-OUTPUT=$("$VLABELCTL" test unlink "type=admin" "type=critical" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test unlink "type=admin" "type=critical" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "unlink allowed for admin -> critical"
 else
@@ -279,14 +279,14 @@ fi
 echo ""
 info "=== Stat Restrictions ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny stat type=lowpriv -> type=secret" >/dev/null
-"$VLABELCTL" rule add "allow stat * -> *" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny stat type=lowpriv -> type=secret" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow stat * -> *" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: stat denied for lowpriv -> secret"
-OUTPUT=$("$VLABELCTL" test stat "type=lowpriv" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test stat "type=lowpriv" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "stat denied for lowpriv -> secret"
 else
@@ -295,7 +295,7 @@ fi
 
 run_test
 info "Test: stat allowed for highpriv -> secret"
-OUTPUT=$("$VLABELCTL" test stat "type=highpriv" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test stat "type=highpriv" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "stat allowed for highpriv -> secret"
 else
@@ -308,16 +308,16 @@ fi
 echo ""
 info "=== Combined Operations ==="
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Protect system directories from sandboxed processes
-"$VLABELCTL" rule add "deny chdir,readdir,lookup type=sandbox -> type=system" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny chdir,readdir,lookup type=sandbox -> type=system" >/dev/null
 # Allow normal access
-"$VLABELCTL" rule add "allow chdir,readdir,lookup,create,link,rename,unlink,stat * -> *" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule add "allow chdir,readdir,lookup,create,link,rename,unlink,stat * -> *" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: sandbox cannot chdir to system"
-OUTPUT=$("$VLABELCTL" test chdir "type=sandbox" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test chdir "type=sandbox" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "sandbox cannot chdir to system"
 else
@@ -326,7 +326,7 @@ fi
 
 run_test
 info "Test: sandbox cannot readdir system"
-OUTPUT=$("$VLABELCTL" test readdir "type=sandbox" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test readdir "type=sandbox" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "sandbox cannot readdir system"
 else
@@ -335,7 +335,7 @@ fi
 
 run_test
 info "Test: sandbox cannot lookup in system"
-OUTPUT=$("$VLABELCTL" test lookup "type=sandbox" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test lookup "type=sandbox" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "sandbox cannot lookup in system"
 else
@@ -344,7 +344,7 @@ fi
 
 run_test
 info "Test: normal can access system dirs"
-OUTPUT=$("$VLABELCTL" test chdir "type=normal" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test chdir "type=normal" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "normal can access system dirs"
 else
@@ -356,9 +356,9 @@ fi
 # ===========================================
 echo ""
 info "=== Restore Safe State ==="
-"$VLABELCTL" mode permissive
-"$VLABELCTL" rule clear
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" mode permissive
+"$MAC_ABAC_CTL" rule clear
+"$MAC_ABAC_CTL" default allow
 info "Restored to permissive mode with no rules"
 
 # ===========================================

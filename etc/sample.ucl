@@ -1,11 +1,11 @@
-# vLabel Policy Configuration - UCL Format
+# ABAC Policy Configuration - UCL Format
 #
 # UCL (Universal Configuration Language) is the preferred format for
-# vLabel policies. It supports comments, includes, and flexible syntax.
+# ABAC policies. It supports comments, includes, and flexible syntax.
 #
 # Usage:
-#   vlabeld -c /usr/local/etc/vlabel/policy.ucl
-#   vlabelctl rule load /usr/local/etc/vlabel/policy.ucl
+#   mac_abacd -c /usr/local/etc/mac_abac/policy.ucl
+#   mac_abacctl rule load /usr/local/etc/mac_abac/policy.ucl
 #
 # UCL is a superset of JSON with these enhancements:
 #   - Comments with # or //
@@ -174,7 +174,7 @@ rules = [
     },
 
     {
-        # Default deny (optional - see security.mac.vlabel.default_policy)
+        # Default deny (optional - see security.mac.mac_abac.default_policy)
         id = 999;
         action = "deny";
         operations = ["all"];

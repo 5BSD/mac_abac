@@ -1,4 +1,4 @@
-# vLabel Policy Language
+# ABAC Policy Language
 
 Policies are JSON/UCL files defining rules.
 
@@ -69,9 +69,9 @@ Use `all` for all operations.
 ## CLI Syntax
 
 ```sh
-vlabelctl rule add "deny exec * -> type=untrusted"
-vlabelctl rule add "allow exec type=trusted -> *"
-vlabelctl rule add "transition exec * -> type=setuid => type=privileged"
+mac_abac_ctl rule add "deny exec * -> type=untrusted"
+mac_abac_ctl rule add "allow exec type=trusted -> *"
+mac_abac_ctl rule add "transition exec * -> type=setuid => type=privileged"
 ```
 
 Format: `action operations subject [ctx:...] -> object [ctx:...] [=> newlabel]`
@@ -82,10 +82,10 @@ Format: `action operations subject [ctx:...] -> object [ctx:...] [=> newlabel]`
 # ctx: AFTER  -> = object constraint
 # Multiple constraints: comma-separated (one ctx: per side)
 
-vlabelctl rule add "deny exec * ctx:jail=any -> type=hostonly"
-vlabelctl rule add "deny debug * -> * ctx:sandboxed=true"
-vlabelctl rule add "deny debug * ctx:uid=0 -> * ctx:sandboxed=true"
-vlabelctl rule add "allow exec * ctx:uid=0,jail=host -> type=admin"
+mac_abac_ctl rule add "deny exec * ctx:jail=any -> type=hostonly"
+mac_abac_ctl rule add "deny debug * -> * ctx:sandboxed=true"
+mac_abac_ctl rule add "deny debug * ctx:uid=0 -> * ctx:sandboxed=true"
+mac_abac_ctl rule add "allow exec * ctx:uid=0,jail=host -> type=admin"
 ```
 
 ## Rule Evaluation
@@ -96,9 +96,9 @@ First match wins. No match = default policy (configurable via sysctl).
 
 ```sh
 # Via daemon
-vlabeld -c /etc/vlabel/policy.conf
+mac_abacd -c /etc/mac_abac/policy.conf
 
 # Via CLI
-vlabelctl rule load /etc/vlabel/rules.conf
-vlabelctl rule add "deny exec * -> type=untrusted"
+mac_abac_ctl rule load /etc/mac_abac/rules.conf
+mac_abac_ctl rule add "deny exec * -> type=untrusted"
 ```

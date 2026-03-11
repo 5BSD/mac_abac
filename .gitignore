@@ -21,13 +21,13 @@ test-output.log
 
 # Claude
 .claude/
-kernel/mac_vlabel.ko
-kernel/mac_vlabel.o
+kernel/mac_abac.ko
+kernel/mac_abac.o
 # Sticking with C for now.
 swift/.build/build.db
 swift/.build/debug
 swift/.build/
 
-daemon/vlabeld
-tools/vlabelctl
-tools/vlabelctl
+daemon/abacd
+tools/abacctl
+tools/abacctl

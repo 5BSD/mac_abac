@@ -15,7 +15,7 @@
 #   - unlink: shm_unlink()
 #
 # Since we can't directly label shm objects, we test rule parsing and
-# evaluation via vlabelctl test command.
+# evaluation via mac_abac_ctl test command.
 #
 
 set -e
@@ -25,13 +25,13 @@ SCRIPT_DIR=$(dirname "$0")
 
 # Configuration
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
-MODULE_NAME="mac_vlabel"
+MODULE_NAME="mac_abac"
 
 # Check prerequisites
 require_root
@@ -43,9 +43,9 @@ fi
 
 # Cleanup function
 cleanup() {
-	"$VLABELCTL" mode permissive >/dev/null 2>&1 || true
-	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
-	"$VLABELCTL" default allow >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" default allow >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -54,7 +54,7 @@ echo "POSIX Shared Memory Tests"
 echo "(open/read/write/mmap/stat/unlink)"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 echo ""
 
 # ===========================================
@@ -62,11 +62,11 @@ echo ""
 # ===========================================
 info "=== Rule Parsing ==="
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 run_test
 info "Test: open operation for shm"
-if "$VLABELCTL" rule add "deny open type=untrusted -> type=secret" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny open type=untrusted -> type=secret" >/dev/null 2>&1; then
 	pass "open operation accepted"
 else
 	fail "open operation should be accepted"
@@ -74,7 +74,7 @@ fi
 
 run_test
 info "Test: mmap operation for shm"
-if "$VLABELCTL" rule add "deny mmap type=sandbox -> type=sensitive" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny mmap type=sandbox -> type=sensitive" >/dev/null 2>&1; then
 	pass "mmap operation accepted"
 else
 	fail "mmap operation should be accepted"
@@ -82,26 +82,26 @@ fi
 
 run_test
 info "Test: unlink operation for shm"
-if "$VLABELCTL" rule add "deny unlink type=user -> type=system" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule add "deny unlink type=user -> type=system" >/dev/null 2>&1; then
 	pass "unlink operation accepted"
 else
 	fail "unlink operation should be accepted"
 fi
 
 # ===========================================
-# Test shm operations via vlabelctl test
+# Test shm operations via mac_abac_ctl test
 # ===========================================
 echo ""
 info "=== Test Command Verification ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny open type=untrusted -> type=secret" >/dev/null
-"$VLABELCTL" rule add "allow open * -> *" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny open type=untrusted -> type=secret" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow open * -> *" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: open denied for untrusted -> secret"
-OUTPUT=$("$VLABELCTL" test open "type=untrusted" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test open "type=untrusted" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "open denied for untrusted -> secret"
 else
@@ -110,7 +110,7 @@ fi
 
 run_test
 info "Test: open allowed for trusted -> secret"
-OUTPUT=$("$VLABELCTL" test open "type=trusted" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test open "type=trusted" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "open allowed for trusted -> secret"
 else
@@ -123,14 +123,14 @@ fi
 echo ""
 info "=== MMAP Restrictions ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny mmap type=sandbox -> type=sensitive" >/dev/null
-"$VLABELCTL" rule add "allow mmap * -> *" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny mmap type=sandbox -> type=sensitive" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow mmap * -> *" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: mmap denied for sandbox -> sensitive"
-OUTPUT=$("$VLABELCTL" test mmap "type=sandbox" "type=sensitive" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test mmap "type=sandbox" "type=sensitive" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "mmap denied for sandbox -> sensitive"
 else
@@ -139,7 +139,7 @@ fi
 
 run_test
 info "Test: mmap allowed for trusted -> sensitive"
-OUTPUT=$("$VLABELCTL" test mmap "type=trusted" "type=sensitive" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test mmap "type=trusted" "type=sensitive" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "mmap allowed for trusted -> sensitive"
 else
@@ -152,16 +152,16 @@ fi
 echo ""
 info "=== Combined Read/Write Rules ==="
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Isolated process: no read or write to shm with secret label
-"$VLABELCTL" rule add "deny read,write type=isolated -> type=secret" >/dev/null
+"$MAC_ABAC_CTL" rule add "deny read,write type=isolated -> type=secret" >/dev/null
 # Allow all other shm ops
-"$VLABELCTL" rule add "allow read,write,open,mmap,stat * -> *" >/dev/null
-"$VLABELCTL" default allow >/dev/null
+"$MAC_ABAC_CTL" rule add "allow read,write,open,mmap,stat * -> *" >/dev/null
+"$MAC_ABAC_CTL" default allow >/dev/null
 
 run_test
 info "Test: isolated cannot read secret shm"
-OUTPUT=$("$VLABELCTL" test read "type=isolated" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=isolated" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "isolated cannot read secret"
 else
@@ -170,7 +170,7 @@ fi
 
 run_test
 info "Test: isolated cannot write secret shm"
-OUTPUT=$("$VLABELCTL" test write "type=isolated" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test write "type=isolated" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "isolated cannot write secret"
 else
@@ -179,7 +179,7 @@ fi
 
 run_test
 info "Test: isolated can open secret shm"
-OUTPUT=$("$VLABELCTL" test open "type=isolated" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test open "type=isolated" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "isolated can open secret"
 else
@@ -188,7 +188,7 @@ fi
 
 run_test
 info "Test: normal process can read secret shm"
-OUTPUT=$("$VLABELCTL" test read "type=normal" "type=secret" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test read "type=normal" "type=secret" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "normal can read secret"
 else
@@ -201,14 +201,14 @@ fi
 echo ""
 info "=== Unlink Restrictions ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny unlink type=user -> type=system" >/dev/null
-"$VLABELCTL" rule add "allow unlink type=admin -> *" >/dev/null
-"$VLABELCTL" default deny >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny unlink type=user -> type=system" >/dev/null
+"$MAC_ABAC_CTL" rule add "allow unlink type=admin -> *" >/dev/null
+"$MAC_ABAC_CTL" default deny >/dev/null
 
 run_test
 info "Test: user cannot unlink system shm"
-OUTPUT=$("$VLABELCTL" test unlink "type=user" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test unlink "type=user" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "user cannot unlink system"
 else
@@ -217,7 +217,7 @@ fi
 
 run_test
 info "Test: admin can unlink system shm"
-OUTPUT=$("$VLABELCTL" test unlink "type=admin" "type=system" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test unlink "type=admin" "type=system" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "admin can unlink system"
 else
@@ -229,9 +229,9 @@ fi
 # ===========================================
 echo ""
 info "=== Restore Safe State ==="
-"$VLABELCTL" mode permissive
-"$VLABELCTL" rule clear
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" mode permissive
+"$MAC_ABAC_CTL" rule clear
+"$MAC_ABAC_CTL" default allow
 info "Restored to permissive mode with no rules"
 
 # ===========================================

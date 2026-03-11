@@ -2,15 +2,15 @@
 #
 # Test: Label Protection (setextattr/getextattr/deleteextattr)
 #
-# Tests that the system:vlabel extended attribute is protected from
+# Tests that the system:mac_abac extended attribute is protected from
 # unauthorized modification, deletion, and optionally reading.
 #
-# The vLabel module protects its own labels via:
+# The ABAC module protects its own labels via:
 #   - vnode_check_setextattr: controls who can modify labels
 #   - vnode_check_deleteextattr: controls who can remove labels
 #   - vnode_check_getextattr: controls who can read labels
 #
-# These checks use the VLABEL_OP_SETEXTATTR and VLABEL_OP_GETEXTATTR
+# These checks use the ABAC_OP_SETEXTATTR and ABAC_OP_GETEXTATTR
 # operations, so rules can be written like:
 #   allow setextattr type=admin -> *
 #   deny setextattr * -> type=protected
@@ -23,14 +23,14 @@ SCRIPT_DIR=$(dirname "$0")
 
 # Configuration
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
-MODULE_NAME="mac_vlabel"
-TEST_DIR="/root/vlabel_labelprotect_$$"
+MODULE_NAME="mac_abac"
+TEST_DIR="/root/abac_labelprotect_$$"
 
 # Check prerequisites
 require_root
@@ -42,9 +42,9 @@ fi
 
 # Cleanup function
 cleanup() {
-	"$VLABELCTL" mode permissive >/dev/null 2>&1 || true
-	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
-	"$VLABELCTL" default allow >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" default allow >/dev/null 2>&1 || true
 	rm -rf "$TEST_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -54,7 +54,7 @@ echo "Label Protection Tests"
 echo "(setextattr/getextattr/deleteextattr)"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 info "Test directory: $TEST_DIR"
 echo ""
 
@@ -70,9 +70,9 @@ TEST_FILE="$TEST_DIR/protected_file"
 echo "protected content" > "$TEST_FILE"
 
 # Label the file
-"$VLABELCTL" label set "$TEST_FILE" "type=protected"
+"$MAC_ABAC_CTL" label set "$TEST_FILE" "type=protected"
 
-LABEL=$("$VLABELCTL" label get "$TEST_FILE" 2>&1)
+LABEL=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1)
 info "Initial label: $LABEL"
 
 # ===========================================
@@ -81,13 +81,13 @@ info "Initial label: $LABEL"
 echo ""
 info "=== Test 1: Default Policy Allows Label Operations ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" default allow
-"$VLABELCTL" mode enforcing
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" default allow
+"$MAC_ABAC_CTL" mode enforcing
 
 run_test
 info "Test 1a: Can read label with default allow"
-if "$VLABELCTL" label get "$TEST_FILE" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" label get "$TEST_FILE" >/dev/null 2>&1; then
 	pass "label read allowed"
 else
 	fail "label read should be allowed with default allow"
@@ -95,10 +95,10 @@ fi
 
 run_test
 info "Test 1b: Can modify label with default allow"
-if "$VLABELCTL" label set "$TEST_FILE" "type=modified" 2>/dev/null; then
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "type=modified" 2>/dev/null; then
 	pass "label modify allowed"
 	# Restore original label
-	"$VLABELCTL" label set "$TEST_FILE" "type=protected" 2>/dev/null
+	"$MAC_ABAC_CTL" label set "$TEST_FILE" "type=protected" 2>/dev/null
 else
 	fail "label modify should be allowed with default allow"
 fi
@@ -109,22 +109,22 @@ fi
 echo ""
 info "=== Test 2: Deny setextattr Blocks Label Modification ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny setextattr * -> type=protected"
-"$VLABELCTL" rule add "allow setextattr,getextattr * -> *"
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny setextattr * -> type=protected"
+"$MAC_ABAC_CTL" rule add "allow setextattr,getextattr * -> *"
+"$MAC_ABAC_CTL" default allow
 
 info "Rules:"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
 run_test
 info "Test 2a: Cannot modify protected label"
-if "$VLABELCTL" label set "$TEST_FILE" "type=hacked" 2>/dev/null; then
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "type=hacked" 2>/dev/null; then
 	fail "label modify should be blocked"
 	# Try to restore
-	"$VLABELCTL" mode permissive
-	"$VLABELCTL" label set "$TEST_FILE" "type=protected" 2>/dev/null
-	"$VLABELCTL" mode enforcing
+	"$MAC_ABAC_CTL" mode permissive
+	"$MAC_ABAC_CTL" label set "$TEST_FILE" "type=protected" 2>/dev/null
+	"$MAC_ABAC_CTL" mode enforcing
 else
 	pass "label modify blocked on protected file"
 fi
@@ -132,7 +132,7 @@ fi
 # Verify the label wasn't changed
 run_test
 info "Test 2b: Label unchanged after blocked modification"
-LABEL=$("$VLABELCTL" label get "$TEST_FILE" 2>&1)
+LABEL=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1)
 if echo "$LABEL" | grep -q "type=protected"; then
 	pass "label preserved: $LABEL"
 else
@@ -145,17 +145,17 @@ fi
 echo ""
 info "=== Test 3: Deny getextattr Blocks Label Reading ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny getextattr * -> type=protected"
-"$VLABELCTL" rule add "allow setextattr,getextattr * -> *"
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny getextattr * -> type=protected"
+"$MAC_ABAC_CTL" rule add "allow setextattr,getextattr * -> *"
+"$MAC_ABAC_CTL" default allow
 
 info "Rules:"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
 run_test
 info "Test 3: Cannot read protected label"
-if "$VLABELCTL" label get "$TEST_FILE" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" label get "$TEST_FILE" >/dev/null 2>&1; then
 	fail "label read should be blocked"
 else
 	pass "label read blocked on protected file"
@@ -167,24 +167,24 @@ fi
 echo ""
 info "=== Test 4: Label Removal Protection ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny setextattr * -> type=protected"
-"$VLABELCTL" rule add "allow setextattr,getextattr * -> *"
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny setextattr * -> type=protected"
+"$MAC_ABAC_CTL" rule add "allow setextattr,getextattr * -> *"
+"$MAC_ABAC_CTL" default allow
 
 info "Rules:"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
 run_test
 info "Test 4: Cannot remove protected label"
-if "$VLABELCTL" label remove "$TEST_FILE" 2>/dev/null; then
+if "$MAC_ABAC_CTL" label remove "$TEST_FILE" 2>/dev/null; then
 	fail "label remove should be blocked"
 else
 	pass "label remove blocked on protected file"
 fi
 
 # Verify label still exists
-LABEL=$("$VLABELCTL" mode permissive >/dev/null; "$VLABELCTL" label get "$TEST_FILE" 2>&1; "$VLABELCTL" mode enforcing >/dev/null)
+LABEL=$("$MAC_ABAC_CTL" mode permissive >/dev/null; "$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1; "$MAC_ABAC_CTL" mode enforcing >/dev/null)
 if echo "$LABEL" | grep -q "type=protected"; then
 	info "Label still present: $LABEL"
 else
@@ -200,23 +200,23 @@ info "=== Test 5: Selective Allow for Admin ==="
 # Create an "admin" file to represent admin process context
 ADMIN_FILE="$TEST_DIR/admin_target"
 echo "admin target" > "$ADMIN_FILE"
-"$VLABELCTL" mode permissive
-"$VLABELCTL" label set "$ADMIN_FILE" "type=admin"
-"$VLABELCTL" mode enforcing
+"$MAC_ABAC_CTL" mode permissive
+"$MAC_ABAC_CTL" label set "$ADMIN_FILE" "type=admin"
+"$MAC_ABAC_CTL" mode enforcing
 
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 # Allow admin to modify any label, deny everyone else
-"$VLABELCTL" rule add "allow setextattr type=admin -> *"
-"$VLABELCTL" rule add "deny setextattr * -> *"
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" rule add "allow setextattr type=admin -> *"
+"$MAC_ABAC_CTL" rule add "deny setextattr * -> *"
+"$MAC_ABAC_CTL" default allow
 
 info "Rules (admin can modify, others denied):"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
-# Test using vlabelctl test command
+# Test using mac_abac_ctl test command
 run_test
 info "Test 5a: Admin can modify labels (via test command)"
-OUTPUT=$("$VLABELCTL" test setextattr "type=admin" "type=protected" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test setextattr "type=admin" "type=protected" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ALLOW"; then
 	pass "admin allowed to setextattr"
 else
@@ -225,7 +225,7 @@ fi
 
 run_test
 info "Test 5b: Non-admin blocked from modifying labels (via test command)"
-OUTPUT=$("$VLABELCTL" test setextattr "type=user" "type=protected" 2>&1 || true)
+OUTPUT=$("$MAC_ABAC_CTL" test setextattr "type=user" "type=protected" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "DENY"; then
 	pass "non-admin denied setextattr"
 else
@@ -238,17 +238,17 @@ fi
 echo ""
 info "=== Test 6: Permissive Mode ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny setextattr * -> type=protected"
-"$VLABELCTL" rule add "allow setextattr,getextattr * -> *"
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny setextattr * -> type=protected"
+"$MAC_ABAC_CTL" rule add "allow setextattr,getextattr * -> *"
+"$MAC_ABAC_CTL" mode permissive
 
 run_test
 info "Test 6: Can modify in permissive mode (would be denied in enforcing)"
-if "$VLABELCTL" label set "$TEST_FILE" "type=modified_permissive" 2>/dev/null; then
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "type=modified_permissive" 2>/dev/null; then
 	pass "modification allowed in permissive mode"
 	# Restore
-	"$VLABELCTL" label set "$TEST_FILE" "type=protected" 2>/dev/null
+	"$MAC_ABAC_CTL" label set "$TEST_FILE" "type=protected" 2>/dev/null
 else
 	fail "modification should be allowed in permissive mode"
 fi
@@ -259,14 +259,14 @@ fi
 echo ""
 info "=== Test 7: Other Extended Attributes Not Affected ==="
 
-"$VLABELCTL" rule clear >/dev/null
-"$VLABELCTL" rule add "deny setextattr * -> *"
-"$VLABELCTL" rule add "deny getextattr * -> *"
-"$VLABELCTL" default allow
-"$VLABELCTL" mode enforcing
+"$MAC_ABAC_CTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule add "deny setextattr * -> *"
+"$MAC_ABAC_CTL" rule add "deny getextattr * -> *"
+"$MAC_ABAC_CTL" default allow
+"$MAC_ABAC_CTL" mode enforcing
 
 run_test
-info "Test 7: Can set other extattrs (not system:vlabel)"
+info "Test 7: Can set other extattrs (not system:mac_abac)"
 # setextattr in user namespace should not be affected
 if setextattr user testattr "testvalue" "$TEST_FILE" 2>/dev/null; then
 	pass "user extattr allowed (not protected)"
@@ -275,7 +275,7 @@ if setextattr user testattr "testvalue" "$TEST_FILE" 2>/dev/null; then
 else
 	# This might fail for other reasons (not ZFS, etc)
 	# Check if it's our denial or something else
-	warn "user extattr failed - may be filesystem limitation, not vLabel"
+	warn "user extattr failed - may be filesystem limitation, not ABAC"
 fi
 
 # ===========================================
@@ -283,9 +283,9 @@ fi
 # ===========================================
 echo ""
 info "=== Restore Safe State ==="
-"$VLABELCTL" mode permissive
-"$VLABELCTL" rule clear
-"$VLABELCTL" default allow
+"$MAC_ABAC_CTL" mode permissive
+"$MAC_ABAC_CTL" rule clear
+"$MAC_ABAC_CTL" default allow
 info "Restored to permissive mode with no rules"
 
 # ===========================================

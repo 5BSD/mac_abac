@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Shared test helper functions for vLabel test suite
+# Shared test helper functions for ABAC test suite
 #
 
 # Colors for output
@@ -16,13 +16,13 @@ TESTS_PASSED=0
 TESTS_FAILED=0
 TESTS_SKIPPED=0
 
-# Quiet mode - set VLABEL_QUIET=1 to only show failures and summary
-VLABEL_QUIET="${VLABEL_QUIET:-0}"
+# Quiet mode - set ABAC_QUIET=1 to only show failures and summary
+ABAC_QUIET="${ABAC_QUIET:-0}"
 
 # Pass a test
 pass() {
 	TESTS_PASSED=$((TESTS_PASSED + 1))
-	if [ "$VLABEL_QUIET" != "1" ]; then
+	if [ "$ABAC_QUIET" != "1" ]; then
 		printf "${GREEN}PASS${NC}: %s\n" "$1"
 	fi
 }
@@ -36,14 +36,14 @@ fail() {
 # Skip a test
 skip() {
 	TESTS_SKIPPED=$((TESTS_SKIPPED + 1))
-	if [ "$VLABEL_QUIET" != "1" ]; then
+	if [ "$ABAC_QUIET" != "1" ]; then
 		printf "${YELLOW}SKIP${NC}: %s\n" "$1"
 	fi
 }
 
 # Info message
 info() {
-	if [ "$VLABEL_QUIET" != "1" ]; then
+	if [ "$ABAC_QUIET" != "1" ]; then
 		printf "INFO: %s\n" "$1"
 	fi
 }
@@ -159,17 +159,17 @@ require_root() {
 
 # Check if module is loaded
 require_module() {
-	if ! kldstat -q -m mac_vlabel 2>/dev/null; then
-		echo "Module mac_vlabel not loaded"
+	if ! kldstat -q -m mac_abac 2>/dev/null; then
+		echo "Module mac_abac not loaded"
 		exit 1
 	fi
 }
 
-# Check if vlabelctl exists
-require_vlabelctl() {
-	local vlabelctl="${VLABELCTL:-../tools/vlabelctl}"
-	if [ ! -x "$vlabelctl" ]; then
-		echo "vlabelctl not found or not executable: $vlabelctl"
+# Check if mac_abac_ctl exists
+require_mac_abac_ctl() {
+	local mac_abac_ctl="${MAC_ABAC_CTL:-../tools/mac_abac_ctl}"
+	if [ ! -x "$mac_abac_ctl" ]; then
+		echo "mac_abac_ctl not found or not executable: $mac_abac_ctl"
 		exit 1
 	fi
 }

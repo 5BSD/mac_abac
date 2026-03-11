@@ -7,19 +7,19 @@
 # Prerequisites:
 # - Must be run as root
 # - Module must be loaded
-# - vlabelctl must be built
+# - mac_abac_ctl must be built
 # - Test directory must support extended attributes
 #
 # Usage:
-#   ./03_label_format.sh [path_to_vlabelctl]
+#   ./03_label_format.sh [path_to_mac_abac_ctl]
 #
 
 set -e
 
 # Configuration
-VLABELCTL="${1:-../tools/vlabelctl}"
-MODULE_NAME="mac_vlabel"
-TEST_DIR="/tmp/vlabel_test_$$"
+MAC_ABAC_CTL="${1:-../tools/mac_abac_ctl}"
+MODULE_NAME="mac_abac"
+TEST_DIR="/tmp/abac_test_$$"
 TEST_FILE="$TEST_DIR/testfile"
 
 # Colors for output
@@ -68,8 +68,8 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-if [ ! -x "$VLABELCTL" ]; then
-    echo "vlabelctl not found or not executable: $VLABELCTL"
+if [ ! -x "$MAC_ABAC_CTL" ]; then
+    echo "mac_abac_ctl not found or not executable: $MAC_ABAC_CTL"
     exit 1
 fi
 
@@ -104,7 +104,7 @@ info "=== Basic Label Set/Get Tests ==="
 
 run_test
 info "Test: Set simple label"
-if "$VLABELCTL" label set "$TEST_FILE" "type=app" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "type=app" >/dev/null 2>&1; then
     pass "label set simple"
 else
     fail "label set simple"
@@ -112,7 +112,7 @@ fi
 
 run_test
 info "Test: Get simple label"
-OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1)
 if [ "$OUTPUT" = "type=app" ]; then
     pass "label get simple"
 else
@@ -121,7 +121,7 @@ fi
 
 run_test
 info "Test: Set multi-field label (comma format)"
-if "$VLABELCTL" label set "$TEST_FILE" "type=app,domain=web,level=secret" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "type=app,domain=web,level=secret" >/dev/null 2>&1; then
     pass "label set multi-field"
 else
     fail "label set multi-field"
@@ -129,7 +129,7 @@ fi
 
 run_test
 info "Test: Get multi-field label (should show comma format)"
-OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1)
 # Output should be comma-separated for display
 if echo "$OUTPUT" | grep -q "type=app" && echo "$OUTPUT" | grep -q "domain=web" && echo "$OUTPUT" | grep -q "level=secret"; then
     pass "label get multi-field"
@@ -140,7 +140,7 @@ fi
 run_test
 info "Test: Verify storage format is newline-separated"
 # Read raw extattr to verify storage format
-RAW=$(getextattr -q system vlabel "$TEST_FILE" 2>/dev/null)
+RAW=$(getextattr -q system mac_abac "$TEST_FILE" 2>/dev/null)
 if echo "$RAW" | grep -q $'\n' || [ "$(echo "$RAW" | wc -l)" -gt 1 ]; then
     pass "storage format uses newlines"
 else
@@ -160,7 +160,7 @@ info "=== Edge Case Tests ==="
 
 run_test
 info "Test: Empty label allowed"
-if "$VLABELCTL" label set "$TEST_FILE" "" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "" >/dev/null 2>&1; then
     pass "empty label set"
 else
     fail "empty label set"
@@ -168,8 +168,8 @@ fi
 
 run_test
 info "Test: Label with special characters in value"
-if "$VLABELCTL" label set "$TEST_FILE" "path=/usr/local/bin,name=my-app_v2.0" >/dev/null 2>&1; then
-    OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1)
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "path=/usr/local/bin,name=my-app_v2.0" >/dev/null 2>&1; then
+    OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1)
     if echo "$OUTPUT" | grep -q "/usr/local/bin"; then
         pass "label with special chars"
     else
@@ -181,8 +181,8 @@ fi
 
 run_test
 info "Test: Label with numeric values"
-if "$VLABELCTL" label set "$TEST_FILE" "level=5,priority=100" >/dev/null 2>&1; then
-    OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1)
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "level=5,priority=100" >/dev/null 2>&1; then
+    OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1)
     if echo "$OUTPUT" | grep -q "level=5" && echo "$OUTPUT" | grep -q "priority=100"; then
         pass "label with numeric values"
     else
@@ -206,9 +206,9 @@ info "=== Validation Tests ==="
 
 run_test
 info "Test: Key without value written (kernel validates at parse time)"
-if "$VLABELCTL" label set "$TEST_FILE" "badkey" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "badkey" >/dev/null 2>&1; then
     # Verify the label was actually written
-    OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1)
+    OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1)
     if echo "$OUTPUT" | grep -q "badkey"; then
         pass "key without value written (kernel validates at parse)"
     else
@@ -216,22 +216,22 @@ if "$VLABELCTL" label set "$TEST_FILE" "badkey" >/dev/null 2>&1; then
     fi
 else
     # If set fails, that's also acceptable
-    pass "key without value rejected by vlabelctl"
+    pass "key without value rejected by mac_abac_ctl"
 fi
 
 run_test
 info "Test: Empty key written (kernel validates at parse time)"
-if "$VLABELCTL" label set "$TEST_FILE" "=value" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "=value" >/dev/null 2>&1; then
     pass "empty key written (kernel validates at parse)"
 else
-    pass "empty key rejected by vlabelctl"
+    pass "empty key rejected by mac_abac_ctl"
 fi
 
 run_test
 info "Test: Long key handling"
 # Create a key that's 35 characters
 LONG_KEY=$(printf 'k%.0s' $(seq 1 35))
-if "$VLABELCTL" label set "$TEST_FILE" "${LONG_KEY}=value" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "${LONG_KEY}=value" >/dev/null 2>&1; then
     # Long keys may be truncated or accepted
     pass "long key handled"
 else
@@ -242,7 +242,7 @@ run_test
 info "Test: Long value handling"
 # Create a value that's 100 characters
 LONG_VALUE=$(printf 'v%.0s' $(seq 1 100))
-if "$VLABELCTL" label set "$TEST_FILE" "key=${LONG_VALUE}" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "key=${LONG_VALUE}" >/dev/null 2>&1; then
     pass "long value handled"
 else
     pass "long value rejected"
@@ -258,7 +258,7 @@ for i in $(seq 1 10); do
     fi
     MANY_PAIRS="${MANY_PAIRS}key${i}=val${i}"
 done
-if "$VLABELCTL" label set "$TEST_FILE" "$MANY_PAIRS" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "$MANY_PAIRS" >/dev/null 2>&1; then
     pass "many pairs handled"
 else
     pass "many pairs rejected"
@@ -272,9 +272,9 @@ info "=== Label Remove Tests ==="
 
 run_test
 info "Test: Remove existing label"
-"$VLABELCTL" label set "$TEST_FILE" "type=test" >/dev/null 2>&1
-if "$VLABELCTL" label remove "$TEST_FILE" >/dev/null 2>&1; then
-    OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1)
+"$MAC_ABAC_CTL" label set "$TEST_FILE" "type=test" >/dev/null 2>&1
+if "$MAC_ABAC_CTL" label remove "$TEST_FILE" >/dev/null 2>&1; then
+    OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1)
     if echo "$OUTPUT" | grep -qi "no label"; then
         pass "label remove"
     else
@@ -287,7 +287,7 @@ fi
 run_test
 info "Test: Remove non-existent label"
 # Should not error, just report no label
-if "$VLABELCTL" label remove "$TEST_FILE" 2>&1 | grep -qi "no label"; then
+if "$MAC_ABAC_CTL" label remove "$TEST_FILE" 2>&1 | grep -qi "no label"; then
     pass "remove non-existent label"
 else
     pass "remove non-existent label (no error)"
@@ -301,10 +301,10 @@ info "=== Maximum Size Tests ==="
 
 run_test
 info "Test: Maximum valid key length (31 bytes)"
-# 31 characters + null = 32 bytes (VLABEL_MAX_KEY_LEN)
+# 31 characters + null = 32 bytes (ABAC_MAX_KEY_LEN)
 KEY31=$(printf 'k%.0s' $(seq 1 31))
-if "$VLABELCTL" label set "$TEST_FILE" "${KEY31}=value" >/dev/null 2>&1; then
-    OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1)
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "${KEY31}=value" >/dev/null 2>&1; then
+    OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1)
     if echo "$OUTPUT" | grep -q "${KEY31}=value"; then
         pass "max key length"
     else
@@ -316,10 +316,10 @@ fi
 
 run_test
 info "Test: Maximum valid value length (95 bytes)"
-# 95 characters + null = 96 bytes (VLABEL_MAX_VALUE_LEN)
+# 95 characters + null = 96 bytes (ABAC_MAX_VALUE_LEN)
 VAL95=$(printf 'v%.0s' $(seq 1 95))
-if "$VLABELCTL" label set "$TEST_FILE" "key=${VAL95}" >/dev/null 2>&1; then
-    OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1)
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "key=${VAL95}" >/dev/null 2>&1; then
+    OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1)
     if echo "$OUTPUT" | grep -q "key="; then
         pass "max value length"
     else
@@ -331,7 +331,7 @@ fi
 
 run_test
 info "Test: Maximum valid pair count (8 pairs)"
-# 8 pairs (VLABEL_MAX_PAIRS)
+# 8 pairs (ABAC_MAX_PAIRS)
 PAIRS8=""
 for i in $(seq 1 8); do
     if [ -n "$PAIRS8" ]; then
@@ -339,7 +339,7 @@ for i in $(seq 1 8); do
     fi
     PAIRS8="${PAIRS8}k${i}=v${i}"
 done
-if "$VLABELCTL" label set "$TEST_FILE" "$PAIRS8" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "$PAIRS8" >/dev/null 2>&1; then
     pass "max pair count"
 else
     fail "max pair count"
@@ -354,8 +354,8 @@ info "=== Format Roundtrip Tests ==="
 run_test
 info "Test: Complex label roundtrip"
 ORIGINAL="type=application,domain=production,sensitivity=confidential,owner=admin"
-if "$VLABELCTL" label set "$TEST_FILE" "$ORIGINAL" >/dev/null 2>&1; then
-    OUTPUT=$("$VLABELCTL" label get "$TEST_FILE" 2>&1)
+if "$MAC_ABAC_CTL" label set "$TEST_FILE" "$ORIGINAL" >/dev/null 2>&1; then
+    OUTPUT=$("$MAC_ABAC_CTL" label get "$TEST_FILE" 2>&1)
     # Check all components are present (order may vary)
     if echo "$OUTPUT" | grep -q "type=application" && \
        echo "$OUTPUT" | grep -q "domain=production" && \

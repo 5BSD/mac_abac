@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# 30_stress.sh - Stress tests and leak detection for mac_vlabel
+# 30_stress.sh - Stress tests and leak detection for mac_abac
 #
 # Performs repeated operations to expose:
 # - Memory leaks
@@ -8,16 +8,16 @@
 # - Resource exhaustion
 # - Stability issues
 #
-# Usage: ./30_stress.sh [vlabelctl_path]
+# Usage: ./30_stress.sh [mac_abac_ctl_path]
 #
 
 SCRIPT_DIR=$(dirname "$0")
 . "$SCRIPT_DIR/lib/test_helpers.sh"
 
-VLABELCTL="${1:-/usr/local/sbin/vlabelctl}"
-ITERATIONS="${VLABEL_STRESS_ITERS:-100}"
+MAC_ABAC_CTL="${1:-/usr/local/sbin/mac_abac_ctl}"
+ITERATIONS="${ABAC_STRESS_ITERS:-100}"
 TMPDIR="${TMPDIR:-/tmp}"
-TESTDIR="$TMPDIR/vlabel_stress_$$"
+TESTDIR="$TMPDIR/abac_stress_$$"
 
 require_root
 require_module
@@ -32,7 +32,7 @@ mkdir -p "$TESTDIR"
 
 # Capture initial state
 INITIAL_KMEM=$(vmstat -m 2>/dev/null | tail -1 | awk '{print $3}' || echo "0")
-INITIAL_ZONES=$(vmstat -z 2>/dev/null | grep -i vlabel | awk '{sum += $4} END {print sum+0}' || echo "0")
+INITIAL_ZONES=$(vmstat -z 2>/dev/null | grep -i mac_abac | awk '{sum += $4} END {print sum+0}' || echo "0")
 
 # -----------------------------------------------------------------------------
 # Test 1: Repeated status queries
@@ -42,7 +42,7 @@ info "Stress test: repeated status queries..."
 FAIL_COUNT=0
 i=0
 while [ $i -lt $ITERATIONS ]; do
-    if ! $VLABELCTL status >/dev/null 2>&1; then
+    if ! $MAC_ABAC_CTL status >/dev/null 2>&1; then
         FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
     i=$((i + 1))
@@ -61,7 +61,7 @@ info "Stress test: repeated rule list queries..."
 FAIL_COUNT=0
 i=0
 while [ $i -lt $ITERATIONS ]; do
-    if ! $VLABELCTL rule list >/dev/null 2>&1; then
+    if ! $MAC_ABAC_CTL rule list >/dev/null 2>&1; then
         FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
     i=$((i + 1))
@@ -83,11 +83,11 @@ FAIL_COUNT=0
 i=0
 while [ $i -lt $ITERATIONS ]; do
     # Set label
-    if ! $VLABELCTL label set "$TESTFILE" "stress=test$i" 2>/dev/null; then
+    if ! $MAC_ABAC_CTL label set "$TESTFILE" "stress=test$i" 2>/dev/null; then
         FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
     # Get label
-    if ! $VLABELCTL label get "$TESTFILE" >/dev/null 2>&1; then
+    if ! $MAC_ABAC_CTL label get "$TESTFILE" >/dev/null 2>&1; then
         FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
     i=$((i + 1))
@@ -113,7 +113,7 @@ i=0
 while [ $i -lt $FILE_COUNT ]; do
     TESTFILE="$TESTDIR/file_$i"
     touch "$TESTFILE"
-    if ! $VLABELCTL label set "$TESTFILE" "batch=file$i" 2>/dev/null; then
+    if ! $MAC_ABAC_CTL label set "$TESTFILE" "batch=file$i" 2>/dev/null; then
         FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
     i=$((i + 1))
@@ -130,7 +130,7 @@ FAIL_COUNT=0
 i=0
 while [ $i -lt $FILE_COUNT ]; do
     TESTFILE="$TESTDIR/file_$i"
-    if ! $VLABELCTL label get "$TESTFILE" >/dev/null 2>&1; then
+    if ! $MAC_ABAC_CTL label get "$TESTFILE" >/dev/null 2>&1; then
         FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
     i=$((i + 1))
@@ -153,8 +153,8 @@ while [ $c -lt $CONCURRENT ]; do
     (
         j=0
         while [ $j -lt 20 ]; do
-            $VLABELCTL status >/dev/null 2>&1
-            $VLABELCTL rule list >/dev/null 2>&1
+            $MAC_ABAC_CTL status >/dev/null 2>&1
+            $MAC_ABAC_CTL rule list >/dev/null 2>&1
             j=$((j + 1))
         done
     ) &
@@ -180,16 +180,16 @@ run_test
 info "Stress test: invalid input handling..."
 FAIL_COUNT=0
 # These should all fail gracefully, not crash
-$VLABELCTL label set "/nonexistent/path" "test=label" 2>/dev/null && FAIL_COUNT=$((FAIL_COUNT + 1))
-$VLABELCTL label get "/nonexistent/path" 2>/dev/null && FAIL_COUNT=$((FAIL_COUNT + 1))
-$VLABELCTL label set "$TESTDIR" "" 2>/dev/null && FAIL_COUNT=$((FAIL_COUNT + 1))
+$MAC_ABAC_CTL label set "/nonexistent/path" "test=label" 2>/dev/null && FAIL_COUNT=$((FAIL_COUNT + 1))
+$MAC_ABAC_CTL label get "/nonexistent/path" 2>/dev/null && FAIL_COUNT=$((FAIL_COUNT + 1))
+$MAC_ABAC_CTL label set "$TESTDIR" "" 2>/dev/null && FAIL_COUNT=$((FAIL_COUNT + 1))
 
 # Very long label
 LONG_LABEL=$(printf 'x%.0s' $(seq 1 1000))
-$VLABELCTL label set "$TESTDIR" "$LONG_LABEL" 2>/dev/null && FAIL_COUNT=$((FAIL_COUNT + 1))
+$MAC_ABAC_CTL label set "$TESTDIR" "$LONG_LABEL" 2>/dev/null && FAIL_COUNT=$((FAIL_COUNT + 1))
 
 # Module should still be responsive
-if $VLABELCTL status >/dev/null 2>&1; then
+if $MAC_ABAC_CTL status >/dev/null 2>&1; then
     pass "Invalid input handling (module stable)"
 else
     fail "Module became unresponsive after invalid input"
@@ -203,7 +203,7 @@ info "Checking for memory growth..."
 sleep 1
 
 FINAL_KMEM=$(vmstat -m 2>/dev/null | tail -1 | awk '{print $3}' || echo "0")
-FINAL_ZONES=$(vmstat -z 2>/dev/null | grep -i vlabel | awk '{sum += $4} END {print sum+0}' || echo "0")
+FINAL_ZONES=$(vmstat -z 2>/dev/null | grep -i mac_abac | awk '{sum += $4} END {print sum+0}' || echo "0")
 
 KMEM_DIFF=$((FINAL_KMEM - INITIAL_KMEM))
 ZONE_DIFF=$((FINAL_ZONES - INITIAL_ZONES))
@@ -224,14 +224,14 @@ fi
 # -----------------------------------------------------------------------------
 run_test
 info "Final stability check..."
-if $VLABELCTL status >/dev/null 2>&1; then
+if $MAC_ABAC_CTL status >/dev/null 2>&1; then
     pass "Module stable after stress tests"
 else
     fail "Module unstable after stress tests"
 fi
 
 # Check for new kernel errors
-NEW_ERRORS=$(dmesg | tail -50 | grep -i "mac_vlabel" | grep -iE "error|panic|fault" || true)
+NEW_ERRORS=$(dmesg | tail -50 | grep -i "mac_abac" | grep -iE "error|panic|fault" || true)
 if [ -z "$NEW_ERRORS" ]; then
     pass "No new kernel errors after stress"
 else

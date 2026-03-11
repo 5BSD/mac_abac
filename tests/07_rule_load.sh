@@ -1,16 +1,16 @@
 #!/bin/sh
 #
-# Test: Rule loading from file (vlabelctl rule load)
+# Test: Rule loading from file (mac_abac_ctl rule load)
 #
 # Tests the rule load feature which loads multiple rules from a file.
 #
 # Prerequisites:
 # - Must be run as root
 # - Module must be loaded
-# - vlabelctl must be built
+# - mac_abac_ctl must be built
 #
 # Usage:
-#   ./07_rule_load.sh [path_to_vlabelctl]
+#   ./07_rule_load.sh [path_to_mac_abac_ctl]
 #
 
 set -e
@@ -18,20 +18,20 @@ set -e
 SCRIPT_DIR=$(dirname "$0")
 . "$SCRIPT_DIR/lib/test_helpers.sh"
 
-# Configuration - find vlabelctl relative to script location
+# Configuration - find mac_abac_ctl relative to script location
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
-MODULE_NAME="mac_vlabel"
+MODULE_NAME="mac_abac"
 FIXTURES="$SCRIPT_DIR/fixtures/policies"
 
 # Check prerequisites
 require_root
-require_vlabelctl
+require_mac_abac_ctl
 
 if ! kldstat -q -m "$MODULE_NAME" 2>/dev/null; then
 	echo "Module not loaded. Please load the module first."
@@ -45,19 +45,19 @@ fi
 
 # Cleanup function
 cleanup() {
-	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
 }
 
 echo "============================================"
 echo "Rule Load Tests"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 info "Using fixtures: $FIXTURES"
 echo ""
 
 # Clear any existing rules
-"$VLABELCTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
 
 # ===========================================
 # Basic load tests
@@ -66,8 +66,8 @@ info "=== Basic Load Tests ==="
 
 run_test
 info "Test: Load minimal.rules"
-"$VLABELCTL" rule clear >/dev/null 2>&1
-OUTPUT=$("$VLABELCTL" rule load "$FIXTURES/minimal.rules" 2>&1)
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+OUTPUT=$("$MAC_ABAC_CTL" rule load "$FIXTURES/minimal.rules" 2>&1)
 if echo "$OUTPUT" | grep -q "loaded 1 rules"; then
 	pass "load minimal.rules"
 else
@@ -76,7 +76,7 @@ fi
 
 run_test
 info "Test: Verify rule was loaded"
-OUTPUT=$("$VLABELCTL" rule list 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule list 2>&1)
 if echo "$OUTPUT" | grep -q "allow"; then
 	pass "rule appears in list"
 else
@@ -85,8 +85,8 @@ fi
 
 run_test
 info "Test: Load web_sandbox.rules"
-"$VLABELCTL" rule clear >/dev/null 2>&1
-OUTPUT=$("$VLABELCTL" rule load "$FIXTURES/web_sandbox.rules" 2>&1)
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+OUTPUT=$("$MAC_ABAC_CTL" rule load "$FIXTURES/web_sandbox.rules" 2>&1)
 if echo "$OUTPUT" | grep -q "loaded"; then
 	# Count should be more than 1
 	COUNT=$(echo "$OUTPUT" | grep -o 'loaded [0-9]*' | grep -o '[0-9]*')
@@ -101,8 +101,8 @@ fi
 
 run_test
 info "Test: Load multi_tenant.rules"
-"$VLABELCTL" rule clear >/dev/null 2>&1
-OUTPUT=$("$VLABELCTL" rule load "$FIXTURES/multi_tenant.rules" 2>&1)
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+OUTPUT=$("$MAC_ABAC_CTL" rule load "$FIXTURES/multi_tenant.rules" 2>&1)
 if echo "$OUTPUT" | grep -q "loaded"; then
 	pass "load multi_tenant.rules"
 else
@@ -111,8 +111,8 @@ fi
 
 run_test
 info "Test: Load valid_complete.rules"
-"$VLABELCTL" rule clear >/dev/null 2>&1
-OUTPUT=$("$VLABELCTL" rule load "$FIXTURES/valid_complete.rules" 2>&1)
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+OUTPUT=$("$MAC_ABAC_CTL" rule load "$FIXTURES/valid_complete.rules" 2>&1)
 if echo "$OUTPUT" | grep -q "loaded"; then
 	pass "load valid_complete.rules"
 else
@@ -127,8 +127,8 @@ info "=== Error Handling Tests ==="
 
 run_test
 info "Test: Load invalid_syntax.rules reports errors"
-"$VLABELCTL" rule clear >/dev/null 2>&1 || true
-OUTPUT=$("$VLABELCTL" rule load "$FIXTURES/invalid_syntax.rules" 2>&1 || true)
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
+OUTPUT=$("$MAC_ABAC_CTL" rule load "$FIXTURES/invalid_syntax.rules" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "errors"; then
 	pass "invalid file reports errors"
 else
@@ -137,7 +137,7 @@ fi
 
 run_test
 info "Test: Atomic load aborts on parse error (no partial load)"
-OUTPUT=$("$VLABELCTL" rule list 2>&1)
+OUTPUT=$("$MAC_ABAC_CTL" rule list 2>&1)
 if echo "$OUTPUT" | grep -qi "no rules"; then
 	pass "atomic load aborts on error (no rules loaded)"
 else
@@ -146,7 +146,7 @@ fi
 
 run_test
 info "Test: Non-existent file fails"
-if "$VLABELCTL" rule load "/nonexistent/file.rules" >/dev/null 2>&1; then
+if "$MAC_ABAC_CTL" rule load "/nonexistent/file.rules" >/dev/null 2>&1; then
 	fail "non-existent file fails"
 else
 	pass "non-existent file fails"
@@ -160,12 +160,12 @@ info "=== Append Behavior Tests ==="
 
 run_test
 info "Test: Load replaces existing rules (atomic)"
-"$VLABELCTL" rule clear >/dev/null 2>&1
-"$VLABELCTL" rule add "deny exec * -> type=first" >/dev/null 2>&1
-"$VLABELCTL" rule add "deny exec * -> type=second" >/dev/null 2>&1
-BEFORE=$("$VLABELCTL" rule list 2>&1 | grep "Loaded rules" | grep -o '[0-9]*')
-"$VLABELCTL" rule load "$FIXTURES/minimal.rules" >/dev/null 2>&1
-AFTER=$("$VLABELCTL" rule list 2>&1 | grep "Loaded rules" | grep -o '[0-9]*')
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule add "deny exec * -> type=first" >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule add "deny exec * -> type=second" >/dev/null 2>&1
+BEFORE=$("$MAC_ABAC_CTL" rule list 2>&1 | grep "Loaded rules" | grep -o '[0-9]*')
+"$MAC_ABAC_CTL" rule load "$FIXTURES/minimal.rules" >/dev/null 2>&1
+AFTER=$("$MAC_ABAC_CTL" rule list 2>&1 | grep "Loaded rules" | grep -o '[0-9]*')
 # Load should replace, so AFTER should be 1 (minimal.rules has 1 rule)
 if [ "$AFTER" -eq 1 ]; then
 	pass "load replaces existing rules (atomic)"
@@ -175,11 +175,11 @@ fi
 
 run_test
 info "Test: Append adds to existing rules"
-"$VLABELCTL" rule clear >/dev/null 2>&1
-"$VLABELCTL" rule add "deny exec * -> type=first" >/dev/null 2>&1
-BEFORE=$("$VLABELCTL" rule list 2>&1 | grep "Loaded rules" | grep -o '[0-9]*')
-"$VLABELCTL" rule append "$FIXTURES/minimal.rules" >/dev/null 2>&1
-AFTER=$("$VLABELCTL" rule list 2>&1 | grep "Loaded rules" | grep -o '[0-9]*')
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+"$MAC_ABAC_CTL" rule add "deny exec * -> type=first" >/dev/null 2>&1
+BEFORE=$("$MAC_ABAC_CTL" rule list 2>&1 | grep "Loaded rules" | grep -o '[0-9]*')
+"$MAC_ABAC_CTL" rule append "$FIXTURES/minimal.rules" >/dev/null 2>&1
+AFTER=$("$MAC_ABAC_CTL" rule list 2>&1 | grep "Loaded rules" | grep -o '[0-9]*')
 if [ "$AFTER" -gt "$BEFORE" ]; then
 	pass "append adds to existing rules"
 else
@@ -209,8 +209,8 @@ EOF
 
 run_test
 info "Test: Comments and whitespace handled correctly"
-"$VLABELCTL" rule clear >/dev/null 2>&1
-OUTPUT=$("$VLABELCTL" rule load "$TMPFILE" 2>&1)
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+OUTPUT=$("$MAC_ABAC_CTL" rule load "$TMPFILE" 2>&1)
 if echo "$OUTPUT" | grep -q "loaded 3 rules"; then
 	pass "comments and whitespace handled"
 else
@@ -227,11 +227,11 @@ info "=== Clear and Reload Tests ==="
 
 run_test
 info "Test: Clear then load"
-"$VLABELCTL" rule clear >/dev/null 2>&1
-OUTPUT=$("$VLABELCTL" rule list 2>&1)
+"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1
+OUTPUT=$("$MAC_ABAC_CTL" rule list 2>&1)
 if echo "$OUTPUT" | grep -qi "no rules"; then
-	"$VLABELCTL" rule load "$FIXTURES/minimal.rules" >/dev/null 2>&1
-	OUTPUT=$("$VLABELCTL" rule list 2>&1)
+	"$MAC_ABAC_CTL" rule load "$FIXTURES/minimal.rules" >/dev/null 2>&1
+	OUTPUT=$("$MAC_ABAC_CTL" rule list 2>&1)
 	if echo "$OUTPUT" | grep -q "allow"; then
 		pass "clear then load"
 	else

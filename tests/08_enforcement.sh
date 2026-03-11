@@ -7,7 +7,7 @@
 # Prerequisites:
 # - Must be run as root
 # - Module must be loaded
-# - vlabelctl must be built
+# - mac_abac_ctl must be built
 #
 # Safety:
 # - Uses permissive mode first
@@ -23,16 +23,16 @@ SCRIPT_DIR=$(dirname "$0")
 
 # Configuration
 if [ -n "$1" ]; then
-	VLABELCTL="$1"
-elif [ -x "$SCRIPT_DIR/../tools/vlabelctl" ]; then
-	VLABELCTL="$SCRIPT_DIR/../tools/vlabelctl"
+	MAC_ABAC_CTL="$1"
+elif [ -x "$SCRIPT_DIR/../tools/mac_abac_ctl" ]; then
+	MAC_ABAC_CTL="$SCRIPT_DIR/../tools/mac_abac_ctl"
 else
-	VLABELCTL="./tools/vlabelctl"
+	MAC_ABAC_CTL="./tools/mac_abac_ctl"
 fi
-MODULE_NAME="mac_vlabel"
+MODULE_NAME="mac_abac"
 # Use /root instead of /tmp - tmpfs may not support system extended attributes
 # and the kernel needs to read extattrs for label association
-TEST_BIN="/root/vlabel_test_$$"
+TEST_BIN="/root/abac_test_$$"
 USE_PRELABELED=0
 
 # Check prerequisites
@@ -46,9 +46,9 @@ fi
 # Cleanup function - ALWAYS restore safe state
 cleanup() {
 	# Restore permissive mode
-	"$VLABELCTL" mode permissive >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1 || true
 	# Clear test rules
-	"$VLABELCTL" rule clear >/dev/null 2>&1 || true
+	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
 	# Remove test binary ONLY if we created it (not the pre-labeled one)
 	if [ "$USE_PRELABELED" -eq 0 ]; then
 		rm -f "$TEST_BIN" 2>/dev/null || true
@@ -60,7 +60,7 @@ echo "============================================"
 echo "Enforcement Tests"
 echo "============================================"
 echo ""
-info "Using vlabelctl: $VLABELCTL"
+info "Using mac_abac_ctl: $MAC_ABAC_CTL"
 info "Test binary: $TEST_BIN"
 echo ""
 
@@ -85,7 +85,7 @@ info "=== Setup ==="
 # Check if pre-labeled test binary exists from deploy-test.sh
 # If /root/test_untrusted exists, use that instead
 if [ -f "/root/test_untrusted" ]; then
-	LABEL=$(getextattr -q system vlabel "/root/test_untrusted" 2>&1)
+	LABEL=$(getextattr -q system mac_abac "/root/test_untrusted" 2>&1)
 	if echo "$LABEL" | grep -q "untrusted"; then
 		info "Using pre-labeled test binary: /root/test_untrusted"
 		TEST_BIN="/root/test_untrusted"
@@ -93,8 +93,8 @@ if [ -f "/root/test_untrusted" ]; then
 	fi
 fi
 
-# If no pre-labeled binary, create one using vlabelctl label set
-# (which now supports live relabeling via VLABEL_SYS_REFRESH)
+# If no pre-labeled binary, create one using mac_abac_ctl label set
+# (which now supports live relabeling via ABAC_SYS_REFRESH)
 if [ "$USE_PRELABELED" -eq 0 ]; then
 	info "Creating test binary on-the-fly with live relabeling"
 
@@ -105,17 +105,17 @@ if [ "$USE_PRELABELED" -eq 0 ]; then
 	dd if=/bin/echo of="$TEST_BIN" bs=64k 2>/dev/null
 	chmod +x "$TEST_BIN"
 
-	# Set the label using vlabelctl (writes extattr + refreshes cached label)
-	"$VLABELCTL" label set "$TEST_BIN" "type=untrusted"
+	# Set the label using mac_abac_ctl (writes extattr + refreshes cached label)
+	"$MAC_ABAC_CTL" label set "$TEST_BIN" "type=untrusted"
 fi
 
 # Verify the extattr is set
-LABEL=$(getextattr -q system vlabel "$TEST_BIN" 2>&1)
+LABEL=$(getextattr -q system mac_abac "$TEST_BIN" 2>&1)
 info "Test binary extattr: '$LABEL'"
 
-# Verify via vlabelctl
-LABEL2=$("$VLABELCTL" label get "$TEST_BIN" 2>&1)
-info "Test binary label (vlabelctl): $LABEL2"
+# Verify via mac_abac_ctl
+LABEL2=$("$MAC_ABAC_CTL" label get "$TEST_BIN" 2>&1)
+info "Test binary label (mac_abac_ctl): $LABEL2"
 
 # Check filesystem supports extattrs
 if [ -z "$LABEL" ]; then
@@ -124,23 +124,23 @@ if [ -z "$LABEL" ]; then
 fi
 
 # Verify the label is set by checking stats
-# vlabelctl label set uses VLABEL_SYS_REFRESH to update the cached label,
+# mac_abac_ctl label set uses ABAC_SYS_REFRESH to update the cached label,
 # so live relabeling should work without needing pre-labeled binaries.
-STATS=$("$VLABELCTL" stats 2>&1)
+STATS=$("$MAC_ABAC_CTL" stats 2>&1)
 LABELS_READ=$(echo "$STATS" | grep "Labels read:" | awk '{print $3}')
 info "Labels read from extattr: $LABELS_READ"
 
 # Clear any existing rules
-"$VLABELCTL" rule clear >/dev/null
+"$MAC_ABAC_CTL" rule clear >/dev/null
 
 # Add rules - ORDER MATTERS (first match wins)
 # 1. Deny untrusted
 # 2. Allow everything else (safety catch-all)
-"$VLABELCTL" rule add "deny exec * -> type=untrusted"
-"$VLABELCTL" rule add "allow exec * -> *"
+"$MAC_ABAC_CTL" rule add "deny exec * -> type=untrusted"
+"$MAC_ABAC_CTL" rule add "allow exec * -> *"
 
 info "Rules loaded:"
-"$VLABELCTL" rule list
+"$MAC_ABAC_CTL" rule list
 
 # ===========================================
 # Permissive mode tests
@@ -148,7 +148,7 @@ info "Rules loaded:"
 echo ""
 info "=== Permissive Mode Tests ==="
 
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" mode permissive
 
 run_test
 info "Test: Untrusted binary runs in permissive mode"
@@ -161,7 +161,7 @@ fi
 
 run_test
 info "Test: Denial is logged in permissive mode"
-STATS=$("$VLABELCTL" stats 2>&1)
+STATS=$("$MAC_ABAC_CTL" stats 2>&1)
 if echo "$STATS" | grep -q "Denied:.*[1-9]"; then
 	pass "denial logged in stats"
 else
@@ -174,7 +174,7 @@ fi
 echo ""
 info "=== Enforcing Mode Tests ==="
 
-"$VLABELCTL" mode enforcing
+"$MAC_ABAC_CTL" mode enforcing
 
 run_test
 info "Test: Untrusted binary blocked in enforcing mode"
@@ -203,7 +203,7 @@ fi
 # ===========================================
 echo ""
 info "=== Restore Safe State ==="
-"$VLABELCTL" mode permissive
+"$MAC_ABAC_CTL" mode permissive
 info "Mode restored to permissive"
 
 run_test
@@ -220,7 +220,7 @@ fi
 # ===========================================
 echo ""
 info "=== Final Statistics ==="
-"$VLABELCTL" stats
+"$MAC_ABAC_CTL" stats
 
 # ===========================================
 # Summary
