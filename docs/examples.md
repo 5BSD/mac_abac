@@ -95,11 +95,11 @@ deny debug * ctx:uid=0 -> * ctx:sandboxed=true  # root can't debug sandboxed
 
 ```sh
 # Watch denials
-dtrace -n 'mac_abac:::check-deny { printf("%s -> %s", stringof(arg0), stringof(arg1)); }'
+dtrace -n 'abac:::check-deny { printf("%s -> %s", stringof(arg0), stringof(arg1)); }'
 
 # Measure latency
-dtrace -n 'mac_abac:::check-entry { self->ts = timestamp; }
-           mac_abac:::check-return /self->ts/ { @["ns"] = quantize(timestamp - self->ts); }'
+dtrace -n 'abac:::check-entry { self->ts = timestamp; }
+           abac:::check-return /self->ts/ { @["ns"] = quantize(timestamp - self->ts); }'
 ```
 
 ## Policy File

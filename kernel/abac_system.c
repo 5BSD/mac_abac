@@ -21,6 +21,9 @@
 #include <sys/ucred.h>
 #include <sys/vnode.h>
 
+#include <machine/atomic.h>
+#include <machine/cpu.h>
+
 #include <security/mac/mac_policy.h>
 
 #include "mac_abac.h"
@@ -32,19 +35,39 @@
  * we use a synthetic label "type=system" to allow rules like:
  *   deny kld type=untrusted -> type=system
  *   allow kld type=admin -> type=system
+ *
+ * Initialization states:
+ *   0 = not initialized
+ *   1 = initialization in progress
+ *   2 = initialized
  */
 static struct abac_label abac_system_label;
-static int abac_system_label_initialized = 0;
+static volatile int abac_system_label_state = 0;
 
 static void
 abac_system_label_init(void)
 {
 
-	if (abac_system_label_initialized)
+	/*
+	 * Use atomic compare-and-set to avoid race condition where
+	 * multiple threads could simultaneously initialize the label.
+	 * Only one thread will succeed in transitioning 0 -> 1.
+	 */
+	if (atomic_load_acq_int(&abac_system_label_state) == 2)
 		return;
 
-	/* Initialize as "type=system" */
-	strlcpy(abac_system_label.vl_raw, "type=system",
+	if (!atomic_cmpset_int(&abac_system_label_state, 0, 1)) {
+		/*
+		 * Another thread is initializing or already initialized.
+		 * Spin until initialization is complete.
+		 */
+		while (atomic_load_acq_int(&abac_system_label_state) != 2)
+			cpu_spinwait();
+		return;
+	}
+
+	/* We won the race - initialize the label */
+	strlcpy(abac_system_label.vl_raw, "type=system\n",
 	    sizeof(abac_system_label.vl_raw));
 	abac_system_label.vl_npairs = 1;
 	strlcpy(abac_system_label.vl_pairs[0].vp_key, "type",
@@ -55,7 +78,8 @@ abac_system_label_init(void)
 	    abac_system_label.vl_raw,
 	    strlen(abac_system_label.vl_raw));
 
-	abac_system_label_initialized = 1;
+	/* Mark initialization complete with release semantics */
+	atomic_store_rel_int(&abac_system_label_state, 2);
 }
 
 /*

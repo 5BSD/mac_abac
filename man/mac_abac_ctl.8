@@ -84,6 +84,17 @@
 .Cm label set
 .Ar path label
 .Nm
+.Cm label setatomic
+.Ar path label
+.Nm
+.Cm label setrecursive
+.Ar path label
+.Op Fl v
+.Op Fl d | Fl f
+.Nm
+.Cm label refresh
+.Ar path
+.Nm
 .Cm label remove
 .Ar path
 .Nm
@@ -258,6 +269,30 @@ Set the ABAC extended attribute on
 The
 .Ar label
 is specified as comma-separated key=value pairs.
+Also refreshes the kernel's in-memory cached label.
+.It Cm label setatomic Ar path Ar label
+Set the label atomically via a single kernel syscall.
+This writes the extended attribute and updates the in-memory cached label
+in one operation, avoiding race conditions.
+This is the preferred method for ZFS filesystems.
+.It Cm label setrecursive Ar path Ar label Op Fl v Op Fl d | Fl f
+Recursively set labels on a directory tree.
+Uses atomic setlabel for each file.
+.Bl -tag -width "-v" -compact
+.It Fl v
+Verbose mode; print each file as it is labeled.
+.It Fl d
+Label directories only.
+.It Fl f
+Label files only.
+.El
+.It Cm label refresh Ar path
+Refresh the kernel's in-memory cached label for
+.Ar path
+by re-reading from the extended attribute.
+Useful after using
+.Xr setextattr 8
+directly.
 .It Cm label remove Ar path
 Remove the ABAC extended attribute from
 .Ar path .

@@ -177,49 +177,60 @@ is set in
 .Xr tunefs 8 .
 ZFS supports extended attributes natively.
 .Ss DTrace Probes
-The module provides SDT probes for tracing:
-.Bl -tag -width "mac_abac:policy:loglevel:change" -compact
-.It Li mac_abac:rules:check:entry
+The module provides SDT probes for tracing.
+The provider name is
+.Dq abac .
+.Pp
+Example usage:
+.Bd -literal -offset indent
+dtrace -n 'abac:::check-deny { printf("%s -> %s", copyinstr(arg0), copyinstr(arg1)); }'
+.Ed
+.Pp
+Available probes:
+.Bl -tag -width "abac:policy:loglevel:change" -compact
+.It Li abac:rules:check:entry
 Access check started.
-.It Li mac_abac:rules:check:allow
+.It Li abac:rules:check:return
+Access check completed (with result).
+.It Li abac:rules:check:allow
 Access allowed.
-.It Li mac_abac:rules:check:deny
+.It Li abac:rules:check:deny
 Access denied.
-.It Li mac_abac:rules:rule:match
+.It Li abac:rules:rule:match
 Rule matched.
-.It Li mac_abac:rules:rule:nomatch
+.It Li abac:rules:rule:nomatch
 No rule matched, using default.
-.It Li mac_abac:rules:rule:add
+.It Li abac:rules:rule:add
 Rule added.
-.It Li mac_abac:rules:rule:remove
+.It Li abac:rules:rule:remove
 Rule removed.
-.It Li mac_abac:rules:rule:clear
+.It Li abac:rules:rule:clear
 All rules cleared.
-.It Li mac_abac:policy:mode:change
+.It Li abac:policy:mode:change
 Enforcement mode changed.
-.It Li mac_abac:policy:default:change
+.It Li abac:policy:default:change
 Default policy changed.
-.It Li mac_abac:policy:lock:set
+.It Li abac:policy:lock:set
 Policy locked (until reboot).
-.It Li mac_abac:policy:loglevel:change
+.It Li abac:policy:loglevel:change
 Log level changed.
-.It Li mac_abac:cred:transition:exec
+.It Li abac:cred:transition:exec
 Process label transition on exec.
-.It Li mac_abac:label:extattr:read
+.It Li abac:label:extattr:read
 Label read from extended attribute.
-.It Li mac_abac:label:extattr:default
+.It Li abac:label:extattr:default
 Default label assigned.
-.It Li mac_abac:label:file:set
+.It Li abac:label:file:set
 File label set via syscall.
-.It Li mac_abac:sets:set:enable
+.It Li abac:sets:set:enable
 Rule set(s) enabled.
-.It Li mac_abac:sets:set:disable
+.It Li abac:sets:set:disable
 Rule set(s) disabled.
-.It Li mac_abac:sets:set:swap
+.It Li abac:sets:set:swap
 Rule sets swapped.
-.It Li mac_abac:sets:set:move
+.It Li abac:sets:set:move
 Rules moved between sets.
-.It Li mac_abac:sets:set:clear
+.It Li abac:sets:set:clear
 Rule set cleared.
 .El
 .Sh FILES

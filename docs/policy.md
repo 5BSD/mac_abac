@@ -39,14 +39,27 @@ Policies are JSON/UCL files defining rules.
 
 ## Operations
 
-**Currently enforced:**
+**File/Vnode Operations:**
 - `exec` - Execute a file
-- `debug` - ptrace/procfs (process operations)
-- `signal` - Signal delivery (process operations)
-- `sched` - Scheduler operations (process operations)
+- `read`, `write`, `open` - File I/O
+- `mmap`, `mprotect` - Memory mapping
+- `stat`, `access` - File metadata
+- `create`, `unlink`, `link`, `rename` - File management
+- `lookup`, `readdir`, `chdir` - Directory operations
+- `setextattr`, `getextattr` - Extended attributes
 
-**Defined but not enforced (stubs):**
-- `read`, `write`, `open`, `mmap`, `stat`, `create`, `unlink`, etc.
+**Process Operations:**
+- `debug` - ptrace/procfs access
+- `signal` - Signal delivery
+- `sched` - Scheduler operations
+- `wait` - Wait on processes
+
+**Socket Operations:**
+- `connect`, `bind`, `listen`, `accept` - Connection management
+- `send`, `receive`, `deliver` - Data transfer
+
+**System Operations:**
+- `audit` - Audit operations
 
 Use `all` for all operations.
 

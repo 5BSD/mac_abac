@@ -498,47 +498,47 @@ on key events in the policy module, allowing real-time observation without recom
 
 | Probe | Arguments | Description |
 |-------|-----------|-------------|
-| `mac_abac:::check-entry` | subj, obj, op | Start of access check |
-| `mac_abac:::check-return` | result, op | End of access check |
-| `mac_abac:::check-allow` | subj, obj, op, rule_id | Access allowed |
-| `mac_abac:::check-deny` | subj, obj, op, rule_id | Access denied |
-| `mac_abac:::rule-match` | rule_id, action, op | Rule matched |
-| `mac_abac:::rule-nomatch` | default_policy, op | No rule matched |
-| `mac_abac:::transition-exec` | old_label, new_label, exec_label, pid | Label transition on exec |
-| `mac_abac:::extattr-read` | label, vnode | Label read from extattr |
-| `mac_abac:::extattr-default` | is_subject | Default label assigned |
-| `mac_abac:::rule-add` | rule_id, action, ops | Rule added |
-| `mac_abac:::rule-remove` | rule_id | Rule removed |
-| `mac_abac:::rule-clear` | count | All rules cleared |
-| `mac_abac:::mode-change` | old_mode, new_mode | Enforcement mode changed |
+| `abac:::check-entry` | subj, obj, op | Start of access check |
+| `abac:::check-return` | result, op | End of access check |
+| `abac:::check-allow` | subj, obj, op, rule_id | Access allowed |
+| `abac:::check-deny` | subj, obj, op, rule_id | Access denied |
+| `abac:::rule-match` | rule_id, action, op | Rule matched |
+| `abac:::rule-nomatch` | default_policy, op | No rule matched |
+| `abac:::transition-exec` | old_label, new_label, exec_label, pid | Label transition on exec |
+| `abac:::extattr-read` | label, vnode | Label read from extattr |
+| `abac:::extattr-default` | is_subject | Default label assigned |
+| `abac:::rule-add` | rule_id, action, ops | Rule added |
+| `abac:::rule-remove` | rule_id | Rule removed |
+| `abac:::rule-clear` | count | All rules cleared |
+| `abac:::mode-change` | old_mode, new_mode | Enforcement mode changed |
 
 ### Example DTrace Commands
 
 ```sh
 # Watch all denied accesses
-dtrace -n 'mac_abac:::check-deny { printf("%s -> %s op=0x%x rule=%u",
+dtrace -n 'abac:::check-deny { printf("%s -> %s op=0x%x rule=%u",
     stringof(arg0), stringof(arg1), arg2, arg3); }'
 
 # Count denials by operation
-dtrace -n 'mac_abac:::check-deny { @[arg2] = count(); }'
+dtrace -n 'abac:::check-deny { @[arg2] = count(); }'
 
 # Measure access check latency
-dtrace -n 'mac_abac:::check-entry { self->ts = timestamp; }
-           mac_abac:::check-return /self->ts/ {
+dtrace -n 'abac:::check-entry { self->ts = timestamp; }
+           abac:::check-return /self->ts/ {
                @["ns"] = quantize(timestamp - self->ts);
                self->ts = 0;
            }'
 
 # Watch label transitions
-dtrace -n 'mac_abac:::transition-exec {
+dtrace -n 'abac:::transition-exec {
     printf("pid %d: %s -> %s (via %s)",
         arg3, stringof(arg0), stringof(arg1), stringof(arg2)); }'
 
 # Count rule matches by rule ID
-dtrace -n 'mac_abac:::rule-match { @[arg0] = count(); }'
+dtrace -n 'abac:::rule-match { @[arg0] = count(); }'
 
 # Watch mode changes
-dtrace -n 'mac_abac:::mode-change {
+dtrace -n 'abac:::mode-change {
     printf("mode: %d -> %d", arg0, arg1); }'
 ```
 

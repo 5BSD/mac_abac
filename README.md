@@ -36,19 +36,51 @@ sysctl security.mac.mac_abac.mode=2
 
 ## Supported Operations
 
-| Operation | Hook | Description |
-|-----------|------|-------------|
-| `exec` | vnode | Execute files |
-| `read` | vnode | Read file contents |
-| `write` | vnode | Write file contents |
-| `open` | vnode | Open files |
-| `mmap` | vnode | Memory-map files |
-| `access` | vnode | access() syscall |
-| `setextattr` | vnode | Modify labels (protects `system:mac_abac`) |
-| `getextattr` | vnode | Read labels |
-| `debug` | proc | ptrace/procfs debugging |
-| `signal` | proc | Send signals |
-| `sched` | proc | Scheduler operations |
+### File/Vnode Operations
+| Operation | Description |
+|-----------|-------------|
+| `exec` | Execute files |
+| `read` | Read file contents |
+| `write` | Write file contents |
+| `open` | Open files |
+| `mmap` | Memory-map files |
+| `mprotect` | Change memory protection |
+| `access` | access() syscall |
+| `stat` | Get file status |
+| `readdir` | Read directory contents |
+| `create` | Create new files |
+| `lookup` | Look up files in directories |
+| `link` | Create hard links |
+| `rename` | Rename files |
+| `unlink` | Delete files |
+| `chdir` | Change directory |
+| `setextattr` | Set extended attributes |
+| `getextattr` | Get extended attributes |
+
+### Process Operations
+| Operation | Description |
+|-----------|-------------|
+| `debug` | ptrace/procfs debugging |
+| `signal` | Send signals |
+| `sched` | Scheduler operations |
+| `wait` | Wait on processes |
+
+### Socket Operations
+| Operation | Description |
+|-----------|-------------|
+| `connect` | Socket connect |
+| `bind` | Bind to address |
+| `listen` | Listen for connections |
+| `accept` | Accept connections |
+| `send` | Send data |
+| `receive` | Receive data |
+| `deliver` | Packet delivery |
+
+### System Operations
+| Operation | Description |
+|-----------|-------------|
+| `audit` | Audit operations |
+| `all` | All operations (wildcard) |
 
 ## Sysctls
 
