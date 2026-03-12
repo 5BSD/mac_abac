@@ -180,8 +180,8 @@ abac_rules_check(struct ucred *cred, struct abac_label *subj,
 		return (0);
 	}
 
-	/* DTrace: check entry */
-	SDT_PROBE3(abac, rules, check, entry, subj->vl_raw, obj->vl_raw, op);
+	/* DTrace: check entry (pass hash for efficiency) */
+	SDT_PROBE3(abac, rules, check, entry, subj->vl_hash, obj->vl_hash, op);
 
 	rw_rlock(&abac_rules_lock);
 
@@ -234,14 +234,14 @@ abac_rules_check(struct ucred *cred, struct abac_label *subj,
 out:
 	rw_runlock(&abac_rules_lock);
 
-	/* DTrace: check-allow or check-deny */
+	/* DTrace: check-allow or check-deny (pass hash for efficiency) */
 	if (result == 0) {
 		SDT_PROBE4(abac, rules, check, allow,
-		    subj->vl_raw, obj->vl_raw, op, matched_rule_id);
+		    subj->vl_hash, obj->vl_hash, op, matched_rule_id);
 		atomic_add_64(&abac_allowed, 1);
 	} else {
 		SDT_PROBE4(abac, rules, check, deny,
-		    subj->vl_raw, obj->vl_raw, op, matched_rule_id);
+		    subj->vl_hash, obj->vl_hash, op, matched_rule_id);
 		atomic_add_64(&abac_denied, 1);
 	}
 

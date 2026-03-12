@@ -24,7 +24,7 @@
  * Synthetic label for kenv objects
  */
 static struct abac_label abac_kenv_object = {
-	.vl_raw = "type=kenv\n",
+	.vl_hash = 0,  /* Computed at runtime if needed */
 	.vl_npairs = 1,
 	.vl_pairs = {
 		{ .vp_key = "type", .vp_value = "kenv" }

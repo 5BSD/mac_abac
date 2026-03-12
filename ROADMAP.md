@@ -1,10 +1,13 @@
 # mac_abac Roadmap
 
-## 0. Reduce memory consumption.
-You'll run out of memory on small machines with the standard vnode cache after a day or so. This doesn't appear to be a leak but rather a memory hog.
+## 0. Reduce memory consumption - DONE
+Reduced per-label memory from ~9.2KB to ~5.1KB (44% reduction) by:
+- Removed redundant `vl_raw` field from `struct abac_label` (saved 4KB per label)
+- Removed dead `struct abac_pattern` and related functions
+- Labels now reconstruct raw strings on-demand via `abac_label_to_string()`
 
-## 1. UFS Support
-Add support for UFS filesystem extended attributes to enable ABAC labeling on UFS volumes.
+## 1. UFS Support - DONE
+UFS filesystem extended attributes now work for ABAC labeling. Mount with `multilabel` option enabled.
 
 ## 2. Rework MACF Syscalls as ioctl Device
 Refactor the current MACF syscall interface to use an ioctl-based character device for improved modularity and cleaner userspace integration.

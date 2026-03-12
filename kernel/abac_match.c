@@ -23,20 +23,6 @@
 #include "mac_abac.h"
 
 /*
- * Check if a label matches a pattern (large pattern struct)
- *
- * This is a wrapper around abac_label_match from abac_label.c.
- * The actual matching logic supports arbitrary key=value pairs.
- */
-bool
-abac_pattern_match(const struct abac_label *label,
-    const struct abac_pattern *pattern)
-{
-
-	return (abac_label_match(label, pattern));
-}
-
-/*
  * Check if a label matches a compact rule pattern
  *
  * This function matches a label against the compact abac_rule_pattern
@@ -278,62 +264,6 @@ abac_rule_matches(const struct abac_rule *rule,
 		return (false);
 
 	return (true);
-}
-
-/*
- * Serialize a pattern structure to a string
- *
- * Converts the parsed key=value pairs back to a comma-separated string.
- * Returns the number of characters written (not including null terminator).
- */
-size_t
-abac_pattern_to_string(const struct abac_pattern *pattern, char *buf,
-    size_t buflen)
-{
-	size_t pos = 0;
-	uint32_t i;
-
-	if (buf == NULL || buflen == 0)
-		return (0);
-
-	buf[0] = '\0';
-
-	/* Empty pattern = wildcard */
-	if (pattern->vp_npairs == 0) {
-		if (buflen > 1) {
-			buf[0] = '*';
-			buf[1] = '\0';
-			return (1);
-		}
-		return (0);
-	}
-
-	/* Build comma-separated key=value string */
-	for (i = 0; i < pattern->vp_npairs && pos < buflen - 1; i++) {
-		const struct abac_pair *pair = &pattern->vp_pairs[i];
-		size_t needed, copied;
-
-		if (i > 0 && pos < buflen - 1)
-			buf[pos++] = ',';
-
-		/* Calculate space needed for "key=value" */
-		needed = strlen(pair->vp_key) + 1 + strlen(pair->vp_value);
-		if (pos + needed >= buflen)
-			break;
-
-		/*
-		 * strlcpy returns total length it tried to copy, not actual.
-		 * Clamp position to avoid buffer overflow on truncation.
-		 */
-		copied = strlcpy(buf + pos, pair->vp_key, buflen - pos);
-		pos = (pos + copied >= buflen) ? buflen - 1 : pos + copied;
-		if (pos < buflen - 1)
-			buf[pos++] = '=';
-		copied = strlcpy(buf + pos, pair->vp_value, buflen - pos);
-		pos = (pos + copied >= buflen) ? buflen - 1 : pos + copied;
-	}
-
-	return (pos);
 }
 
 /*

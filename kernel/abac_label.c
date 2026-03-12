@@ -243,8 +243,7 @@ abac_label_parse(const char *str, size_t len, struct abac_label *vl)
 		return (EINVAL);
 	}
 
-	/* Store raw label string */
-	strlcpy(vl->vl_raw, str, sizeof(vl->vl_raw));
+	/* Initialize and compute hash */
 	vl->vl_hash = abac_label_hash(str, len);
 	vl->vl_npairs = 0;
 
@@ -314,14 +313,14 @@ abac_label_set_default(struct abac_label *vl, bool is_subject)
 	 *   deny exec * -> type=unlabeled   (can't exec unlabeled files)
 	 */
 	(void)is_subject;  /* Same default for both */
-	strlcpy(vl->vl_raw, "type=unlabeled", sizeof(vl->vl_raw));
 	vl->vl_npairs = 1;
 	strlcpy(vl->vl_pairs[0].vp_key, "type",
 	    sizeof(vl->vl_pairs[0].vp_key));
 	strlcpy(vl->vl_pairs[0].vp_value, "unlabeled",
 	    sizeof(vl->vl_pairs[0].vp_value));
 
-	vl->vl_hash = abac_label_hash(vl->vl_raw, strlen(vl->vl_raw));
+	/* Hash the canonical representation */
+	vl->vl_hash = abac_label_hash("type=unlabeled\n", 15);
 }
 
 /*
@@ -350,63 +349,6 @@ abac_label_get_value(const struct abac_label *vl, const char *key)
 }
 
 /*
- * abac_label_match - Check if a label matches a pattern
- *
- * @label: Label to check
- * @pattern: Pattern to match against
- *
- * Returns true if label matches pattern, false otherwise.
- *
- * Pattern matching rules:
- * - Empty pattern (npairs=0) = wildcard (matches anything)
- * - Each pattern pair must exist in the label
- * - Pattern value "*" matches any value for that key
- * - ABAC_MATCH_NEGATE inverts the result
- */
-bool
-abac_label_match(const struct abac_label *label,
-    const struct abac_pattern *pattern)
-{
-	const char *label_value;
-	uint32_t i;
-	bool match = true;
-
-	if (label == NULL || pattern == NULL)
-		return (false);
-
-	/* Empty pattern matches everything */
-	if (pattern->vp_npairs == 0) {
-		match = true;
-		goto done;
-	}
-
-	/* Check each pattern pair against the label */
-	for (i = 0; i < pattern->vp_npairs && match; i++) {
-		const struct abac_pair *pp = &pattern->vp_pairs[i];
-
-		/* Find this key in the label */
-		label_value = abac_label_get_value(label, pp->vp_key);
-
-		if (label_value == NULL) {
-			/* Key not found in label - no match */
-			match = false;
-		} else if (strcmp(pp->vp_value, "*") != 0) {
-			/* Not a wildcard - must match exactly */
-			if (strcmp(label_value, pp->vp_value) != 0)
-				match = false;
-		}
-		/* else: wildcard "*" matches any value - continue */
-	}
-
-done:
-	/* Handle negation */
-	if (pattern->vp_flags & ABAC_MATCH_NEGATE)
-		match = !match;
-
-	return (match);
-}
-
-/*
  * abac_label_to_string - Convert a label to string representation
  *
  * @vl: Label to convert
@@ -419,108 +361,23 @@ done:
 int
 abac_label_to_string(const struct abac_label *vl, char *buf, size_t buflen)
 {
-	size_t len;
+	size_t pos = 0;
+	uint32_t i;
 
 	if (vl == NULL || buf == NULL || buflen == 0)
 		return (-1);
 
-	/* Just use the raw string - it's authoritative */
-	len = strlcpy(buf, vl->vl_raw, buflen);
-	return (len >= buflen ? -1 : (int)len);
-}
+	buf[0] = '\0';
 
-/*
- * abac_pattern_parse - Parse a pattern string into a pattern structure
- *
- * @str: Pattern string in comma-separated format "key1=val1,key2=val2,..."
- *       or "*" for wildcard, or "!pattern" for negation
- * @len: Length of string
- * @pattern: Pattern structure to populate
- *
- * Note: Patterns use comma-separated format (for rule definitions),
- * while labels use newline-separated format (for extended attributes).
- *
- * Returns 0 on success, error code on failure.
- */
-int
-abac_pattern_parse(const char *str, size_t len, struct abac_pattern *pattern)
-{
-	const char *p, *end, *comma, *eq;
-	size_t keylen, valuelen;
-	struct abac_pair *pair;
-	uint32_t saved_flags;
-
-	if (str == NULL || pattern == NULL)
-		return (EINVAL);
-
-	/*
-	 * Save flags before memset - the caller may have already set flags
-	 * (e.g., ABAC_MATCH_NEGATE from the syscall argument).
-	 */
-	saved_flags = pattern->vp_flags;
-	memset(pattern, 0, sizeof(*pattern));
-	pattern->vp_flags = saved_flags;
-
-	/* Check for negation prefix (also handle '!' in string itself) */
-	if (len > 0 && str[0] == '!') {
-		pattern->vp_flags |= ABAC_MATCH_NEGATE;
-		str++;
-		len--;
+	for (i = 0; i < vl->vl_npairs && pos < buflen - 1; i++) {
+		int written = snprintf(buf + pos, buflen - pos, "%s=%s\n",
+		    vl->vl_pairs[i].vp_key, vl->vl_pairs[i].vp_value);
+		if (written < 0 || (size_t)written >= buflen - pos)
+			return (-1);
+		pos += written;
 	}
 
-	/* Empty or "*" means wildcard - match everything */
-	if (len == 0 || (len == 1 && str[0] == '*'))
-		return (0);
-
-	if (len > ABAC_MAX_LABEL_LEN)
-		return (EINVAL);
-
-	/* Parse comma-separated key=value pairs */
-	p = str;
-	end = str + len;
-
-	while (p < end) {
-		/* Find next comma or end of string */
-		comma = memchr(p, ',', end - p);
-		if (comma == NULL)
-			comma = end;
-
-		/* Skip empty segments */
-		if (comma == p) {
-			p = comma + 1;
-			continue;
-		}
-
-		/* Check pair limit */
-		if (pattern->vp_npairs >= ABAC_MAX_PAIRS)
-			return (E2BIG);
-
-		/* Find '=' separator */
-		eq = memchr(p, '=', comma - p);
-		if (eq == NULL) {
-			return (EINVAL);
-		}
-
-		keylen = eq - p;
-		valuelen = comma - eq - 1;
-
-		if (keylen == 0 || keylen >= ABAC_MAX_KEY_LEN)
-			return (EINVAL);
-		if (valuelen >= ABAC_MAX_VALUE_LEN)
-			return (EINVAL);
-
-		/* Store this pair */
-		pair = &pattern->vp_pairs[pattern->vp_npairs];
-		memcpy(pair->vp_key, p, keylen);
-		pair->vp_key[keylen] = '\0';
-		memcpy(pair->vp_value, eq + 1, valuelen);
-		pair->vp_value[valuelen] = '\0';
-		pattern->vp_npairs++;
-
-		p = comma + 1;
-	}
-
-	return (0);
+	return ((int)pos);
 }
 
 /*

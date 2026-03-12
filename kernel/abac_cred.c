@@ -87,6 +87,9 @@ abac_cred_externalize_label(struct label *label, char *element_name,
     struct sbuf *sb, int *claimed)
 {
 	struct abac_label *vl;
+	char buf[ABAC_MAX_LABEL_LEN];
+	const char *p;
+	int len;
 
 	if (strcmp(element_name, "mac_abac") != 0)
 		return (0);
@@ -94,22 +97,24 @@ abac_cred_externalize_label(struct label *label, char *element_name,
 	(*claimed)++;
 
 	vl = SLOT(label);
-	if (vl == NULL || vl->vl_raw[0] == '\0')
+	if (vl == NULL || vl->vl_npairs == 0)
+		return (0);
+
+	/* Reconstruct label string */
+	len = abac_label_to_string(vl, buf, sizeof(buf));
+	if (len <= 0)
 		return (0);
 
 	/*
 	 * Output the label in comma-separated format for user display.
 	 * Convert newlines to commas.
 	 */
-	{
-		const char *p;
-		for (p = vl->vl_raw; *p != '\0'; p++) {
-			if (*p == '\n') {
-				if (*(p + 1) != '\0')
-					sbuf_putc(sb, ',');
-			} else {
-				sbuf_putc(sb, *p);
-			}
+	for (p = buf; *p != '\0'; p++) {
+		if (*p == '\n') {
+			if (*(p + 1) != '\0')
+				sbuf_putc(sb, ',');
+		} else {
+			sbuf_putc(sb, *p);
 		}
 	}
 
@@ -365,10 +370,16 @@ abac_execve_transition(struct ucred *old, struct ucred *new,
 		/* Priority 1: Explicit transition rule */
 		abac_label_copy(transition_label, newvl);
 		/* DTrace: transition occurred */
-		SDT_PROBE4(abac, cred, transition, exec,
-		    oldvl->vl_raw, newvl->vl_raw, objvl->vl_raw,
-		    curproc ? curproc->p_pid : 0);
-	} else if (objvl->vl_raw[0] != '\0') {
+		{
+			char oldbuf[256], newbuf[256], objbuf[256];
+			abac_label_to_string(oldvl, oldbuf, sizeof(oldbuf));
+			abac_label_to_string(newvl, newbuf, sizeof(newbuf));
+			abac_label_to_string(objvl, objbuf, sizeof(objbuf));
+			SDT_PROBE4(abac, cred, transition, exec,
+			    oldbuf, newbuf, objbuf,
+			    curproc ? curproc->p_pid : 0);
+		}
+	} else if (objvl->vl_npairs > 0) {
 		/* Priority 2: Inherit vnode label */
 		abac_label_copy(objvl, newvl);
 	}
@@ -419,7 +430,7 @@ abac_execve_will_transition(struct ucred *old, struct vnode *vp,
 		return (1);
 
 	/* Also transition if vnode has a non-empty label */
-	if (objvl->vl_raw[0] != '\0')
+	if (objvl->vl_npairs > 0)
 		return (1);
 
 	return (0);

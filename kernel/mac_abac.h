@@ -502,38 +502,16 @@ struct abac_pair {
 /*
  * Label structure - stored in MAC label slot
  *
- * Labels are stored as raw strings and parsed into key-value pairs.
- * The raw string is authoritative; pairs are for fast matching.
+ * Labels are stored as parsed key-value pairs.
+ * The raw string can be reconstructed via abac_label_to_string().
  *
- * Example: "type=app,domain=web,sensitivity=secret"
+ * Example: "type=app\ndomain=web\nsensitivity=secret\n"
  * Parses to: pairs[0]={type,app}, pairs[1]={domain,web}, pairs[2]={sensitivity,secret}
  */
 struct abac_label {
-	char			vl_raw[ABAC_MAX_LABEL_LEN];	/* Original string */
 	uint32_t		vl_hash;			/* Quick compare hash */
 	uint32_t		vl_npairs;			/* Number of valid pairs */
 	struct abac_pair	vl_pairs[ABAC_MAX_PAIRS];	/* Parsed key=value pairs */
-};
-
-/*
- * Pattern for matching labels (large version for file labels)
- *
- * Patterns are also stored as key=value pairs. A label matches a pattern
- * if ALL pairs in the pattern exist in the label with matching values.
- * Value "*" is a wildcard that matches any value for that key.
- *
- * Examples:
- *   Pattern "type=app,domain=web" matches label "type=app,domain=web,level=high"
- *   Pattern "type=*" matches any label that has a "type" key
- *   Pattern "" (empty) matches any label (wildcard)
- *
- * NOTE: This struct is ~5KB due to large value sizes for file labels.
- * For rule patterns, use abac_rule_pattern which is ~1KB.
- */
-struct abac_pattern {
-	uint32_t		vp_flags;			/* ABAC_MATCH_NEGATE, etc */
-	uint32_t		vp_npairs;			/* Number of pairs to match */
-	struct abac_pair	vp_pairs[ABAC_MAX_PAIRS];	/* Pairs to match */
 };
 
 /*
@@ -673,19 +651,14 @@ int abac_label_parse(const char *str, size_t len, struct abac_label *out);
 void abac_label_copy(const struct abac_label *src, struct abac_label *dst);
 void abac_label_set_default(struct abac_label *vl, bool is_subject);
 const char *abac_label_get_value(const struct abac_label *vl, const char *key);
-bool abac_label_match(const struct abac_label *label,
-    const struct abac_pattern *pattern);
 uint32_t abac_label_hash(const char *str, size_t len);
 int abac_label_to_string(const struct abac_label *vl, char *buf, size_t buflen);
-int abac_pattern_parse(const char *str, size_t len, struct abac_pattern *pattern);
 int abac_rule_pattern_parse(const char *str, size_t len,
     struct abac_rule_pattern *pattern);
 
 /*
  * Function prototypes - abac_match.c
  */
-bool abac_pattern_match(const struct abac_label *label,
-    const struct abac_pattern *pattern);
 bool abac_rule_pattern_match(const struct abac_label *label,
     const struct abac_rule_pattern *pattern);
 bool abac_context_matches(const struct abac_context *ctx,
@@ -693,8 +666,6 @@ bool abac_context_matches(const struct abac_context *ctx,
 bool abac_rule_matches(const struct abac_rule *rule,
     const struct abac_label *subj, const struct abac_label *obj,
     uint32_t op, struct ucred *subj_cred, struct proc *obj_proc);
-size_t abac_pattern_to_string(const struct abac_pattern *pattern,
-    char *buf, size_t buflen);
 size_t abac_rule_pattern_to_string(const struct abac_rule_pattern *pattern,
     char *buf, size_t buflen);
 void abac_convert_label_format(const char *src, char *dst, size_t dstlen);

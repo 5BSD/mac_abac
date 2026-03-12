@@ -146,8 +146,8 @@ abac_vnode_read_extattr(struct vnode *vp, struct label *vplabel)
 	}
 
 	free(buf, M_TEMP);
-	/* DTrace: label read from extattr */
-	SDT_PROBE2(abac, label, extattr, read, vl->vl_raw, vp);
+	/* DTrace: label read from extattr (pass hash for efficiency) */
+	SDT_PROBE2(abac, label, extattr, read, vl->vl_hash, vp);
 	atomic_add_64(&abac_labels_read, 1);
 
 }

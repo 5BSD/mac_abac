@@ -416,9 +416,17 @@ abac_rule_out_size(const struct abac_rule *rule)
 	    ABAC_MAX_LABEL_LEN) + 1;
 	obj_len = abac_rule_pattern_to_string(&rule->vr_object, obj_buf,
 	    ABAC_MAX_LABEL_LEN) + 1;
-	newlabel_len = (rule->vr_action == ABAC_ACTION_TRANSITION &&
-	    rule->vr_newlabel != NULL) ?
-	    strlen(rule->vr_newlabel->vl_raw) + 1 : 0;
+
+	/* Calculate newlabel length if transition rule */
+	newlabel_len = 0;
+	if (rule->vr_action == ABAC_ACTION_TRANSITION &&
+	    rule->vr_newlabel != NULL) {
+		char *newlabel_buf = malloc(ABAC_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
+		int len = abac_label_to_string(rule->vr_newlabel, newlabel_buf,
+		    ABAC_MAX_LABEL_LEN);
+		newlabel_len = (len > 0) ? len + 1 : 0;
+		free(newlabel_buf, M_TEMP);
+	}
 
 	total = sizeof(struct abac_rule_out) + subj_len + obj_len + newlabel_len;
 
@@ -438,24 +446,32 @@ abac_rule_serialize(const struct abac_rule *rule, char *buf, size_t buflen)
 {
 	struct abac_rule_out *out = (struct abac_rule_out *)buf;
 	char *data;
-	char *subj_buf, *obj_buf;
+	char *subj_buf, *obj_buf, *newlabel_buf;
 	size_t subj_len, obj_len, newlabel_len, total;
 
 	subj_buf = malloc(ABAC_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
 	obj_buf = malloc(ABAC_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
+	newlabel_buf = malloc(ABAC_MAX_LABEL_LEN, M_TEMP, M_WAITOK);
 
 	subj_len = abac_rule_pattern_to_string(&rule->vr_subject, subj_buf,
 	    ABAC_MAX_LABEL_LEN) + 1;
 	obj_len = abac_rule_pattern_to_string(&rule->vr_object, obj_buf,
 	    ABAC_MAX_LABEL_LEN) + 1;
-	newlabel_len = (rule->vr_action == ABAC_ACTION_TRANSITION &&
-	    rule->vr_newlabel != NULL) ?
-	    strlen(rule->vr_newlabel->vl_raw) + 1 : 0;
+
+	/* Convert newlabel if transition rule */
+	newlabel_len = 0;
+	if (rule->vr_action == ABAC_ACTION_TRANSITION &&
+	    rule->vr_newlabel != NULL) {
+		int len = abac_label_to_string(rule->vr_newlabel, newlabel_buf,
+		    ABAC_MAX_LABEL_LEN);
+		newlabel_len = (len > 0) ? len + 1 : 0;
+	}
 
 	total = sizeof(struct abac_rule_out) + subj_len + obj_len + newlabel_len;
 	if (total > buflen) {
 		free(subj_buf, M_TEMP);
 		free(obj_buf, M_TEMP);
+		free(newlabel_buf, M_TEMP);
 		return (0);
 	}
 
@@ -490,10 +506,11 @@ abac_rule_serialize(const struct abac_rule *rule, char *buf, size_t buflen)
 	memcpy(data, obj_buf, obj_len);
 	data += obj_len;
 	if (newlabel_len > 0)
-		memcpy(data, rule->vr_newlabel->vl_raw, newlabel_len);
+		memcpy(data, newlabel_buf, newlabel_len);
 
 	free(subj_buf, M_TEMP);
 	free(obj_buf, M_TEMP);
+	free(newlabel_buf, M_TEMP);
 
 	return (total);
 }

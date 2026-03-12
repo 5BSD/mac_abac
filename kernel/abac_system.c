@@ -67,16 +67,12 @@ abac_system_label_init(void)
 	}
 
 	/* We won the race - initialize the label */
-	strlcpy(abac_system_label.vl_raw, "type=system\n",
-	    sizeof(abac_system_label.vl_raw));
 	abac_system_label.vl_npairs = 1;
 	strlcpy(abac_system_label.vl_pairs[0].vp_key, "type",
 	    sizeof(abac_system_label.vl_pairs[0].vp_key));
 	strlcpy(abac_system_label.vl_pairs[0].vp_value, "system",
 	    sizeof(abac_system_label.vl_pairs[0].vp_value));
-	abac_system_label.vl_hash = abac_label_hash(
-	    abac_system_label.vl_raw,
-	    strlen(abac_system_label.vl_raw));
+	abac_system_label.vl_hash = abac_label_hash("type=system\n", 12);
 
 	/* Mark initialization complete with release semantics */
 	atomic_store_rel_int(&abac_system_label_state, 2);
