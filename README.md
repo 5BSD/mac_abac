@@ -1,6 +1,6 @@
-# ABAC - FreeBSD MAC Module for ZFS
+# ABAC - FreeBSD MAC Module
 
-Label-based mandatory access control using extended attributes. **ZFS only.**
+Label-based mandatory access control using extended attributes. **UFS with multilabel only** (ZFS support planned).
 
 ## Quick Start
 
@@ -170,16 +170,15 @@ make SYSDIR=/usr/src/sys ABAC_DEBUG=1
 
 ## Known Limitations
 
-- **ZFS only** - UFS multilabel not supported. Use `mac_abac_ctl`, not `getfmac`/`setfmac`.
+- **UFS only** - ZFS crashes during vnode association (see ROADMAP.md). Mount UFS with `multilabel` option.
 - **No module unload** - Reboot to update module (see above).
-
-See [Architecture](docs/architecture.md) for details on the ZFS-only design.
+- Use `mac_abac_ctl`, not `getfmac`/`setfmac`.
 
 ## Requirements
 
 - FreeBSD 15.0+
 - `options MAC` in kernel
-- ZFS filesystem
+- UFS filesystem with `multilabel` mount option
 
 ## Related Tools
 
