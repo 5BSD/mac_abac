@@ -569,7 +569,7 @@ struct abac_context {
  * reducing per-rule memory from ~19KB to ~2.1KB.
  *
  * Transition labels are allocated separately (vr_newlabel pointer) rather
- * than embedded, saving ~9KB for non-transition rules.
+ * than embedded, saving ~5KB for non-transition rules.
  *
  * Size breakdown:
  *   - vr_id, vr_action, vr_operations: ~12 bytes
@@ -580,7 +580,7 @@ struct abac_context {
  *   Total: ~2,132 bytes (non-transition)
  *
  * For transition rules, vr_newlabel points to a separately allocated
- * abac_label (~9KB). This is freed when the rule is removed.
+ * abac_label (~5KB). This is freed when the rule is removed.
  */
 struct abac_rule {
 	uint32_t		  vr_id;	   /* Rule identifier */
