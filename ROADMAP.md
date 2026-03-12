@@ -1,5 +1,8 @@
 # mac_abac Roadmap
 
+## 0. Reduce memory consumption.
+You'll run out of memory on small machines with the standard vnode cache after a day or so. This doesn't appear to be a leak but rather a memory hog.
+
 ## 1. UFS Support
 Add support for UFS filesystem extended attributes to enable ABAC labeling on UFS volumes.
 
