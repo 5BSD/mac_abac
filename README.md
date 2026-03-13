@@ -1,6 +1,6 @@
 # ABAC - FreeBSD MAC Module
 
-Label-based mandatory access control using extended attributes. **UFS with multilabel only** (ZFS support planned).
+Label-based mandatory access control using extended attributes. Supports **UFS** (with multilabel) and **ZFS**.
 
 ## Quick Start
 
@@ -28,6 +28,7 @@ sysctl security.mac.mac_abac.mode=2
 
 ## Documentation
 
+- [Admin Guide](docs/admin-guide.md) - Sysctls, syscalls, ZFS/UFS behavior, security
 - [Labels](docs/labels.md) - Label format, extended attributes
 - [Policy](docs/policy.md) - Writing rules
 - [Examples](docs/examples.md) - Real-world scenarios
@@ -170,15 +171,23 @@ make SYSDIR=/usr/src/sys ABAC_DEBUG=1
 
 ## Known Limitations
 
-- **UFS only** - ZFS crashes during vnode association (see ROADMAP.md). Mount UFS with `multilabel` option.
 - **No module unload** - Reboot to update module (see above).
-- Use `mac_abac_ctl`, not `getfmac`/`setfmac`.
+- Use `mac_abac_ctl`, not `getfmac`/`setfmac` (standard MAC tools don't work with our label format).
 
 ## Requirements
 
 - FreeBSD 15.0+
 - `options MAC` in kernel
-- UFS filesystem with `multilabel` mount option
+- UFS with `multilabel` mount option, or ZFS
+
+## Filesystem Support
+
+| Filesystem | Label Loading | Notes |
+|------------|---------------|-------|
+| **UFS** | Immediate (via MAC framework) | Requires `multilabel` mount option |
+| **ZFS** | Late/lazy (on first access) | Uses `ABAC_SYS_SETLABEL` syscall; labels cached in vnode |
+
+See [Admin Guide](docs/admin-guide.md) for detailed behavior differences and security considerations.
 
 ## Related Tools
 
