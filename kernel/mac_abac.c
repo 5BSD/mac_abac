@@ -222,32 +222,32 @@ int abac_locked = 0;
 int abac_log_level = ABAC_LOG_ADMIN;
 
 /*
- * SYSCTL tree: security.mac.abac.*
+ * SYSCTL tree: security.mac.mac_abac.*
  */
 SYSCTL_DECL(_security_mac);
-SYSCTL_NODE(_security_mac, OID_AUTO, abac, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
+SYSCTL_NODE(_security_mac, OID_AUTO, mac_abac, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "ABAC MAC policy");
 
-SYSCTL_INT(_security_mac_abac, OID_AUTO, enabled, CTLFLAG_RW,
+SYSCTL_INT(_security_mac_mac_abac, OID_AUTO, enabled, CTLFLAG_RW,
     &abac_enabled, 0, "Enable ABAC MAC policy");
 
-SYSCTL_INT(_security_mac_abac, OID_AUTO, mode, CTLFLAG_RW,
+SYSCTL_INT(_security_mac_mac_abac, OID_AUTO, mode, CTLFLAG_RW,
     &abac_mode, 0, "Enforcement mode (0=disabled, 1=permissive, 2=enforcing)");
 
-SYSCTL_UQUAD(_security_mac_abac, OID_AUTO, labels_read, CTLFLAG_RD,
+SYSCTL_UQUAD(_security_mac_mac_abac, OID_AUTO, labels_read, CTLFLAG_RD,
     &abac_labels_read, 0, "Labels read from extended attributes");
 
-SYSCTL_UQUAD(_security_mac_abac, OID_AUTO, labels_default, CTLFLAG_RD,
+SYSCTL_UQUAD(_security_mac_mac_abac, OID_AUTO, labels_default, CTLFLAG_RD,
     &abac_labels_default, 0, "Default labels assigned");
 
-SYSCTL_STRING(_security_mac_abac, OID_AUTO, extattr_name, CTLFLAG_RW,
+SYSCTL_STRING(_security_mac_mac_abac, OID_AUTO, extattr_name, CTLFLAG_RW,
     abac_extattr_name, sizeof(abac_extattr_name),
     "Extended attribute name for labels (default: mac_abac)");
 
-SYSCTL_INT(_security_mac_abac, OID_AUTO, locked, CTLFLAG_RD,
+SYSCTL_INT(_security_mac_mac_abac, OID_AUTO, locked, CTLFLAG_RD,
     &abac_locked, 0, "Policy locked (1=locked until reboot, 0=unlocked)");
 
-SYSCTL_INT(_security_mac_abac, OID_AUTO, log_level, CTLFLAG_RW,
+SYSCTL_INT(_security_mac_mac_abac, OID_AUTO, log_level, CTLFLAG_RW,
     &abac_log_level, 0,
     "Audit log level (0=none, 1=error, 2=admin, 3=deny, 4=all)");
 

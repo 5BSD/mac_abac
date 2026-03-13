@@ -60,7 +60,10 @@
 
 #include "mac_abacd.h"
 
-/* Static rule ID counter */
+/*
+ * Static rule ID counter.
+ * Starts at 1000 to reserve IDs 1-999 for kernel-assigned rules.
+ */
 static uint32_t next_rule_id = 1000;
 
 /*

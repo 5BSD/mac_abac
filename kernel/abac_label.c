@@ -150,7 +150,7 @@ abac_label_free(struct abac_label *vl)
 uint32_t
 abac_label_hash(const char *str, size_t len)
 {
-	uint32_t hash = 5381;
+	uint32_t hash = 5381;  /* DJB2 hash algorithm seed */
 	size_t i;
 
 	if (str == NULL || len == 0)
