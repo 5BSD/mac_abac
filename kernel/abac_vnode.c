@@ -178,15 +178,69 @@ abac_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
 /*
  * Associate vnode label for single-label filesystems (ZFS, tmpfs, etc).
  *
- * Even though these filesystems don't set MNT_MULTILABEL, they may still
- * support extended attributes. We attempt to read per-file labels from
- * extattr, falling back to the default label if not present.
+ * This hook is called during vnode allocation (getnewvnode), before the
+ * vnode is fully initialized. On ZFS, the vnode is not ready for VOP
+ * operations at this point - attempting vn_extattr_get() will crash.
+ *
+ * Instead of reading the extattr here, we:
+ * 1. Set a default label
+ * 2. Mark the label as NEEDS_LOAD
+ * 3. The actual extattr read happens lazily on first access check
+ *    (see abac_vnode_lazy_load)
+ *
+ * This follows the pattern of mac_biba/mac_mls which also don't read
+ * extattrs in singlelabel association.
  */
 void
 abac_vnode_associate_singlelabel(struct mount *mp, struct label *mplabel,
     struct vnode *vp, struct label *vplabel)
 {
+	struct abac_label *vl;
 
+	vl = SLOT(vplabel);
+	if (vl == NULL)
+		return;
+
+	/* Set default label and mark for lazy loading */
+	abac_label_set_default(vl, false);
+	vl->vl_flags |= ABAC_LABEL_NEEDS_LOAD;
+}
+
+/*
+ * Lazy load vnode label from extended attribute.
+ *
+ * Called during access checks when the label is marked NEEDS_LOAD.
+ * At this point the vnode should be fully initialized and ready
+ * for VOP operations.
+ *
+ * This function is safe to call multiple times - it clears the flag
+ * after the first attempt (successful or not) to avoid repeated
+ * extattr reads.
+ */
+void
+abac_vnode_lazy_load(struct vnode *vp, struct label *vplabel)
+{
+	struct abac_label *vl;
+
+	if (vp == NULL || vplabel == NULL)
+		return;
+
+	vl = SLOT(vplabel);
+	if (vl == NULL)
+		return;
+
+	/* Check if lazy load is needed */
+	if ((vl->vl_flags & ABAC_LABEL_NEEDS_LOAD) == 0)
+		return;
+
+	/*
+	 * Clear the flag BEFORE attempting to load. This ensures we only
+	 * try once, even if the load fails. Multiple threads may race here
+	 * but that's harmless - worst case we do redundant reads.
+	 */
+	vl->vl_flags &= ~ABAC_LABEL_NEEDS_LOAD;
+
+	/* Now try to read the actual label from extattr */
 	abac_vnode_read_extattr(vp, vplabel);
 }
 
@@ -229,6 +283,9 @@ abac_vnode_check_access(struct ucred *cred, struct vnode *vp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
+
 	/* Get subject label from credential */
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
@@ -262,6 +319,9 @@ abac_vnode_check_chdir(struct ucred *cred, struct vnode *dvp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(dvp, dvplabel);
+
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(cred->cr_label);
@@ -290,6 +350,9 @@ abac_vnode_check_chroot(struct ucred *cred, struct vnode *dvp,
 	int error;
 
 	ABAC_CHECK_ENABLED();
+
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(dvp, dvplabel);
 
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
@@ -321,6 +384,9 @@ abac_vnode_check_create(struct ucred *cred, struct vnode *dvp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(dvp, dvplabel);
+
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(cred->cr_label);
@@ -351,6 +417,9 @@ abac_vnode_check_deleteacl(struct ucred *cred, struct vnode *vp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
+
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(cred->cr_label);
@@ -380,6 +449,9 @@ abac_vnode_check_deleteextattr(struct ucred *cred, struct vnode *vp,
 	int error;
 
 	ABAC_CHECK_ENABLED();
+
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
 
 	/*
 	 * Always protect our own label attribute from deletion.
@@ -423,6 +495,9 @@ abac_vnode_check_exec(struct ucred *cred, struct vnode *vp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
+
 	/* Get subject label from credential */
 	if (cred == NULL || cred->cr_label == NULL) {
 		return (0);
@@ -458,6 +533,9 @@ abac_vnode_check_getacl(struct ucred *cred, struct vnode *vp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
+
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(cred->cr_label);
@@ -487,6 +565,9 @@ abac_vnode_check_getextattr(struct ucred *cred, struct vnode *vp,
 	int error;
 
 	ABAC_CHECK_ENABLED();
+
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
 
 	/*
 	 * Optionally protect reading of our label attribute.
@@ -533,6 +614,9 @@ abac_vnode_check_link(struct ucred *cred, struct vnode *dvp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
+
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(cred->cr_label);
@@ -562,6 +646,9 @@ abac_vnode_check_listextattr(struct ucred *cred, struct vnode *vp,
 	int error;
 
 	ABAC_CHECK_ENABLED();
+
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
 
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
@@ -593,6 +680,9 @@ abac_vnode_check_lookup(struct ucred *cred, struct vnode *dvp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(dvp, dvplabel);
+
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(cred->cr_label);
@@ -621,6 +711,9 @@ abac_vnode_check_mmap(struct ucred *cred, struct vnode *vp,
 	int error;
 
 	ABAC_CHECK_ENABLED();
+
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
 
 	/* Get subject label from credential */
 	if (cred == NULL || cred->cr_label == NULL)
@@ -669,6 +762,9 @@ abac_vnode_check_mprotect(struct ucred *cred, struct vnode *vp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
+
 	/* Get subject label from credential */
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
@@ -701,6 +797,9 @@ abac_vnode_check_open(struct ucred *cred, struct vnode *vp,
 	int error;
 
 	ABAC_CHECK_ENABLED();
+
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
 
 	/* Get subject label from credential */
 	if (cred == NULL || cred->cr_label == NULL)
@@ -735,6 +834,9 @@ abac_vnode_check_poll(struct ucred *active_cred, struct ucred *file_cred,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
+
 	if (active_cred == NULL || active_cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(active_cred->cr_label);
@@ -764,6 +866,9 @@ abac_vnode_check_read(struct ucred *active_cred, struct ucred *file_cred,
 	int error;
 
 	ABAC_CHECK_ENABLED();
+
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
 
 	/* Get subject label from credential */
 	if (active_cred == NULL || active_cred->cr_label == NULL)
@@ -798,6 +903,9 @@ abac_vnode_check_readdir(struct ucred *cred, struct vnode *dvp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(dvp, dvplabel);
+
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(cred->cr_label);
@@ -826,6 +934,9 @@ abac_vnode_check_readlink(struct ucred *cred, struct vnode *vp,
 	int error;
 
 	ABAC_CHECK_ENABLED();
+
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
 
 	/* Get subject label from credential */
 	if (cred == NULL || cred->cr_label == NULL)
@@ -860,6 +971,9 @@ abac_vnode_check_relabel(struct ucred *cred, struct vnode *vp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
+
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(cred->cr_label);
@@ -890,6 +1004,9 @@ abac_vnode_check_rename_from(struct ucred *cred, struct vnode *dvp,
 	int error;
 
 	ABAC_CHECK_ENABLED();
+
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
 
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
@@ -922,6 +1039,9 @@ abac_vnode_check_rename_to(struct ucred *cred, struct vnode *dvp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(dvp, dvplabel);
+
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(cred->cr_label);
@@ -952,6 +1072,9 @@ abac_vnode_check_revoke(struct ucred *cred, struct vnode *vp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
+
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(cred->cr_label);
@@ -981,6 +1104,9 @@ abac_vnode_check_setacl(struct ucred *cred, struct vnode *vp,
 	int error;
 
 	ABAC_CHECK_ENABLED();
+
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
 
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
@@ -1020,6 +1146,11 @@ abac_vnode_check_setextattr(struct ucred *cred, struct vnode *vp,
 	 * allow setextattr for administrative processes. Example:
 	 *   allow setextattr type=admin -> *
 	 *   deny setextattr * -> *
+	 *
+	 * IMPORTANT: Do NOT call lazy_load here when setting our label.
+	 * On ZFS, lazy_load triggers VOP_GETEXTATTR inside VOP_SETEXTATTR,
+	 * causing a nested VOP that can fail with EPERM. Since we're about
+	 * to overwrite the label anyway, we don't need the current value.
 	 */
 	if (attrnamespace == ABAC_EXTATTR_NAMESPACE &&
 	    name != NULL && strcmp(name, abac_extattr_name) == 0) {
@@ -1059,6 +1190,9 @@ abac_vnode_check_setflags(struct ucred *cred, struct vnode *vp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
+
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(cred->cr_label);
@@ -1088,6 +1222,9 @@ abac_vnode_check_setmode(struct ucred *cred, struct vnode *vp,
 	int error;
 
 	ABAC_CHECK_ENABLED();
+
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
 
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
@@ -1119,6 +1256,9 @@ abac_vnode_check_setowner(struct ucred *cred, struct vnode *vp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
+
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(cred->cr_label);
@@ -1148,6 +1288,9 @@ abac_vnode_check_setutimes(struct ucred *cred, struct vnode *vp,
 	int error;
 
 	ABAC_CHECK_ENABLED();
+
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
 
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
@@ -1179,6 +1322,9 @@ abac_vnode_check_stat(struct ucred *active_cred, struct ucred *file_cred,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
+
 	if (active_cred == NULL || active_cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(active_cred->cr_label);
@@ -1209,6 +1355,9 @@ abac_vnode_check_unlink(struct ucred *cred, struct vnode *dvp,
 
 	ABAC_CHECK_ENABLED();
 
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
+
 	if (cred == NULL || cred->cr_label == NULL)
 		return (0);
 	subj = SLOT(cred->cr_label);
@@ -1238,6 +1387,9 @@ abac_vnode_check_write(struct ucred *active_cred, struct ucred *file_cred,
 	int error;
 
 	ABAC_CHECK_ENABLED();
+
+	/* Lazy load label from extattr if needed (ZFS) */
+	abac_vnode_lazy_load(vp, vplabel);
 
 	/* Get subject label from credential */
 	if (active_cred == NULL || active_cred->cr_label == NULL)

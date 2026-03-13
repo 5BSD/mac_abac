@@ -197,6 +197,16 @@
 #define ABAC_MATCH_NEGATE		0x80000000	/* Invert match result */
 
 /*
+ * Label flags
+ *
+ * ABAC_LABEL_NEEDS_LOAD: Label was created during singlelabel association
+ * when the vnode wasn't ready for VOP operations (e.g., ZFS during znode
+ * allocation). The actual label should be loaded from extattr on first
+ * access check when the vnode is ready.
+ */
+#define ABAC_LABEL_NEEDS_LOAD		0x00000001	/* Needs lazy load from extattr */
+
+/*
  * Statistics structure (shared with userland)
  */
 struct abac_stats {
@@ -511,6 +521,8 @@ struct abac_pair {
 struct abac_label {
 	uint32_t		vl_hash;			/* Quick compare hash */
 	uint32_t		vl_npairs;			/* Number of valid pairs */
+	uint32_t		vl_flags;			/* ABAC_LABEL_* flags */
+	uint32_t		vl_reserved;			/* Padding for alignment */
 	struct abac_pair	vl_pairs[ABAC_MAX_PAIRS];	/* Parsed key=value pairs */
 };
 
@@ -758,6 +770,7 @@ void abac_vnode_init_label(struct label *label);
 void abac_vnode_destroy_label(struct label *label);
 void abac_vnode_copy_label(struct label *src, struct label *dest);
 void abac_vnode_refresh_label(struct vnode *vp, struct label *vplabel);
+void abac_vnode_lazy_load(struct vnode *vp, struct label *vplabel);
 int abac_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
     struct vnode *vp, struct label *vplabel);
 void abac_vnode_associate_singlelabel(struct mount *mp, struct label *mplabel,

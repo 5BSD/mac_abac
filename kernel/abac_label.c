@@ -246,6 +246,7 @@ abac_label_parse(const char *str, size_t len, struct abac_label *vl)
 	/* Initialize and compute hash */
 	vl->vl_hash = abac_label_hash(str, len);
 	vl->vl_npairs = 0;
+	vl->vl_flags = 0;	/* Clear NEEDS_LOAD after parsing */
 
 	/* Parse newline-separated key=value pairs */
 	p = str;

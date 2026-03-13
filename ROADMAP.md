@@ -9,11 +9,11 @@ Reduced per-label memory from ~9.2KB to ~5.1KB (44% reduction) by:
 ## 1. UFS Support - DONE
 UFS filesystem extended attributes now work for ABAC labeling. Mount with `multilabel` option enabled.
 
-## 2. ZFS Support
-ZFS crashes in `vn_extattr_get` during `mac_vnode_associate_singlelabel` because vnodes aren't ready for VOP operations during `zfs_znode_alloc`. Need to investigate:
-- Lazy label loading on first access check
-- Alternative MAC hooks that fire later in vnode lifecycle
-- ZFS-specific workarounds
+## 2. ZFS Support - IN PROGRESS
+ZFS vnodes aren't ready for VOP operations during `mac_vnode_associate_singlelabel` (called from `getnewvnode`). Implemented lazy loading:
+- `associate_singlelabel` now sets default label + `ABAC_LABEL_NEEDS_LOAD` flag
+- Labels are loaded from extattr on first access check via `abac_vnode_lazy_load()`
+- Needs testing on ZFS system
 
 ## 3. Use Standard Labeling Tools (setfmac/getfmac)
 Currently using custom syscalls (`ABAC_SYS_SETLABEL`, `ABAC_SYS_REFRESH`). Investigate replacing with standard FreeBSD mechanisms:
