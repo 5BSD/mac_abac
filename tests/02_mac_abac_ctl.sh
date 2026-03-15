@@ -116,10 +116,10 @@ info "Test: Set mode to enforcing"
 # Note: We set enforcing mode via sysctl, then check, then immediately
 # switch back to permissive. We can't use mac_abac_ctl after setting enforcing
 # because the module will block it (no rules allow mac_abac_ctl to execute).
-if sysctl security.mac.abac.mode=2 >/dev/null 2>&1; then
-    MODE=$(sysctl -n security.mac.abac.mode)
+if sysctl security.mac.mac_abac.mode=2 >/dev/null 2>&1; then
+    MODE=$(sysctl -n security.mac.mac_abac.mode)
     # Immediately switch back to permissive before checking
-    sysctl security.mac.abac.mode=1 >/dev/null 2>&1
+    sysctl security.mac.mac_abac.mode=1 >/dev/null 2>&1
     if [ "$MODE" = "2" ]; then
         pass "mode set enforcing"
     else

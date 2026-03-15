@@ -62,7 +62,7 @@ cleanup() {
     # Clear all test rules
     $MAC_ABAC_CTL rule clear 2>/dev/null || true
     # Reset to permissive mode for safety
-    sysctl security.mac.abac.mode=1 >/dev/null 2>&1 || true
+    sysctl security.mac.mac_abac.mode=1 >/dev/null 2>&1 || true
     # Clean up test directory
     rm -rf "$TEST_DIR" 2>/dev/null || true
 }
@@ -222,7 +222,7 @@ pass "Status command works"
 info "ACTION: test_enforcing_mode"
 
 # Save current settings
-ORIG_MODE=$(sysctl -n security.mac.abac.mode)
+ORIG_MODE=$(sysctl -n security.mac.mac_abac.mode)
 
 # Add deny rule: deny debug * -> type=protected
 RULE="deny debug * -> type=protected"
@@ -232,18 +232,18 @@ $MAC_ABAC_CTL rule add "$RULE"
 # Enable enforcing mode briefly, then restore
 # Note: We can't use mac_abac_ctl in enforcing mode (it gets blocked),
 # so we just verify the sysctl works and immediately restore.
-sysctl security.mac.abac.mode=2 >/dev/null
+sysctl security.mac.mac_abac.mode=2 >/dev/null
 info "  Enforcing mode enabled"
 
 # Immediately restore to permissive before trying to use mac_abac_ctl
-sysctl security.mac.abac.mode=1 >/dev/null
+sysctl security.mac.mac_abac.mode=1 >/dev/null
 
 # Note: Actually triggering debug check requires labeled processes.
 # This verifies the rule infrastructure is in place.
 # Audit events are now logged via FreeBSD's standard audit subsystem.
 
 # Restore original settings
-sysctl security.mac.abac.mode=$ORIG_MODE >/dev/null
+sysctl security.mac.mac_abac.mode=$ORIG_MODE >/dev/null
 $MAC_ABAC_CTL rule clear 2>/dev/null || true
 
 pass "Debug check infrastructure verified"

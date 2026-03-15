@@ -70,9 +70,9 @@
  * ABAC_MAX_PAIRS (16):
  *   Maximum key=value pairs per label. Analysis of real policies shows
  *   most labels use 1-6 pairs. 16 provides headroom for complex labels
- *   while keeping struct abac_label under 10KB.
+ *   while keeping struct abac_label around 5KB.
  *
- *   Memory impact: sizeof(abac_label) = 4096 + 8 + 16*320 = ~9.2KB
+ *   Memory impact: sizeof(abac_label) = 16 + 16*(64+256) = ~5KB
  *   This is acceptable because labels are cached per-vnode/cred in UMA zones.
  */
 #define ABAC_MAX_LABEL_LEN		4096	/* Soft limit for extattr labels */
@@ -199,12 +199,10 @@
 /*
  * Label flags
  *
- * ABAC_LABEL_NEEDS_LOAD: Label was created during singlelabel association
- * when the vnode wasn't ready for VOP operations (e.g., ZFS during znode
- * allocation). The actual label should be loaded from extattr on first
- * access check when the vnode is ready.
+ * Reserved for future use. The NEEDS_LOAD functionality is now handled
+ * via a sentinel pointer value (ABAC_LABEL_NEEDS_LOAD) rather than a flag,
+ * which avoids allocating memory for labels that don't exist.
  */
-#define ABAC_LABEL_NEEDS_LOAD		0x00000001	/* Needs lazy load from extattr */
 
 /*
  * Statistics structure (shared with userland)
@@ -616,6 +614,18 @@ extern int abac_slot;
 
 #define SLOT(l)		((struct abac_label *)mac_label_get((l), abac_slot))
 #define SLOT_SET(l, v)	mac_label_set((l), abac_slot, (intptr_t)(v))
+
+/*
+ * Sentinel value for lazy-load vnodes (ZFS/singlelabel filesystems).
+ *
+ * Slot values:
+ *   NULL                    = no label, use abac_default_object
+ *   ABAC_LABEL_NEEDS_LOAD   = needs extattr read on first access
+ *   valid pointer           = allocated label with parsed content
+ *
+ * This avoids allocating ~5KB per vnode when most have no label.
+ */
+#define ABAC_LABEL_NEEDS_LOAD	((struct abac_label *)(uintptr_t)1)
 
 /*
  * Default labels for unlabeled objects/subjects

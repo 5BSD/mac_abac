@@ -74,18 +74,18 @@ extern uint64_t abac_labels_default;
  */
 uint32_t abac_next_rule_id = 1;
 
-SYSCTL_DECL(_security_mac_abac);
+SYSCTL_DECL(_security_mac_mac_abac);
 
-SYSCTL_UQUAD(_security_mac_abac, OID_AUTO, checks, CTLFLAG_RD,
+SYSCTL_UQUAD(_security_mac_mac_abac, OID_AUTO, checks, CTLFLAG_RD,
     &abac_checks, 0, "Total access checks");
 
-SYSCTL_UQUAD(_security_mac_abac, OID_AUTO, allowed, CTLFLAG_RD,
+SYSCTL_UQUAD(_security_mac_mac_abac, OID_AUTO, allowed, CTLFLAG_RD,
     &abac_allowed, 0, "Allowed accesses");
 
-SYSCTL_UQUAD(_security_mac_abac, OID_AUTO, denied, CTLFLAG_RD,
+SYSCTL_UQUAD(_security_mac_mac_abac, OID_AUTO, denied, CTLFLAG_RD,
     &abac_denied, 0, "Denied accesses");
 
-SYSCTL_INT(_security_mac_abac, OID_AUTO, rule_count, CTLFLAG_RD,
+SYSCTL_INT(_security_mac_mac_abac, OID_AUTO, rule_count, CTLFLAG_RD,
     &abac_rule_count, 0, "Number of active rules");
 
 /*
@@ -95,7 +95,7 @@ SYSCTL_INT(_security_mac_abac, OID_AUTO, rule_count, CTLFLAG_RD,
  */
 int abac_default_policy = 0;
 
-SYSCTL_INT(_security_mac_abac, OID_AUTO, default_policy, CTLFLAG_RW,
+SYSCTL_INT(_security_mac_mac_abac, OID_AUTO, default_policy, CTLFLAG_RW,
     &abac_default_policy, 0,
     "Default policy when no rule matches (0=allow, 1=deny)");
 

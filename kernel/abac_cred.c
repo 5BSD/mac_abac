@@ -342,11 +342,11 @@ abac_execve_transition(struct ucred *old, struct ucred *new,
 	else
 		objvl = &abac_default_object;
 
-	if (objvl == NULL)
+	if (objvl == NULL || objvl == ABAC_LABEL_NEEDS_LOAD)
 		objvl = &abac_default_object;
 
 	/*
-	 * Allocate transition label dynamically - struct abac_label is ~9KB,
+	 * Allocate transition label dynamically - struct abac_label is ~5KB,
 	 * too large for the kernel stack (typically 8-16KB).
 	 */
 	transition_label = malloc(sizeof(*transition_label), M_TEMP, M_WAITOK | M_ZERO);
@@ -422,7 +422,7 @@ abac_execve_will_transition(struct ucred *old, struct vnode *vp,
 	else
 		objvl = &abac_default_object;
 
-	if (objvl == NULL)
+	if (objvl == NULL || objvl == ABAC_LABEL_NEEDS_LOAD)
 		objvl = &abac_default_object;
 
 	/* Transition if rule matches OR vnode has a label */

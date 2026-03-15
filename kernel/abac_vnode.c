@@ -47,10 +47,13 @@ extern char abac_extattr_name[64];
 void
 abac_vnode_init_label(struct label *label)
 {
-	struct abac_label *vl;
 
-	vl = abac_label_alloc(M_WAITOK);
-	SLOT_SET(label, vl);
+	/*
+	 * Don't allocate here - labels are allocated on-demand when
+	 * extattr is read. This saves ~5KB per vnode for unlabeled files.
+	 * Most vnodes have no label, so this is a significant memory savings.
+	 */
+	SLOT_SET(label, NULL);
 }
 
 void
@@ -59,7 +62,8 @@ abac_vnode_destroy_label(struct label *label)
 	struct abac_label *vl;
 
 	vl = SLOT(label);
-	if (vl != NULL)
+	/* Don't free sentinel marker or NULL */
+	if (vl != NULL && vl != ABAC_LABEL_NEEDS_LOAD)
 		abac_label_free(vl);
 	SLOT_SET(label, NULL);
 }
@@ -76,25 +80,50 @@ abac_vnode_copy_label(struct label *src, struct label *dest)
 	srcvl = SLOT(src);
 	dstvl = SLOT(dest);
 
-	if (srcvl != NULL && dstvl != NULL)
-		abac_label_copy(srcvl, dstvl);
+	/*
+	 * Handle sentinel markers and NULL:
+	 * - If src is NULL or sentinel, dest should be the same (no alloc needed)
+	 * - If src has a real label, we need to copy it
+	 */
+	if (srcvl == NULL || srcvl == ABAC_LABEL_NEEDS_LOAD) {
+		/* Free any existing dest label before overwriting */
+		if (dstvl != NULL && dstvl != ABAC_LABEL_NEEDS_LOAD)
+			abac_label_free(dstvl);
+		SLOT_SET(dest, srcvl);
+		return;
+	}
+
+	/* Source has a real label - allocate dest if needed */
+	if (dstvl == NULL || dstvl == ABAC_LABEL_NEEDS_LOAD) {
+		dstvl = abac_label_alloc(M_WAITOK);
+		if (dstvl == NULL)
+			return;
+		SLOT_SET(dest, dstvl);
+	}
+
+	abac_label_copy(srcvl, dstvl);
 }
 
 /*
  * Helper function to read label from extended attribute.
- * Used by both associate_extattr (UFS multilabel) and
- * associate_singlelabel (ZFS and other filesystems).
+ * Used by both associate_extattr (UFS multilabel) and lazy_load (ZFS).
+ *
+ * This function allocates a label structure ONLY if the extattr exists
+ * and contains a valid label. If no extattr exists, the slot is set to
+ * NULL (meaning "use default"). This saves ~5KB per unlabeled vnode.
  */
 static void
 abac_vnode_read_extattr(struct vnode *vp, struct label *vplabel)
 {
-	struct abac_label *vl;
+	struct abac_label *old, *vl;
 	char *buf;
 	int buflen, error;
 
-	vl = SLOT(vplabel);
-	if (vl == NULL) {
-		return;
+	/* Free any existing label to prevent leaks on refresh/re-read */
+	old = SLOT(vplabel);
+	if (old != NULL && old != ABAC_LABEL_NEEDS_LOAD) {
+		SLOT_SET(vplabel, NULL);
+		abac_label_free(old);
 	}
 
 	/*
@@ -117,39 +146,54 @@ abac_vnode_read_extattr(struct vnode *vp, struct label *vplabel)
 
 	if (error == ENOATTR || error == EOPNOTSUPP) {
 		/*
-		 * No label on this vnode - use default object label.
+		 * No label on this vnode - leave slot as NULL.
+		 * Check paths will use abac_default_object.
 		 */
 		free(buf, M_TEMP);
-		abac_label_set_default(vl, false);
+		SLOT_SET(vplabel, NULL);
 		/* DTrace: default label assigned */
 		SDT_PROBE1(abac, label, extattr, default, 0);
 		atomic_add_64(&abac_labels_default, 1);
 		return;
 	} else if (error != 0) {
 		/*
-		 * Error reading extattr - use default.
+		 * Error reading extattr - leave slot as NULL (use default).
 		 */
 		free(buf, M_TEMP);
-		abac_label_set_default(vl, false);
+		SLOT_SET(vplabel, NULL);
 		return;
 	}
 
 	/*
-	 * Parse the label string.
+	 * Extattr exists - allocate label structure and parse.
+	 * This is the only path that allocates memory.
 	 */
+	vl = abac_label_alloc(M_WAITOK);
+	if (vl == NULL) {
+		/* Allocation failed - use default */
+		free(buf, M_TEMP);
+		SLOT_SET(vplabel, NULL);
+		return;
+	}
+
 	buf[buflen] = '\0';
 	error = abac_label_parse(buf, buflen, vl);
 	if (error != 0) {
+		/* Parse failed - free label, use default */
 		free(buf, M_TEMP);
-		abac_label_set_default(vl, false);
+		abac_label_free(vl);
+		SLOT_SET(vplabel, NULL);
 		return;
 	}
 
 	free(buf, M_TEMP);
+
+	/* Success - store allocated label in slot */
+	SLOT_SET(vplabel, vl);
+
 	/* DTrace: label read from extattr (pass hash for efficiency) */
 	SDT_PROBE2(abac, label, extattr, read, vl->vl_hash, vp);
 	atomic_add_64(&abac_labels_read, 1);
-
 }
 
 /*
@@ -160,6 +204,7 @@ void
 abac_vnode_refresh_label(struct vnode *vp, struct label *vplabel)
 {
 
+	/* read_extattr handles freeing any existing label */
 	abac_vnode_read_extattr(vp, vplabel);
 }
 
@@ -182,40 +227,35 @@ abac_vnode_associate_extattr(struct mount *mp, struct label *mplabel,
  * vnode is fully initialized. On ZFS, the vnode is not ready for VOP
  * operations at this point - attempting vn_extattr_get() will crash.
  *
- * Instead of reading the extattr here, we:
- * 1. Set a default label
- * 2. Mark the label as NEEDS_LOAD
- * 3. The actual extattr read happens lazily on first access check
- *    (see abac_vnode_lazy_load)
+ * Instead of reading the extattr here, we set the slot to a sentinel
+ * marker (ABAC_LABEL_NEEDS_LOAD). The actual extattr read happens lazily
+ * on first access check (see abac_vnode_lazy_load).
  *
- * This follows the pattern of mac_biba/mac_mls which also don't read
- * extattrs in singlelabel association.
+ * This avoids allocating ~5KB per vnode - memory is only allocated if
+ * the vnode actually has a label in its extattr.
  */
 void
 abac_vnode_associate_singlelabel(struct mount *mp, struct label *mplabel,
     struct vnode *vp, struct label *vplabel)
 {
-	struct abac_label *vl;
 
-	vl = SLOT(vplabel);
-	if (vl == NULL)
-		return;
-
-	/* Set default label and mark for lazy loading */
-	abac_label_set_default(vl, false);
-	vl->vl_flags |= ABAC_LABEL_NEEDS_LOAD;
+	/* Mark for lazy loading - don't allocate yet */
+	SLOT_SET(vplabel, ABAC_LABEL_NEEDS_LOAD);
 }
 
 /*
  * Lazy load vnode label from extended attribute.
  *
- * Called during access checks when the label is marked NEEDS_LOAD.
- * At this point the vnode should be fully initialized and ready
- * for VOP operations.
+ * Called during access checks when the slot contains ABAC_LABEL_NEEDS_LOAD.
+ * At this point the vnode should be fully initialized and ready for VOP
+ * operations.
  *
- * This function is safe to call multiple times - it clears the flag
- * after the first attempt (successful or not) to avoid repeated
- * extattr reads.
+ * This function checks for the sentinel marker and, if present, attempts
+ * to read the extattr. If extattr exists, a label is allocated and parsed.
+ * If not, the slot is set to NULL (use default).
+ *
+ * Multiple threads may race here but that's harmless - worst case we do
+ * redundant reads, and the last one wins (all should produce same result).
  */
 void
 abac_vnode_lazy_load(struct vnode *vp, struct label *vplabel)
@@ -226,21 +266,16 @@ abac_vnode_lazy_load(struct vnode *vp, struct label *vplabel)
 		return;
 
 	vl = SLOT(vplabel);
-	if (vl == NULL)
-		return;
 
-	/* Check if lazy load is needed */
-	if ((vl->vl_flags & ABAC_LABEL_NEEDS_LOAD) == 0)
+	/* Check if lazy load is needed (sentinel marker) */
+	if (vl != ABAC_LABEL_NEEDS_LOAD)
 		return;
 
 	/*
-	 * Clear the flag BEFORE attempting to load. This ensures we only
-	 * try once, even if the load fails. Multiple threads may race here
-	 * but that's harmless - worst case we do redundant reads.
+	 * Slot has sentinel marker - try to read extattr.
+	 * read_extattr will set slot to either a valid label pointer
+	 * (if extattr exists) or NULL (if no extattr, use default).
 	 */
-	vl->vl_flags &= ~ABAC_LABEL_NEEDS_LOAD;
-
-	/* Now try to read the actual label from extattr */
 	abac_vnode_read_extattr(vp, vplabel);
 }
 
@@ -1165,7 +1200,7 @@ abac_vnode_check_setextattr(struct ucred *cred, struct vnode *vp,
 		if (vplabel == NULL)
 			return (EPERM);
 		obj = SLOT(vplabel);
-		if (obj == NULL)
+		if (obj == NULL || obj == ABAC_LABEL_NEEDS_LOAD)
 			obj = &abac_default_object;
 
 		/* Check setextattr operation */
@@ -1499,10 +1534,17 @@ abac_vnode_setlabel_extattr(struct ucred *cred, struct vnode *vp,
 	free(buf, M_TEMP);
 
 	if (error == 0 && vplabel != NULL) {
-		/* Update in-memory label */
+		/* Update in-memory label - allocate if needed */
 		struct abac_label *vl = SLOT(vplabel);
-		if (vl != NULL)
+		if (vl == NULL || vl == ABAC_LABEL_NEEDS_LOAD) {
+			vl = abac_label_alloc(M_WAITOK);
+			if (vl != NULL) {
+				SLOT_SET(vplabel, vl);
+				abac_label_copy(newlabel, vl);
+			}
+		} else {
 			abac_label_copy(newlabel, vl);
+		}
 	}
 
 	return (error);

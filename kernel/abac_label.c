@@ -39,12 +39,12 @@ static uint64_t abac_labels_allocated;
 static uint64_t abac_labels_freed;
 static uint64_t abac_parse_errors;
 
-SYSCTL_DECL(_security_mac_abac);
-SYSCTL_UQUAD(_security_mac_abac, OID_AUTO, labels_allocated, CTLFLAG_RD,
+SYSCTL_DECL(_security_mac_mac_abac);
+SYSCTL_UQUAD(_security_mac_mac_abac, OID_AUTO, labels_allocated, CTLFLAG_RD,
     &abac_labels_allocated, 0, "Total labels allocated");
-SYSCTL_UQUAD(_security_mac_abac, OID_AUTO, labels_freed, CTLFLAG_RD,
+SYSCTL_UQUAD(_security_mac_mac_abac, OID_AUTO, labels_freed, CTLFLAG_RD,
     &abac_labels_freed, 0, "Total labels freed");
-SYSCTL_UQUAD(_security_mac_abac, OID_AUTO, parse_errors, CTLFLAG_RD,
+SYSCTL_UQUAD(_security_mac_mac_abac, OID_AUTO, parse_errors, CTLFLAG_RD,
     &abac_parse_errors, 0, "Label parse errors");
 
 /*

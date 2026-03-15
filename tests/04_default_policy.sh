@@ -129,7 +129,7 @@ info "=== Default Policy via sysctl ==="
 
 run_test
 info "Test: Read default_policy sysctl"
-if sysctl -n security.mac.abac.default_policy >/dev/null 2>&1; then
+if sysctl -n security.mac.mac_abac.default_policy >/dev/null 2>&1; then
     pass "read sysctl"
 else
     fail "read sysctl"
@@ -137,8 +137,8 @@ fi
 
 run_test
 info "Test: Set default_policy to 0 (allow) via sysctl"
-if sysctl security.mac.abac.default_policy=0 >/dev/null 2>&1; then
-    RESULT=$(sysctl -n security.mac.abac.default_policy)
+if sysctl security.mac.mac_abac.default_policy=0 >/dev/null 2>&1; then
+    RESULT=$(sysctl -n security.mac.mac_abac.default_policy)
     if [ "$RESULT" = "0" ]; then
         pass "sysctl set 0"
     else
@@ -150,8 +150,8 @@ fi
 
 run_test
 info "Test: Set default_policy to 1 (deny) via sysctl"
-if sysctl security.mac.abac.default_policy=1 >/dev/null 2>&1; then
-    RESULT=$(sysctl -n security.mac.abac.default_policy)
+if sysctl security.mac.mac_abac.default_policy=1 >/dev/null 2>&1; then
+    RESULT=$(sysctl -n security.mac.mac_abac.default_policy)
     if [ "$RESULT" = "1" ]; then
         pass "sysctl set 1"
     else
@@ -167,13 +167,13 @@ info "Test: Invalid sysctl value handling"
 # The kernel sysctl is CTLFLAG_RW int, so any int value is accepted.
 # This is expected behavior - the policy code should handle invalid values.
 # We verify the value is at least set (not rejected outright).
-if sysctl security.mac.abac.default_policy=2 2>/dev/null; then
-    RESULT=$(sysctl -n security.mac.abac.default_policy)
+if sysctl security.mac.mac_abac.default_policy=2 2>/dev/null; then
+    RESULT=$(sysctl -n security.mac.mac_abac.default_policy)
     # Value was accepted - this is expected for SYSCTL_INT
     # In enforcement, values > 0 are treated as "deny" (secure default)
     pass "sysctl accepts integer values (got: $RESULT)"
     # Restore valid value
-    sysctl security.mac.abac.default_policy=0 >/dev/null 2>&1
+    sysctl security.mac.mac_abac.default_policy=0 >/dev/null 2>&1
 else
     pass "invalid sysctl value rejected"
 fi
@@ -208,7 +208,7 @@ if ! "$MAC_ABAC_CTL" default deny 2>&1; then
 else
     # Verify the policy was set
     POLICY=$("$MAC_ABAC_CTL" default 2>&1)
-    SYSCTL_VAL=$(sysctl -n security.mac.abac.default_policy 2>&1)
+    SYSCTL_VAL=$(sysctl -n security.mac.mac_abac.default_policy 2>&1)
     # Note: test command returns exit code 1 for DENY, so use || true to prevent set -e from killing script
     OUTPUT=$("$MAC_ABAC_CTL" test exec "type=test" "type=target" 2>&1 || true)
     if echo "$OUTPUT" | grep -q "DENY"; then

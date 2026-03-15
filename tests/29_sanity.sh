@@ -70,10 +70,10 @@ fi
 # Check 4: Sysctl values are sane
 # -----------------------------------------------------------------------------
 run_test
-SYSCTL_OUT=$(sysctl -a 2>/dev/null | grep "security.mac.abac" || true)
+SYSCTL_OUT=$(sysctl -a 2>/dev/null | grep "security.mac.mac_abac" || true)
 if [ -n "$SYSCTL_OUT" ]; then
     # Check that enabled sysctl exists and is readable
-    if sysctl -n security.mac.abac.enabled >/dev/null 2>&1; then
+    if sysctl -n security.mac.mac_abac.enabled >/dev/null 2>&1; then
         pass "Sysctl interface responsive"
     else
         fail "Sysctl interface not responding"

@@ -47,7 +47,7 @@ cleanup() {
 	pkill -f "abac_context_test" 2>/dev/null || true
 	# Restore permissive mode (critical for system recovery)
 	"$MAC_ABAC_CTL" mode permissive >/dev/null 2>&1 || \
-		sysctl security.mac.abac.mode=1 >/dev/null 2>&1 || true
+		sysctl security.mac.mac_abac.mode=1 >/dev/null 2>&1 || true
 	"$MAC_ABAC_CTL" rule clear >/dev/null 2>&1 || true
 	"$MAC_ABAC_CTL" default allow >/dev/null 2>&1 || true
 	rm -rf "$TEST_DIR" 2>/dev/null || true

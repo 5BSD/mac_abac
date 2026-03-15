@@ -53,7 +53,7 @@ get_extattr_name(void)
 		return (extattr_name);
 
 	len = sizeof(extattr_name);
-	if (sysctlbyname("security.mac.abac.extattr_name",
+	if (sysctlbyname("security.mac.mac_abac.extattr_name",
 	    extattr_name, &len, NULL, 0) < 0) {
 		/* Fall back to default if sysctl fails (module not loaded) */
 		strlcpy(extattr_name, "mac_abac", sizeof(extattr_name));
@@ -509,7 +509,7 @@ cmd_status(int argc __unused, char *argv[] __unused)
 
 	printf("\n");
 	printf("Note: Audit events are logged to kernel message buffer (dmesg)\n");
-	printf("at the configured log level. Use 'sysctl security.mac.abac'\n");
+	printf("at the configured log level. Use 'sysctl security.mac.mac_abac'\n");
 	printf("to view current settings.\n");
 
 	return (0);

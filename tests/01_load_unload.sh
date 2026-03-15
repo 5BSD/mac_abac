@@ -80,24 +80,24 @@ pass "Module appears in kldstat"
 
 # Test 3: Check sysctl tree exists
 info "Test 3: Checking sysctl tree..."
-if ! sysctl security.mac.abac >/dev/null 2>&1; then
+if ! sysctl security.mac.mac_abac >/dev/null 2>&1; then
     kldunload "$MODULE_NAME"
-    fail "sysctl tree security.mac.abac not found"
+    fail "sysctl tree security.mac.mac_abac not found"
 fi
 pass "sysctl tree created"
 
 # Test 4: Verify sysctl values
 info "Test 4: Verifying sysctl values..."
-ENABLED=$(sysctl -n security.mac.abac.enabled 2>/dev/null)
-MODE=$(sysctl -n security.mac.abac.mode 2>/dev/null)
+ENABLED=$(sysctl -n security.mac.mac_abac.enabled 2>/dev/null)
+MODE=$(sysctl -n security.mac.mac_abac.mode 2>/dev/null)
 
 if [ -z "$ENABLED" ]; then
     kldunload "$MODULE_NAME"
-    fail "Could not read security.mac.abac.enabled"
+    fail "Could not read security.mac.mac_abac.enabled"
 fi
 if [ -z "$MODE" ]; then
     kldunload "$MODULE_NAME"
-    fail "Could not read security.mac.abac.mode"
+    fail "Could not read security.mac.mac_abac.mode"
 fi
 
 info "  enabled=$ENABLED mode=$MODE"
@@ -106,11 +106,11 @@ pass "sysctl values readable"
 # Test 5: Try modifying sysctl
 info "Test 5: Testing sysctl write..."
 ORIG_ENABLED=$ENABLED
-if ! sysctl security.mac.abac.enabled=0 >/dev/null 2>&1; then
+if ! sysctl security.mac.mac_abac.enabled=0 >/dev/null 2>&1; then
     kldunload "$MODULE_NAME"
-    fail "Could not write to security.mac.abac.enabled"
+    fail "Could not write to security.mac.mac_abac.enabled"
 fi
-sysctl security.mac.abac.enabled=$ORIG_ENABLED >/dev/null 2>&1
+sysctl security.mac.mac_abac.enabled=$ORIG_ENABLED >/dev/null 2>&1
 pass "sysctl write works"
 
 # Test 6: Unload module
@@ -129,7 +129,7 @@ pass "Module no longer in kldstat"
 
 # Test 8: Verify sysctl tree is gone
 info "Test 8: Verifying sysctl tree removed..."
-if sysctl security.mac.abac >/dev/null 2>&1; then
+if sysctl security.mac.mac_abac >/dev/null 2>&1; then
     warn "sysctl tree still exists (may be normal)"
 fi
 pass "Cleanup verified"
